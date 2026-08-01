@@ -6074,6 +6074,197 @@ def api_public_summary(code):
 
 
 # ═══════════════════════════════════════════════════
+# Routes: Public Interactive Practice (P0)
+# ═══════════════════════════════════════════════════
+
+def _resolve_student_by_code(code):
+    """Resolve student_id from access_code. Returns (student_id, error_response)."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT id FROM students WHERE access_code = ? AND status = 'active'", [code]
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None, (jsonify({"error": "invalid or expired code"}), 404)
+    return row["id"], None
+
+
+@app.route('/api/public/<code>/practice', methods=['GET'])
+def api_public_practice(code):
+    """Get interactive practice questions for a student (public, no login)."""
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+
+    conn = get_connection()
+    # Get questions linked to this student's mistakes via source_mistake_id
+    rows = conn.execute("""
+        SELECT q.id, q.question_text, q.question_type, q.correct_answer,
+               q.explanation, q.knowledge_points, q.difficulty, q.source_mistake_id
+        FROM questions q
+        JOIN mistakes m ON m.id = q.source_mistake_id
+        WHERE m.student_id = ? AND q.enabled = 1 AND m.consecutive_correct < 2
+        ORDER BY q.created_at DESC
+        LIMIT 10
+    """, [student_id]).fetchall()
+    conn.close()
+
+    questions = []
+    for q in rows:
+        kp = q["knowledge_points"]
+        if isinstance(kp, str):
+            try:
+                kp = json.loads(kp)
+            except Exception:
+                kp = []
+        questions.append({
+            "id": q["id"],
+            "question_text": q["question_text"],
+            "question_type": q["question_type"] or "选择题",
+            "options": _extract_options(q["question_text"]),
+            "knowledge_points": kp if isinstance(kp, list) else [kp],
+            "difficulty": q["difficulty"],
+            "source_mistake_id": q["source_mistake_id"],
+        })
+
+    return jsonify({"questions": questions, "total": len(questions)})
+
+
+def _extract_options(question_text):
+    """Extract A/B/C/D options from question text if embedded."""
+    import re
+    options = re.findall(r'([A-D])\.\s*(.+?)(?=\s*[A-D]\.|$)', question_text)
+    if len(options) >= 3:
+        return [{"key": k, "text": v.strip()} for k, v in options]
+    return []
+
+
+@app.route('/api/public/<code>/practice/submit', methods=['POST'])
+def api_public_practice_submit(code):
+    """Submit a single answer, get instant feedback, update mastery."""
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+
+    data = request.get_json() or {}
+    question_id = data.get("question_id")
+    student_answer = data.get("answer", "").strip()
+
+    if not question_id or not student_answer:
+        return jsonify({"error": "question_id and answer required"}), 400
+
+    conn = get_connection()
+    q = conn.execute(
+        "SELECT * FROM questions WHERE id = ? AND enabled = 1", [question_id]
+    ).fetchone()
+    conn.close()
+
+    if not q:
+        return jsonify({"error": "question not found"}), 404
+
+    correct_answer = (q["correct_answer"] or "").strip()
+    is_correct = student_answer.upper() == correct_answer.upper()
+
+    # Update mastery via record_practice
+    source_mistake_id = q["source_mistake_id"]
+    if source_mistake_id:
+        record_practice(
+            mistake_id=source_mistake_id,
+            user_answer=student_answer,
+            is_correct=is_correct,
+            feedback=q["explanation"] or "",
+        )
+
+    return jsonify({
+        "is_correct": is_correct,
+        "correct_answer": correct_answer,
+        "explanation": q["explanation"] or "",
+        "knowledge_points": json.loads(q["knowledge_points"]) if isinstance(q["knowledge_points"], str) else q["knowledge_points"],
+    })
+
+
+# ═══════════════════════════════════════════════════
+# Routes: Public Parent Upload (P0)
+# ═══════════════════════════════════════════════════
+
+@app.route('/api/public/<code>/upload', methods=['POST'])
+def api_public_upload(code):
+    """Parent uploads test paper photo from public page. Auto-triggers pipeline."""
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+
+    if 'file' not in request.files:
+        return jsonify({"error": "no file uploaded"}), 400
+
+    files = request.files.getlist('file')
+    if not files:
+        return jsonify({"error": "no file uploaded"}), 400
+
+    # Save files
+    import uuid as _uuid
+    week_start = get_week_start()
+    file_ids = []
+    for f in files:
+        if not f or not f.filename:
+            continue
+        ext = os.path.splitext(f.filename)[1] or '.jpg'
+        filename = f"{_uuid.uuid4().hex}{ext}"
+        save_dir = os.path.join(UPLOAD_DIR, str(student_id), "test_paper")
+        os.makedirs(save_dir, exist_ok=True)
+        f.save(os.path.join(save_dir, filename))
+        fid = add_file(
+            student_id=student_id,
+            uploader_role="parent",
+            file_type="test_paper",
+            filename=filename,
+            original_filename=f.filename,
+            week_start=week_start,
+            file_size=os.path.getsize(os.path.join(save_dir, filename)),
+            mime_type=f.content_type or "image/jpeg",
+        )
+        file_ids.append(fid)
+
+    if not file_ids:
+        return jsonify({"error": "no valid files"}), 400
+
+    # Auto-trigger pipeline: grade_only (no quota check for parent upload — subscription still required)
+    sub = get_subscription(student_id)
+    if not sub or sub.get("status") != "active":
+        return jsonify({"error": "订阅已过期，请联系老师续费"}), 429
+
+    task_id = create_task(
+        student_id=student_id,
+        task_type="weekly",
+        input_data={"file_ids": file_ids, "stage": "grade_only"},
+    )
+    enqueue_task(task_id)
+
+    return jsonify({"task_id": task_id, "file_ids": file_ids, "message": "试卷已上传，AI正在分析中"}), 202
+
+
+@app.route('/api/public/<code>/task/<int:task_id>', methods=['GET'])
+def api_public_task_status(code, task_id):
+    """Public task progress polling (validated by access_code)."""
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+
+    task = get_task(task_id)
+    if not task or task["student_id"] != student_id:
+        return jsonify({"error": "task not found"}), 404
+
+    return jsonify({
+        "id": task["id"],
+        "status": task["status"],
+        "current_step": task.get("current_step", ""),
+        "progress": task.get("progress", 0),
+        "error_message": task.get("error_message"),
+        "output_data": json.loads(task["output_data"]) if task.get("output_data") else None,
+    })
+
+
+# ═══════════════════════════════════════════════════
 # Routes: Referral / Viral Growth
 # ═══════════════════════════════════════════════════
 
@@ -7505,6 +7696,19 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
   <button class="btn btn-green" onclick="generatePoster()">📸 生成海报</button>
 </div>
 
+<!-- Parent Upload Card -->
+<div class="card" id="upload-card" style="margin-bottom:16px;border:2px dashed var(--border);text-align:center;cursor:pointer;transition:all .2s;" onclick="document.getElementById('parentFileInput').click()">
+  <div style="font-size:2.5em;margin-bottom:8px;">📷</div>
+  <div style="font-weight:700;margin-bottom:4px;">拍照上传试卷</div>
+  <div style="font-size:.8em;color:var(--sub);">拍一张孩子的英语试卷，AI自动分析错题</div>
+  <div id="upload-progress" style="display:none;margin-top:12px;">
+    <div class="progress-bar"><div class="fill" id="upload-fill" style="width:0%"></div></div>
+    <div style="font-size:.8em;color:var(--sub);margin-top:4px;" id="upload-status">上传中...</div>
+  </div>
+  <div id="upload-result" style="display:none;margin-top:12px;font-size:.85em;color:var(--green);font-weight:600;"></div>
+  <input type="file" id="parentFileInput" accept="image/*" capture="environment" multiple style="display:none;" onchange="handleParentUpload(this)">
+</div>
+
 <!-- Invite Modal -->
 <div class="modal-overlay" id="invite-modal">
   <div class="modal" style="max-width:360px;">
@@ -7538,7 +7742,8 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 </div>
 
 <div class="tabs">
-  <button class="tab active" onclick="switchTab('reports')">报告</button>
+  <button class="tab active" onclick="switchTab('practice')">练习</button>
+  <button class="tab" onclick="switchTab('reports')">报告</button>
   <button class="tab" onclick="switchTab('timeline')">时间轴</button>
   <button class="tab" onclick="switchTab('mistakes')">成长记录</button>
   <button class="tab" onclick="switchTab('achievements')">成就墙</button>
@@ -7547,7 +7752,8 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
   <button class="tab" onclick="switchTab('progress')">进度</button>
 </div>
 
-<div id="page-reports" class="page active"></div>
+<div id="page-practice" class="page active"></div>
+<div id="page-reports" class="page"></div>
 <div id="page-timeline" class="page"></div>
 <div id="page-mistakes" class="page"></div>
 <div id="page-achievements" class="page"></div>
@@ -7634,6 +7840,7 @@ async function loadData() {
     document.getElementById('sum-achievements').textContent = (data.earned_count || 0);
   }).catch(()=>{});
 
+  renderPractice();
   renderReports(d);
   renderTimeline();
   renderMistakes(d);
@@ -7677,6 +7884,200 @@ async function generatePoster() {
   document.getElementById('poster-modal').classList.add('show');
 }
 function closePosterModal() { document.getElementById('poster-modal').classList.remove('show'); }
+
+// ═══ Interactive Practice (P0) ═══
+let practiceQuestions = [];
+let practiceIndex = 0;
+let practiceCorrect = 0;
+
+async function renderPractice() {
+  const div = document.getElementById('page-practice');
+  div.innerHTML = '<div class="card"><div class="empty">加载练习题中...</div></div>';
+  try {
+    const r = await fetch('/api/public/' + CODE + '/practice');
+    const data = await r.json();
+    practiceQuestions = data.questions || [];
+    practiceIndex = 0;
+    practiceCorrect = 0;
+    if (practiceQuestions.length === 0) {
+      div.innerHTML = `<div class="card"><div class="empty">
+        <div style="font-size:2em;margin-bottom:8px;">🎉</div>
+        <p>暂无待练习题</p>
+        <p class="meta" style="margin-top:4px;">上传试卷后，AI会自动生成针对你薄弱点的专属练习</p>
+      </div></div>`;
+      return;
+    }
+    renderPracticeQuestion();
+  } catch(e) {
+    div.innerHTML = '<div class="card"><div class="empty">加载失败，请刷新重试</div></div>';
+  }
+}
+
+function renderPracticeQuestion() {
+  const div = document.getElementById('page-practice');
+  if (practiceIndex >= practiceQuestions.length) {
+    div.innerHTML = `<div class="card" style="text-align:center;padding:32px;">
+      <div style="font-size:2.5em;margin-bottom:12px;">${practiceCorrect >= practiceQuestions.length/2 ? '🌟' : '💪'}</div>
+      <h3>本轮练习完成！</h3>
+      <p style="margin:12px 0;font-size:1.1em;font-weight:700;color:var(--accent);">${practiceCorrect} / ${practiceQuestions.length} 正确</p>
+      <p class="meta">${practiceCorrect >= practiceQuestions.length/2 ? '太棒了，继续保持！' : '没关系，错题已加入复习计划，下次会更好'}</p>
+      <button class="btn btn-primary" style="margin-top:16px;" onclick="renderPractice()">再来一轮</button>
+    </div>`;
+    return;
+  }
+  const q = practiceQuestions[practiceIndex];
+  const kpTag = (q.knowledge_points||[]).map(k=>`<span class="badge badge-blue" style="margin-right:4px;">${k}</span>`).join('');
+  const optionsHtml = q.options.length > 0
+    ? q.options.map(o=>`
+      <label class="practice-opt" data-key="${o.key}" onclick="selectOption(this,'${o.key}')" style="display:block;padding:12px 16px;margin:6px 0;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s;font-size:.9em;">
+        <strong>${o.key}.</strong> ${o.text}
+      </label>`).join('')
+    : `<input type="text" id="practice-text-answer" placeholder="输入你的答案" style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:.9em;margin:8px 0;">`;
+
+  div.innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <span class="badge badge-green">第 ${practiceIndex+1}/${practiceQuestions.length} 题</span>
+        <span style="font-size:.75em;color:var(--sub);">${q.question_type}</span>
+      </div>
+      <div style="margin-bottom:8px;">${kpTag}</div>
+      <div style="font-weight:600;margin-bottom:14px;line-height:1.7;white-space:pre-wrap;">${q.question_text.replace(/[A-D]\.\s*.+?(?=\s*[A-D]\.|$)/g,'').trim()}</div>
+      <div id="practice-options">${optionsHtml}</div>
+      <button class="btn btn-primary" style="width:100%;margin-top:14px;" id="practice-submit-btn" onclick="submitPracticeAnswer()" disabled>提交答案</button>
+      <div id="practice-feedback" style="display:none;margin-top:14px;"></div>
+    </div>`;
+}
+
+let selectedAnswer = '';
+function selectOption(el, key) {
+  if (document.getElementById('practice-feedback').style.display !== 'none') return;
+  document.querySelectorAll('.practice-opt').forEach(o=>{o.style.borderColor='var(--border)';o.style.background='';});
+  el.style.borderColor = 'var(--accent)';
+  el.style.background = 'var(--accent-light)';
+  selectedAnswer = key;
+  document.getElementById('practice-submit-btn').disabled = false;
+}
+
+async function submitPracticeAnswer() {
+  const q = practiceQuestions[practiceIndex];
+  const textInput = document.getElementById('practice-text-answer');
+  const answer = selectedAnswer || (textInput ? textInput.value.trim() : '');
+  if (!answer) return;
+
+  document.getElementById('practice-submit-btn').disabled = true;
+  document.getElementById('practice-submit-btn').textContent = '批改中...';
+
+  try {
+    const r = await fetch('/api/public/' + CODE + '/practice/submit', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question_id: q.id, answer: answer}),
+    });
+    const fb = await r.json();
+    const fbDiv = document.getElementById('practice-feedback');
+    fbDiv.style.display = 'block';
+
+    if (fb.is_correct) {
+      practiceCorrect++;
+      fbDiv.innerHTML = `<div style="padding:14px;background:var(--green-light);border-radius:8px;border-left:4px solid var(--green);">
+        <div style="font-weight:700;color:var(--green);margin-bottom:4px;">✅ 正确！</div>
+        <div style="font-size:.85em;color:var(--sub);">${fb.explanation||''}</div>
+      </div>`;
+      // Highlight correct option
+      document.querySelectorAll('.practice-opt').forEach(o=>{
+        if(o.dataset.key===fb.correct_answer){o.style.borderColor='var(--green)';o.style.background='var(--green-light)';}
+      });
+    } else {
+      fbDiv.innerHTML = `<div style="padding:14px;background:var(--red-light);border-radius:8px;border-left:4px solid var(--red);">
+        <div style="font-weight:700;color:var(--red);margin-bottom:4px;">❌ 不对哦</div>
+        <div style="font-size:.85em;margin-bottom:4px;"><strong>正确答案：${fb.correct_answer}</strong></div>
+        <div style="font-size:.85em;color:var(--sub);">${fb.explanation||''}</div>
+      </div>`;
+      document.querySelectorAll('.practice-opt').forEach(o=>{
+        if(o.dataset.key===answer){o.style.borderColor='var(--red)';o.style.background='var(--red-light)';}
+        if(o.dataset.key===fb.correct_answer){o.style.borderColor='var(--green)';o.style.background='var(--green-light)';}
+      });
+    }
+
+    document.getElementById('practice-submit-btn').textContent = '下一题 →';
+    document.getElementById('practice-submit-btn').disabled = false;
+    document.getElementById('practice-submit-btn').onclick = ()=>{ practiceIndex++; selectedAnswer=''; renderPracticeQuestion(); };
+  } catch(e) {
+    toast('提交失败，请重试');
+    document.getElementById('practice-submit-btn').disabled = false;
+    document.getElementById('practice-submit-btn').textContent = '提交答案';
+  }
+}
+
+// ═══ Parent Upload (P0) ═══
+async function handleParentUpload(input) {
+  const files = input.files;
+  if (!files || files.length === 0) return;
+
+  const progressDiv = document.getElementById('upload-progress');
+  const resultDiv = document.getElementById('upload-result');
+  const fillBar = document.getElementById('upload-fill');
+  const statusText = document.getElementById('upload-status');
+  progressDiv.style.display = 'block';
+  resultDiv.style.display = 'none';
+  fillBar.style.width = '30%';
+  statusText.textContent = '上传中...';
+
+  const formData = new FormData();
+  for (let i = 0; i < files.length; i++) formData.append('file', files[i]);
+
+  try {
+    const r = await fetch('/api/public/' + CODE + '/upload', {method:'POST', body:formData});
+    const data = await r.json();
+    if (!r.ok) {
+      statusText.textContent = data.error || '上传失败';
+      fillBar.style.width = '0%';
+      fillBar.style.background = 'var(--red)';
+      return;
+    }
+    fillBar.style.width = '60%';
+    statusText.textContent = 'AI正在分析错题...';
+    pollTaskProgress(data.task_id);
+  } catch(e) {
+    statusText.textContent = '网络错误，请重试';
+    fillBar.style.width = '0%';
+  }
+  input.value = '';
+}
+
+async function pollTaskProgress(taskId) {
+  const fillBar = document.getElementById('upload-fill');
+  const statusText = document.getElementById('upload-status');
+  const resultDiv = document.getElementById('upload-result');
+  let attempts = 0;
+  const poll = async () => {
+    attempts++;
+    try {
+      const r = await fetch('/api/public/' + CODE + '/task/' + taskId);
+      const t = await r.json();
+      if (t.status === 'done') {
+        fillBar.style.width = '100%';
+        statusText.textContent = '分析完成！';
+        resultDiv.style.display = 'block';
+        const out = t.output_data || {};
+        resultDiv.textContent = `✅ 已识别 ${out.mistakes_count||0} 道错题，去「练习」tab 查看专属练习题`;
+        renderPractice();
+        return;
+      } else if (t.status === 'failed') {
+        statusText.textContent = '分析失败：' + (t.error_message||'未知错误').slice(0,60);
+        fillBar.style.background = 'var(--red)';
+        return;
+      } else {
+        fillBar.style.width = Math.min(60 + (t.progress||0)*0.35, 95) + '%';
+        statusText.textContent = t.current_step || 'AI正在分析...';
+        if (attempts < 60) setTimeout(poll, 3000);
+      }
+    } catch(e) {
+      if (attempts < 60) setTimeout(poll, 5000);
+    }
+  };
+  setTimeout(poll, 2000);
+}
 
 function renderReports(d) {
   const div = document.getElementById('page-reports');
