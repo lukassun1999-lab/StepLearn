@@ -8106,50 +8106,80 @@ function renderReports(d) {
 
 function renderMistakes(d) {
   const div = document.getElementById('page-mistakes');
-  if (!d.mistakes || d.mistakes.length === 0) {
-    div.innerHTML = '<div class="card"><div class="empty">🎉 暂无待攻克错题，继续保持！</div></div>';
+  const total = (d.mistakes_count || 0) + (d.mastered_count || 0);
+  const mastered = d.mastered_count || 0;
+  const remaining = d.mistakes_count || 0;
+
+  if (total === 0) {
+    div.innerHTML = '<div class="card"><div class="empty">🎉 暂无错题记录，上传试卷后自动生成</div></div>';
     return;
   }
-  // Build a map of due review mistake IDs for quick lookup
-  const dueIds = new Set((d.due_reviews || []).map(r => r.id));
+
+  // Group mistakes by knowledge point
+  const groups = {};
+  (d.mistakes || []).forEach(m => {
+    const kps = (m.knowledge_points || []);
+    const kp = kps.length > 0 ? kps[0] : '其他';
+    if (!groups[kp]) groups[kp] = [];
+    groups[kp].push(m);
+  });
+
+  // Status helper
   const stageLabels = ['1小时', '1天', '2天', '4天', '7天', '15天', '30天', '60天'];
-  div.innerHTML = `
-    <div class="card">
-      <h3>📝 待攻克错题 (${d.mistakes_count})</h3>
-      <p class="meta" style="margin-bottom:12px;">基于艾宾浩斯遗忘曲线，系统会自动提醒复习时间。点击「已掌握」标记完成。</p>
-      ${d.mistakes.map(m=>{
-        const isDue = dueIds.has(m.id);
-        const stage = m.review_stage || 0;
-        const stageLabel = stageLabels[stage] || '';
-        const nextReview = m.next_review_at ? new Date(m.next_review_at.replace(' ','T')+'Z') : null;
-        const isOverdue = nextReview && nextReview < new Date();
-        let reviewBadge = '';
-        if (isDue || isOverdue) {
-          reviewBadge = '<span class="badge" style="background:#ffe0e0;color:var(--red);margin-left:8px;">🔔 待复习</span>';
-        } else if (nextReview) {
-          const daysLeft = Math.ceil((nextReview - new Date()) / 86400000);
-          reviewBadge = `<span class="badge badge-blue" style="margin-left:8px;">📅 ${daysLeft}天后复习</span>`;
-        }
-        return `
-        <div class="mistake-item" data-id="${m.id}" style="${isDue ? 'border-left:3px solid var(--red);padding-left:9px;' : ''}">
-          <div class="mistake-q">
-            ${m.question || '（题目内容未记录）'}
-            ${reviewBadge}
-          </div>
-          <div class="mistake-ans"><strong>正确答案：</strong>${m.correct_answer || '-'}</div>
-          <div class="mistake-ans"><strong>解析：</strong>${m.explanation || '暂无'}</div>
-          <div style="margin-top:6px;">
-            ${(m.knowledge_points||[]).map(kp=>`<span class="badge badge-blue" style="margin-right:4px;">${kp}</span>`).join('')}
-            <span class="badge" style="background:#f0f0f0;color:var(--sub);margin-right:4px;">复习${m.review_count||0}次</span>
-            <span class="badge" style="background:#f0f0f0;color:var(--sub);">第${stage}阶·${stageLabel}</span>
-          </div>
-          <button class="btn btn-green" style="margin-top:8px;font-size:.8em;" onclick="masterMistake(${m.id})">✅ 我已掌握</button>
-          <button class="btn btn-outline" style="margin-top:8px;margin-left:6px;font-size:.8em;" onclick="genSimilar(${m.id}, this)">🔍 生成类似题</button>
-          <div class="similar-questions" id="similar-${m.id}" style="margin-top:8px;display:none;"></div>
+  function mistakeStatus(m) {
+    const cc = m.consecutive_correct || 0;
+    const stage = m.review_stage || 0;
+    if (cc >= 2) return {icon: '🟢', label: '已掌握', color: 'var(--green)', bg: 'var(--green-light)'};
+    if (stage >= 3) return {icon: '🟡', label: '在进步', color: 'var(--accent)', bg: 'var(--accent-light)'};
+    return {icon: '🔴', label: '未攻克', color: 'var(--red)', bg: 'var(--red-light)'};
+  }
+
+  // Build grouped HTML
+  let groupsHtml = '';
+  for (const [kp, mistakes] of Object.entries(groups)) {
+    const items = mistakes.map(m => {
+      const st = mistakeStatus(m);
+      const dueIds = new Set((d.due_reviews || []).map(r => r.id));
+      const isDue = dueIds.has(m.id);
+      return `
+      <div class="mistake-item" style="border-left:3px solid ${st.color};padding-left:10px;margin:8px 0;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+          <span>${st.icon}</span>
+          <span class="badge" style="background:${st.bg};color:${st.color};">${st.label}</span>
+          ${isDue ? '<span class="badge" style="background:#ffe0e0;color:var(--red);">🔔 待复习</span>' : ''}
         </div>
-      `}).join('')}
+        <div class="mistake-q" style="font-size:.85em;">${(m.question || '（题目未记录）').slice(0, 120)}</div>
+        <div class="mistake-ans" style="font-size:.8em;"><strong>答案：</strong>${m.correct_answer || '-'}</div>
+        <button class="btn btn-green" style="margin-top:6px;font-size:.75em;padding:3px 10px;" onclick="masterMistake(${m.id})">✅ 已掌握</button>
+        <button class="btn btn-outline" style="margin-top:6px;margin-left:4px;font-size:.75em;padding:3px 10px;" onclick="genSimilar(${m.id}, this)">🔍 类似题</button>
+        <div class="similar-questions" id="similar-${m.id}" style="margin-top:6px;display:none;"></div>
+      </div>`;
+    }).join('');
+    groupsHtml += `
+      <div class="card" style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <h3 style="font-size:.95em;margin:0;">${kp}</h3>
+          <span class="badge badge-blue">${mistakes.length} 道</span>
+        </div>
+        ${items}
+      </div>`;
+  }
+
+  // Progress bar (thinning visual)
+  const pct = total > 0 ? Math.round(mastered / total * 100) : 0;
+
+  div.innerHTML = `
+    <div class="card" style="text-align:center;margin-bottom:14px;padding:20px;">
+      <div style="font-size:1.1em;font-weight:700;margin-bottom:8px;">
+        你已攻克 <span style="color:var(--green);">${mastered}</span> 道错题，还剩 <span style="color:var(--accent);">${remaining}</span> 道在路上
+      </div>
+      <div class="progress-bar" style="height:12px;margin:10px 0;">
+        <div class="fill" style="width:${pct}%;background:linear-gradient(90deg,var(--green),var(--accent));border-radius:100px;"></div>
+      </div>
+      <div style="font-size:.8em;color:var(--sub);">错题本完成度 ${pct}% · 越薄越厉害</div>
     </div>
-    <div style="margin-top:16px;text-align:center;">
+    ${groupsHtml}
+    <div style="margin-top:12px;text-align:center;">
       <button class="btn btn-primary" onclick="batchGenSimilar()" style="font-size:.85em;">⚡ 一键生成全部类似题</button>
     </div>
   `;
