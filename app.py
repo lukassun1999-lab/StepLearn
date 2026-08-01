@@ -6245,7 +6245,9 @@ def api_public_upload(code):
 
 @app.route('/api/public/<code>/task/<int:task_id>', methods=['GET'])
 def api_public_task_status(code, task_id):
-    """Public task progress polling (validated by access_code)."""
+    """Public task progress polling (validated by access_code).
+    If grade_only is done but a chained analysis_only is still running,
+    report overall status as processing."""
     student_id, err = _resolve_student_by_code(code)
     if err:
         return err
@@ -6254,13 +6256,48 @@ def api_public_task_status(code, task_id):
     if not task or task["student_id"] != student_id:
         return jsonify({"error": "task not found"}), 404
 
+    status = task["status"]
+    current_step = task.get("current_step", "")
+    progress = task.get("progress", 0)
+    output = json.loads(task["output_data"]) if task.get("output_data") else None
+
+    # If grade_only is done, check for chained analysis_only task
+    if status == "done":
+        input_data = task.get("input_data") or "{}"
+        if isinstance(input_data, str):
+            try:
+                input_data = json.loads(input_data)
+            except Exception:
+                input_data = {}
+        if input_data.get("stage") == "grade_only":
+            conn = get_connection()
+            chained = conn.execute("""
+                SELECT id, status, current_step, progress, output_data
+                FROM ai_tasks
+                WHERE student_id = ? AND task_type = 'weekly' AND id > ?
+                  AND input_data LIKE '%analysis_only%'
+                ORDER BY id DESC LIMIT 1
+            """, [student_id, task_id]).fetchone()
+            conn.close()
+            if chained:
+                if chained["status"] in ("pending", "processing"):
+                    status = "processing"
+                    current_step = chained["current_step"] or "生成练习题和报告..."
+                    progress = 50 + (chained["progress"] or 0) // 2
+                elif chained["status"] == "done":
+                    chained_out = json.loads(chained["output_data"]) if chained["output_data"] else {}
+                    if output:
+                        output["questions_count"] = chained_out.get("questions_count", 0)
+                        output["exercise_file_id"] = chained_out.get("exercise_file_id")
+                        output["report_file_id"] = chained_out.get("report_file_id")
+
     return jsonify({
         "id": task["id"],
-        "status": task["status"],
-        "current_step": task.get("current_step", ""),
-        "progress": task.get("progress", 0),
+        "status": status,
+        "current_step": current_step,
+        "progress": progress,
         "error_message": task.get("error_message"),
-        "output_data": json.loads(task["output_data"]) if task.get("output_data") else None,
+        "output_data": output,
     })
 
 
@@ -8060,7 +8097,10 @@ async function pollTaskProgress(taskId) {
         statusText.textContent = '分析完成！';
         resultDiv.style.display = 'block';
         const out = t.output_data || {};
-        resultDiv.textContent = `✅ 已识别 ${out.mistakes_count||0} 道错题，去「练习」tab 查看专属练习题`;
+        const qCount = out.questions_count || 0;
+        resultDiv.textContent = qCount > 0
+          ? `✅ 已识别 ${out.mistakes_count||0} 道错题，生成 ${qCount} 道专属练习题，去「练习」tab 开始吧！`
+          : `✅ 已识别 ${out.mistakes_count||0} 道错题，练习题生成中，稍后刷新「练习」tab`;
         renderPractice();
         return;
       } else if (t.status === 'failed') {
