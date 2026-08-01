@@ -7674,7 +7674,7 @@ STUDENT_PAGE = r'''<!DOCTYPE html>
 <style>
 :root {
   --bg: #f8f7f4; --bg-alt: #f1f0ec; --card: #fff;
-  --text: #1a1a1a; --text-alt: #37352f; --sub: #6b6b6b; --mute: #9b9b9b;
+  --text: #1a1a1a; --text-alt: #33312c; --sub: #5a5a56; --mute: #8a8884;
   --accent: #e07b4b; --accent-hover: #d06a3a; --accent-light: #fef3ed;
   --green: #0f7b4e; --green-light: #effaf3;
   --blue: #4b8dc7; --blue-light: #eef5fb;
@@ -7682,54 +7682,54 @@ STUDENT_PAGE = r'''<!DOCTYPE html>
   --border: #e8e6e1; --shadow-sm: 0 1px 2px rgba(0,0,0,.03);
   --shadow: 0 1px 3px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.02);
   --shadow-lg: 0 4px 24px rgba(0,0,0,.08);
-  --radius: 8px;
+  --radius: 10px;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text-alt); line-height:1.6; padding:16px; max-width:700px; margin:0 auto; font-size:.875rem; }
-.header { text-align:center; padding:24px 0 16px; border-bottom:2px solid var(--accent); margin-bottom:16px; }
-.header h1 { font-size:1.3rem; color:var(--accent); font-weight:700; }
-.header .sub { color:var(--sub); font-size:.85rem; margin-top:4px; }
-.summary { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
-.sum-item { background:var(--card); border:none; border-radius:10px; padding:14px 12px; text-align:center; box-shadow:var(--shadow); }
-.sum-item .num { font-size:1.3rem; font-weight:700; color:var(--accent); }
-.sum-item .label { font-size:.7rem; color:var(--sub); }
-.tabs { display:flex; gap:4px; margin-bottom:16px; background:var(--card); padding:6px; border-radius:10px; box-shadow:var(--shadow); overflow-x:auto; -webkit-overflow-scrolling:touch; }
-.tab { flex:1; padding:10px 8px; border:none; background:none; border-radius:6px; font-size:.8rem; font-weight:600; color:var(--sub); cursor:pointer; white-space:nowrap; transition:all .15s; border-bottom:2px solid transparent; }
+body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text-alt); line-height:1.7; padding:16px; max-width:700px; margin:0 auto; font-size:1rem; }
+.header { text-align:center; padding:28px 0 18px; border-bottom:2px solid var(--accent); margin-bottom:18px; }
+.header h1 { font-size:1.55rem; color:var(--accent); font-weight:800; letter-spacing:.01em; }
+.header .sub { color:var(--sub); font-size:.95rem; margin-top:6px; }
+.summary { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:18px; }
+.sum-item { background:var(--card); border:none; border-radius:12px; padding:16px 12px; text-align:center; box-shadow:var(--shadow); }
+.sum-item .num { font-size:1.65rem; font-weight:800; color:var(--accent); }
+.sum-item .label { font-size:.8rem; color:var(--sub); margin-top:2px; }
+.tabs { display:flex; gap:4px; margin-bottom:18px; background:var(--card); padding:6px; border-radius:12px; box-shadow:var(--shadow); overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.tab { flex:1; padding:12px 10px; border:none; background:none; border-radius:8px; font-size:.92rem; font-weight:600; color:var(--sub); cursor:pointer; white-space:nowrap; transition:all .15s; border-bottom:2px solid transparent; }
 .tab:hover { background:var(--bg-alt); color:var(--text); }
 .tab.active { background:var(--accent-light); color:var(--accent); border-bottom-color:var(--accent); }
 .page { display:none; }
 .page.active { display:block; }
-.card { background:var(--card); border:none; border-radius:10px; padding:20px; margin-bottom:12px; box-shadow:var(--shadow); }
-.card h3 { font-size:1rem; margin-bottom:10px; font-weight:600; color:var(--text); }
-.card .meta { color:var(--sub); font-size:.8rem; }
-.btn { display:inline-block; padding:8px 16px; border:none; border-radius:var(--radius); cursor:pointer; font-size:.85rem; font-weight:600; text-decoration:none; transition:all .15s; min-height:36px; }
+.card { background:var(--card); border:none; border-radius:12px; padding:22px; margin-bottom:14px; box-shadow:var(--shadow); }
+.card h3 { font-size:1.12rem; margin-bottom:12px; font-weight:700; color:var(--text); }
+.card .meta { color:var(--sub); font-size:.88rem; }
+.btn { display:inline-block; padding:10px 20px; border:none; border-radius:var(--radius); cursor:pointer; font-size:.95rem; font-weight:600; text-decoration:none; transition:all .15s; min-height:44px; }
 .btn:hover { transform:translateY(-1px); box-shadow:var(--shadow); }
 .btn-primary { background:var(--accent); color:#fff; }
 .btn-primary:hover { background:var(--accent-hover); }
 .btn-green { background:var(--green); color:#fff; }
 .btn-outline { background:var(--card); border:1px solid var(--border); color:var(--text); }
 .btn-outline:hover { background:var(--bg-alt); }
-.badge { display:inline-block; padding:3px 10px; border-radius:100px; font-size:.7rem; font-weight:600; }
+.badge { display:inline-block; padding:4px 12px; border-radius:100px; font-size:.8rem; font-weight:600; }
 .badge-green { background:var(--green-light); color:var(--green); }
 .badge-red { background:var(--red-light); color:var(--red); }
 .badge-blue { background:var(--blue-light); color:var(--blue); }
-.empty { text-align:center; color:var(--sub); padding:40px 0; font-size:.85rem; }
-.mistake-item { border-bottom:1px solid var(--border); padding:12px 0; }
+.empty { text-align:center; color:var(--sub); padding:44px 0; font-size:.95rem; }
+.mistake-item { border-bottom:1px solid var(--border); padding:14px 0; }
 .mistake-item:last-child { border-bottom:none; }
-.mistake-q { font-weight:600; margin-bottom:6px; color:var(--text); }
-.mistake-ans { font-size:.85rem; color:var(--sub); margin-bottom:4px; }
+.mistake-q { font-weight:600; margin-bottom:8px; color:var(--text); font-size:1rem; line-height:1.6; }
+.mistake-ans { font-size:.92rem; color:var(--sub); margin-bottom:6px; line-height:1.6; }
 .calendar { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
-.cal-day { aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:6px; font-size:.75rem; background:var(--card); border:none; box-shadow:var(--shadow-sm); color:var(--sub); }
-.cal-day.checked { background:var(--green-light); color:var(--green); font-weight:600; }
+.cal-day { aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:8px; font-size:.85rem; background:var(--card); border:none; box-shadow:var(--shadow-sm); color:var(--sub); }
+.cal-day.checked { background:var(--green-light); color:var(--green); font-weight:700; }
 .cal-day.today { box-shadow:0 0 0 2px var(--accent); }
-.week-row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border); font-size:.8rem; }
+.week-row { display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); font-size:.92rem; }
 .week-row:last-child { border-bottom:none; }
-.footer { text-align:center; color:var(--mute); font-size:.75rem; margin-top:32px; padding-top:16px; border-top:1px solid var(--border); }
-.progress-bar { width:100%; height:8px; background:var(--border); border-radius:100px; overflow:hidden; margin:8px 0; }
+.footer { text-align:center; color:var(--mute); font-size:.85rem; margin-top:36px; padding-top:18px; border-top:1px solid var(--border); }
+.progress-bar { width:100%; height:10px; background:var(--border); border-radius:100px; overflow:hidden; margin:10px 0; }
 .progress-bar .fill { height:100%; background:var(--accent); border-radius:100px; }
-.kp-item { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); }
+.kp-item { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); font-size:.95rem; }
 .kp-item:last-child { border-bottom:none; }
-.toast { position:fixed; top:20px; left:50%; transform:translateX(-50%); padding:10px 20px; border-radius:var(--radius); color:#fff; font-size:.85rem; z-index:200; box-shadow:var(--shadow-lg); }
+.toast { position:fixed; top:20px; left:50%; transform:translateX(-50%); padding:12px 24px; border-radius:var(--radius); color:#fff; font-size:.95rem; z-index:200; box-shadow:var(--shadow-lg); }
 .toast-success { background:var(--green); }
 /* Achievement Wall */
 .ach-card { border-radius:10px; padding:12px 10px; text-align:center; transition:transform .2s; }
@@ -7794,15 +7794,15 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 </div>
 
 <!-- Parent Upload Card -->
-<div class="card" id="upload-card" style="margin-bottom:16px;border:2px dashed var(--border);text-align:center;cursor:pointer;transition:all .2s;" onclick="document.getElementById('parentFileInput').click()">
-  <div style="font-size:2.5em;margin-bottom:8px;">📷</div>
-  <div style="font-weight:700;margin-bottom:4px;">拍照上传试卷</div>
-  <div style="font-size:.8em;color:var(--sub);">拍一张孩子的英语试卷，AI自动分析错题</div>
-  <div id="upload-progress" style="display:none;margin-top:12px;">
+<div class="card" id="upload-card" style="margin-bottom:18px;border:2px dashed var(--border);text-align:center;cursor:pointer;transition:all .2s;" onclick="document.getElementById('parentFileInput').click()">
+  <div style="font-size:3em;margin-bottom:10px;">📷</div>
+  <div style="font-weight:800;font-size:1.15rem;margin-bottom:6px;">拍照上传试卷</div>
+  <div style="font-size:.92rem;color:var(--sub);">拍一张孩子的英语试卷，AI自动分析错题</div>
+  <div id="upload-progress" style="display:none;margin-top:14px;">
     <div class="progress-bar"><div class="fill" id="upload-fill" style="width:0%"></div></div>
-    <div style="font-size:.8em;color:var(--sub);margin-top:4px;" id="upload-status">上传中...</div>
+    <div style="font-size:.9rem;color:var(--sub);margin-top:6px;" id="upload-status">上传中...</div>
   </div>
-  <div id="upload-result" style="display:none;margin-top:12px;font-size:.85em;color:var(--green);font-weight:600;"></div>
+  <div id="upload-result" style="display:none;margin-top:14px;font-size:.95rem;color:var(--green);font-weight:700;line-height:1.6;"></div>
   <input type="file" id="parentFileInput" accept="image/*" capture="environment" multiple style="display:none;" onchange="handleParentUpload(this)">
 </div>
 
@@ -8031,22 +8031,22 @@ function renderPracticeQuestion() {
   const kpTag = (q.knowledge_points||[]).map(k=>`<span class="badge badge-blue" style="margin-right:4px;">${k}</span>`).join('');
   const optionsHtml = q.options.length > 0
     ? q.options.map(o=>`
-      <label class="practice-opt" data-key="${o.key}" onclick="selectOption(this,'${o.key}')" style="display:block;padding:12px 16px;margin:6px 0;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s;font-size:.9em;">
+      <label class="practice-opt" data-key="${o.key}" onclick="selectOption(this,'${o.key}')" style="display:block;padding:14px 18px;margin:8px 0;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;transition:all .15s;font-size:1rem;line-height:1.6;">
         <strong>${o.key}.</strong> ${o.text}
       </label>`).join('')
-    : `<input type="text" id="practice-text-answer" placeholder="输入你的答案" style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:.9em;margin:8px 0;">`;
+    : `<input type="text" id="practice-text-answer" placeholder="输入你的答案" style="width:100%;padding:12px 16px;border:1.5px solid var(--border);border-radius:10px;font-size:1rem;margin:10px 0;">`;
 
   div.innerHTML = `
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
         <span class="badge badge-green">第 ${practiceIndex+1}/${practiceQuestions.length} 题</span>
-        <span style="font-size:.75em;color:var(--sub);">${q.question_type}</span>
+        <span style="font-size:.85em;color:var(--sub);">${q.question_type}</span>
       </div>
-      <div style="margin-bottom:8px;">${kpTag}</div>
-      <div style="font-weight:600;margin-bottom:14px;line-height:1.7;white-space:pre-wrap;">${q.question_text.replace(/[A-D]\.\s*.+?(?=\s*[A-D]\.|$)/g,'').trim()}</div>
+      <div style="margin-bottom:10px;">${kpTag}</div>
+      <div style="font-weight:600;margin-bottom:16px;line-height:1.8;font-size:1.02rem;white-space:pre-wrap;">${q.question_text.replace(/[A-D]\.\s*.+?(?=\s*[A-D]\.|$)/g,'').trim()}</div>
       <div id="practice-options">${optionsHtml}</div>
-      <button class="btn btn-primary" style="width:100%;margin-top:14px;" id="practice-submit-btn" onclick="submitPracticeAnswer()" disabled>提交答案</button>
-      <div id="practice-feedback" style="display:none;margin-top:14px;"></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:16px;" id="practice-submit-btn" onclick="submitPracticeAnswer()" disabled>提交答案</button>
+      <div id="practice-feedback" style="display:none;margin-top:16px;"></div>
     </div>`;
 }
 
@@ -8081,19 +8081,19 @@ async function submitPracticeAnswer() {
 
     if (fb.is_correct) {
       practiceCorrect++;
-      fbDiv.innerHTML = `<div style="padding:14px;background:var(--green-light);border-radius:8px;border-left:4px solid var(--green);">
-        <div style="font-weight:700;color:var(--green);margin-bottom:4px;">✅ 正确！</div>
-        <div style="font-size:.85em;color:var(--sub);">${fb.explanation||''}</div>
+      fbDiv.innerHTML = `<div style="padding:16px;background:var(--green-light);border-radius:10px;border-left:4px solid var(--green);">
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;font-size:1.05rem;">✅ 正确！</div>
+        <div style="font-size:.95rem;color:var(--sub);line-height:1.7;">${fb.explanation||''}</div>
       </div>`;
       // Highlight correct option
       document.querySelectorAll('.practice-opt').forEach(o=>{
         if(o.dataset.key===fb.correct_answer){o.style.borderColor='var(--green)';o.style.background='var(--green-light)';}
       });
     } else {
-      fbDiv.innerHTML = `<div style="padding:14px;background:var(--red-light);border-radius:8px;border-left:4px solid var(--red);">
-        <div style="font-weight:700;color:var(--red);margin-bottom:4px;">❌ 不对哦</div>
-        <div style="font-size:.85em;margin-bottom:4px;"><strong>正确答案：${fb.correct_answer}</strong></div>
-        <div style="font-size:.85em;color:var(--sub);">${fb.explanation||''}</div>
+      fbDiv.innerHTML = `<div style="padding:16px;background:var(--red-light);border-radius:10px;border-left:4px solid var(--red);">
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;font-size:1.05rem;">❌ 不对哦</div>
+        <div style="font-size:.95rem;margin-bottom:6px;"><strong>正确答案：${fb.correct_answer}</strong></div>
+        <div style="font-size:.95rem;color:var(--sub);line-height:1.7;">${fb.explanation||''}</div>
       </div>`;
       document.querySelectorAll('.practice-opt').forEach(o=>{
         if(o.dataset.key===answer){o.style.borderColor='var(--red)';o.style.background='var(--red-light)';}
@@ -8247,23 +8247,23 @@ function renderMistakes(d) {
       const dueIds = new Set((d.due_reviews || []).map(r => r.id));
       const isDue = dueIds.has(m.id);
       return `
-      <div class="mistake-item" style="border-left:3px solid ${st.color};padding-left:10px;margin:8px 0;">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+      <div class="mistake-item" style="border-left:3px solid ${st.color};padding-left:12px;margin:10px 0;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
           <span>${st.icon}</span>
           <span class="badge" style="background:${st.bg};color:${st.color};">${st.label}</span>
           ${isDue ? '<span class="badge" style="background:#ffe0e0;color:var(--red);">🔔 待复习</span>' : ''}
         </div>
-        <div class="mistake-q" style="font-size:.85em;">${(m.question || '（题目未记录）').slice(0, 120)}</div>
-        <div class="mistake-ans" style="font-size:.8em;"><strong>答案：</strong>${m.correct_answer || '-'}</div>
-        <button class="btn btn-green" style="margin-top:6px;font-size:.75em;padding:3px 10px;" onclick="masterMistake(${m.id})">✅ 已掌握</button>
-        <button class="btn btn-outline" style="margin-top:6px;margin-left:4px;font-size:.75em;padding:3px 10px;" onclick="genSimilar(${m.id}, this)">🔍 类似题</button>
-        <div class="similar-questions" id="similar-${m.id}" style="margin-top:6px;display:none;"></div>
+        <div class="mistake-q">${(m.question || '（题目未记录）').slice(0, 120)}</div>
+        <div class="mistake-ans"><strong>答案：</strong>${m.correct_answer || '-'}</div>
+        <button class="btn btn-green" style="margin-top:8px;font-size:.85rem;padding:6px 14px;min-height:38px;" onclick="masterMistake(${m.id})">✅ 已掌握</button>
+        <button class="btn btn-outline" style="margin-top:8px;margin-left:6px;font-size:.85rem;padding:6px 14px;min-height:38px;" onclick="genSimilar(${m.id}, this)">🔍 类似题</button>
+        <div class="similar-questions" id="similar-${m.id}" style="margin-top:8px;display:none;"></div>
       </div>`;
     }).join('');
     groupsHtml += `
-      <div class="card" style="margin-bottom:10px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <h3 style="font-size:.95em;margin:0;">${kp}</h3>
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <h3 style="font-size:1.05rem;margin:0;">${kp}</h3>
           <span class="badge badge-blue">${mistakes.length} 道</span>
         </div>
         ${items}
@@ -8274,18 +8274,18 @@ function renderMistakes(d) {
   const pct = total > 0 ? Math.round(mastered / total * 100) : 0;
 
   div.innerHTML = `
-    <div class="card" style="text-align:center;margin-bottom:14px;padding:20px;">
-      <div style="font-size:1.1em;font-weight:700;margin-bottom:8px;">
+    <div class="card" style="text-align:center;margin-bottom:16px;padding:24px;">
+      <div style="font-size:1.2rem;font-weight:800;margin-bottom:10px;line-height:1.6;">
         你已攻克 <span style="color:var(--green);">${mastered}</span> 道错题，还剩 <span style="color:var(--accent);">${remaining}</span> 道在路上
       </div>
-      <div class="progress-bar" style="height:12px;margin:10px 0;">
+      <div class="progress-bar" style="height:14px;margin:12px 0;">
         <div class="fill" style="width:${pct}%;background:linear-gradient(90deg,var(--green),var(--accent));border-radius:100px;"></div>
       </div>
-      <div style="font-size:.8em;color:var(--sub);">错题本完成度 ${pct}% · 越薄越厉害</div>
+      <div style="font-size:.9rem;color:var(--sub);">错题本完成度 ${pct}% · 越薄越厉害</div>
     </div>
     ${groupsHtml}
-    <div style="margin-top:12px;text-align:center;">
-      <button class="btn btn-primary" onclick="batchGenSimilar()" style="font-size:.85em;">⚡ 一键生成全部类似题</button>
+    <div style="margin-top:14px;text-align:center;">
+      <button class="btn btn-primary" onclick="batchGenSimilar()">⚡ 一键生成全部类似题</button>
     </div>
   `;
 }
