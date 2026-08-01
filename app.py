@@ -6120,9 +6120,32 @@ def api_public_practice(code):
         JOIN mistakes m ON m.id = q.source_mistake_id
         WHERE m.student_id = ? AND q.enabled = 1 AND m.consecutive_correct < 2
         ORDER BY q.created_at DESC
-        LIMIT 10
+        LIMIT 15
     """, [student_id]).fetchall()
     conn.close()
+
+    # Fallback: if no linked questions, search by knowledge points from student's mistakes
+    if not rows:
+        conn = get_connection()
+        unmastered_kps = conn.execute("""
+            SELECT DISTINCT knowledge_points FROM mistakes
+            WHERE student_id = ? AND consecutive_correct < 2
+        """, [student_id]).fetchall()
+        conn.close()
+        all_kps = set()
+        for r in unmastered_kps:
+            kp_data = r["knowledge_points"]
+            if isinstance(kp_data, str):
+                try:
+                    kp_data = json.loads(kp_data)
+                except Exception:
+                    kp_data = [kp_data]
+            if isinstance(kp_data, list):
+                all_kps.update(kp_data)
+        if all_kps:
+            from db import find_similar_questions
+            raw = find_similar_questions(list(all_kps), limit=15)
+            rows = [dict(r) if not isinstance(r, dict) else r for r in raw]
 
     questions = []
     for q in rows:
@@ -6303,10 +6326,18 @@ def api_public_upload(code):
     if not file_ids:
         return jsonify({"error": "no valid files"}), 400
 
-    # Auto-trigger pipeline: grade_only (no quota check for parent upload — subscription still required)
+    # Auto-trigger pipeline: grade_only (consumes 1 quota)
     sub = get_subscription(student_id)
     if not sub or sub.get("status") != "active":
         return jsonify({"error": "订阅已过期，请联系老师续费"}), 429
+    has_quota, remaining = check_quota(student_id)
+    if not has_quota:
+        plan_label = PRICING.get(sub.get("plan", "trial"), {}).get("label", "体验")
+        return jsonify({
+            "error": f"本月 {plan_label} 额度已用完（剩余 {remaining} 次），请续费或升级套餐",
+        }), 429
+    if not consume_quota(student_id):
+        return jsonify({"error": "额度扣减失败，请刷新后重试"}), 429
 
     task_id = create_task(
         student_id=student_id,
