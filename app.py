@@ -6334,7 +6334,16 @@ def api_public_task_status(code, task_id):
     status = task["status"]
     current_step = task.get("current_step", "")
     progress = task.get("progress", 0)
-    output = json.loads(task["output_data"]) if task.get("output_data") else None
+    output = task.get("output_data")
+    if isinstance(output, str):
+        try:
+            output = json.loads(output)
+        except Exception:
+            output = None
+    elif isinstance(output, dict):
+        pass  # already parsed
+    else:
+        output = None
 
     # If grade_only is done, check for chained analysis_only task
     if status == "done":
