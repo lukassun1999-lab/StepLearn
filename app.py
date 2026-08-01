@@ -71,6 +71,8 @@ def _get_version():
     except Exception:
         return 'dev'
 VERSION = _get_version()
+
+app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key-change-in-prod")
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 
