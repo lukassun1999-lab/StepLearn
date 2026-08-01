@@ -59,7 +59,18 @@ from pipeline_worker import enqueue_task, start_worker
 import onboarding_pipeline  # registers the real handler, replacing stub
 import weekly_pipeline
 
-app = Flask(__name__)
+# ── Version (from git) ──
+def _get_version():
+    try:
+        import subprocess
+        return subprocess.check_output(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            cwd=os.path.dirname(__file__),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return 'dev'
+VERSION = _get_version()
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key-change-in-prod")
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 
@@ -7921,7 +7932,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 </div>
 
 <div class="footer">
-  <p>拾阶而上 · AI 个性化学习</p>
+  <p>拾阶而上 · AI 个性化学习 <span style="color:var(--mute);">v.{{version}}</span></p>
 </div>
 
 <script>
@@ -8794,7 +8805,7 @@ def student_view(code):
     conn.close()
     if not student:
         return '<h2 style="text-align:center;margin-top:80px;">链接无效或已过期</h2>', 404
-    return render_template_string(STUDENT_PAGE, code=code)
+    return render_template_string(STUDENT_PAGE, code=code, version=VERSION)
 
 
 # ═══════════════════════════════════════════════════
@@ -9735,6 +9746,7 @@ if __name__ == '__main__':
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     print('=' * 50)
     print('  拾阶而上 · 管理系统')
+    print(f'  版本: {VERSION}')
     print(f'  http://localhost:5000')
     print(f'  数据库: {DB_PATH}')
     print(f'  上传目录: {UPLOAD_DIR}')
