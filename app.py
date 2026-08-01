@@ -6183,6 +6183,66 @@ def api_public_practice_submit(code):
     })
 
 
+@app.route('/api/public/<code>/exercise-pdf', methods=['GET'])
+def api_public_exercise_pdf(code):
+    """Download practice exercises as a print-friendly PDF."""
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+
+    student = get_student(student_id)
+    if not student:
+        return jsonify({"error": "student not found"}), 404
+
+    # Load questions (same logic as practice endpoint)
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT q.question_text, q.question_type, q.correct_answer,
+               q.explanation, q.knowledge_points, q.difficulty
+        FROM questions q
+        JOIN mistakes m ON m.id = q.source_mistake_id
+        WHERE m.student_id = ? AND q.enabled = 1 AND m.consecutive_correct < 2
+        ORDER BY q.created_at DESC
+        LIMIT 15
+    """, [student_id]).fetchall()
+    conn.close()
+
+    if not rows:
+        return jsonify({"error": "暂无练习题，请先上传试卷"}), 404
+
+    questions = []
+    for q in rows:
+        kp = q["knowledge_points"]
+        if isinstance(kp, str):
+            try:
+                kp = json.loads(kp)
+            except Exception:
+                kp = []
+        questions.append({
+            "question_text": q["question_text"],
+            "question_type": q["question_type"] or "选择题",
+            "options": _extract_options(q["question_text"]),
+            "knowledge_points": kp if isinstance(kp, list) else [kp],
+            "difficulty": q["difficulty"],
+        })
+
+    # Format options for PDF renderer
+    for q in questions:
+        if q["options"]:
+            q["options"] = [f"{o['key']}. {o['text']}" for o in q["options"]]
+
+    from report_templates import render_exercise_pdf
+    from io import BytesIO
+    pdf_bytes = render_exercise_pdf(student["name"], questions, get_week_start())
+
+    return send_file(
+        BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"练习题-{student['name']}-{get_week_start()}.pdf",
+    )
+
+
 # ═══════════════════════════════════════════════════
 # Routes: Public Parent Upload (P0)
 # ═══════════════════════════════════════════════════
@@ -7945,6 +8005,11 @@ async function renderPractice() {
       return;
     }
     renderPracticeQuestion();
+    // Add PDF download button below the question card
+    const pdfBtn = document.createElement('div');
+    pdfBtn.style.cssText = 'text-align:center;margin-top:12px;';
+    pdfBtn.innerHTML = `<a href="/api/public/${CODE}/exercise-pdf" class="btn btn-outline" style="font-size:.85em;text-decoration:none;">🖨️ 下载打印版 PDF</a>`;
+    div.appendChild(pdfBtn);
   } catch(e) {
     div.innerHTML = '<div class="card"><div class="empty">加载失败，请刷新重试</div></div>';
   }

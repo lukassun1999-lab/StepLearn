@@ -1,0 +1,7 @@
+flask
+anthropic
+openai
+Pillow
+json5
+python-dotenv
+xhtml2pdf

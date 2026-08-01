@@ -1051,6 +1051,55 @@ def render_share_poster(student: dict, stats: dict) -> str:
 
 
 # ═══════════════════════════════════════════════════
+# PDF 生成（打印友好）
+# ═══════════════════════════════════════════════════
+
+def render_exercise_pdf(student_name: str, questions: list, week_start: str = "") -> bytes:
+    """Generate a print-friendly PDF of practice exercises. Returns PDF bytes."""
+    from io import BytesIO
+    from xhtml2pdf import pisa
+
+    q_blocks = ""
+    for i, q in enumerate(questions):
+        opts_html = ""
+        options = q.get("options", [])
+        if options:
+            for opt in options:
+                opts_html += f"<div style='padding:4px 10px;margin:3px 0;background:#f5f5f5;border-radius:4px;font-size:13px;'>{opt}</div>"
+        kps = ", ".join(q.get("knowledge_points", []))
+        q_blocks += f"""
+        <div style="margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #e0e0e0;">
+          <div style="font-weight:bold;font-size:14px;margin-bottom:6px;">
+            第 {i+1} 题 <span style="font-weight:normal;color:#666;font-size:12px;">{q.get('question_type','')} · {kps}</span>
+          </div>
+          <div style="white-space:pre-wrap;line-height:1.8;font-size:13px;margin-bottom:8px;">{q.get('question_text','')}</div>
+          {opts_html}
+          <div style="margin-top:8px;color:#999;font-size:11px;">我的答案：________</div>
+        </div>"""
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  @page {{ size: A4; margin: 2cm; }}
+  body {{ font-family: "Microsoft YaHei","PingFang SC",sans-serif; color: #1a1a1a; }}
+</style></head><body>
+<div style="text-align:center;margin-bottom:24px;">
+  <h1 style="font-size:20px;margin-bottom:4px;">📝 专属练习题</h1>
+  <p style="color:#666;font-size:13px;">{student_name} · {week_start or date.today().isoformat()} · 共 {len(questions)} 题</p>
+  <p style="color:#999;font-size:11px;">这些题目根据你最近的试卷错题定制，只练最需要的地方</p>
+</div>
+{q_blocks}
+<div style="text-align:center;margin-top:24px;color:#999;font-size:11px;border-top:1px solid #e0e0e0;padding-top:12px;">
+  拾阶而上 · 做完后拍照上传，AI 自动批改
+</div>
+</body></html>"""
+
+    buffer = BytesIO()
+    pisa.CreatePDF(html, dest=buffer)
+    return buffer.getvalue()
+
+
+# ═══════════════════════════════════════════════════
 # Test
 # ═══════════════════════════════════════════════════
 
