@@ -1436,12 +1436,9 @@ function icon(v) { return v ? '✅' : ''; }
 
 async function viewStudentAnalytics(studentId) {
   switchPage('analytics');
-  // Wait until student dropdown is populated, then select the student
+  // Await loadAnalyticsPage to ensure dropdown is populated
+  await loadAnalyticsPage();
   const sel = document.getElementById('analytics-student');
-  for (let i = 0; i < 20; i++) {
-    await new Promise(r => setTimeout(r, 300));
-    if (sel && sel.options.length > 0 && Array.from(sel.options).some(o => o.value == studentId)) break;
-  }
   if (sel && studentId) {
     sel.value = studentId;
     sel.dispatchEvent(new Event('change'));
@@ -3615,12 +3612,16 @@ async function runManualBackup() {
 }
 
 // ── Learning Analytics ──
+let _analyticsLoaded = false;
 async function loadAnalyticsPage() {
+  const sel = document.getElementById('analytics-student');
+  if (_analyticsLoaded && sel && sel.options.length > 0) return;
+  _analyticsLoaded = true;
   await loadClassAnalytics();
   // Load student selector
   const students = await (await fetch('/api/students')).json();
   const opts = students.map(s => `<option value="${s.id}">${s.name} (${s.grade})</option>`).join('');
-  document.getElementById('analytics-student').innerHTML = opts;
+  sel.innerHTML = opts;
   if (students.length > 0) {
     await loadStudentAnalytics(students[0].id);
   }
