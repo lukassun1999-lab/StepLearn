@@ -6868,12 +6868,14 @@ def api_pipeline_run():
 
     # Quota check: subscription must be active and have remaining analyses
     # Only OCR-heavy stages consume quota; analysis_only/report_only are free
+    # Teachers and admins bypass quota (unlimited for operational use)
+    is_staff = session.get("user_role") in ("teacher", "admin")
     sub = get_subscription(student_id)
     if not sub or sub.get("status") != "active":
         return jsonify({"error": "订阅已过期，请续费后重试"}), 429
     QUOTA_FREE_STAGES = ("analysis_only", "report_only")
     consumes_quota = stage not in QUOTA_FREE_STAGES
-    if consumes_quota:
+    if consumes_quota and not is_staff:
         has_quota, remaining = check_quota(student_id)
         if not has_quota:
             plan_label = PRICING.get(sub.get("plan", "trial"), {}).get("label", "体验")
