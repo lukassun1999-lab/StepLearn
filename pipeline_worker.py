@@ -174,6 +174,26 @@ def _worker_loop():
             traceback.print_exc()
 
 
+def _recover_pending_tasks():
+    """Re-enqueue pending tasks that were lost from a previous server session."""
+    from db import get_connection, DB_PATH as default_db
+    try:
+        conn = get_connection(default_db)
+        rows = conn.execute(
+            "SELECT id FROM ai_tasks WHERE status = 'pending' ORDER BY id"
+        ).fetchall()
+        conn.close()
+        count = 0
+        for row in rows:
+            _task_queue.put((row["id"], default_db))
+            count += 1
+        if count:
+            import sys
+            print(f"  [worker] 恢复 {count} 个待处理任务", file=sys.stderr)
+    except Exception:
+        pass  # DB might not be ready yet — ignore
+
+
 def start_worker():
     """Start the background worker threads (idempotent)."""
     global _worker_threads
@@ -188,6 +208,8 @@ def start_worker():
             )
             t.start()
             _worker_threads.append(t)
+        # Recover stale pending tasks from previous session
+        _recover_pending_tasks()
 
 
 def enqueue_task(task_id: int, db_path: str = None):
