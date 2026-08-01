@@ -7854,14 +7854,14 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 </div>
 
 <div class="tabs">
-  <button class="tab active" onclick="switchTab('practice')">练习</button>
-  <button class="tab" onclick="switchTab('reports')">报告</button>
-  <button class="tab" onclick="switchTab('timeline')">时间轴</button>
-  <button class="tab" onclick="switchTab('mistakes')">成长记录</button>
-  <button class="tab" onclick="switchTab('achievements')">成就墙</button>
-  <button class="tab" onclick="switchTab('review')">复盘</button>
-  <button class="tab" onclick="switchTab('checkin')">坚持日记</button>
-  <button class="tab" onclick="switchTab('progress')">进度</button>
+  <button class="tab active" onclick="switchTab('practice', event)">练习</button>
+  <button class="tab" onclick="switchTab('reports', event)">报告</button>
+  <button class="tab" onclick="switchTab('timeline', event)">时间轴</button>
+  <button class="tab" onclick="switchTab('mistakes', event)">成长记录</button>
+  <button class="tab" onclick="switchTab('achievements', event)">成就墙</button>
+  <button class="tab" onclick="switchTab('review', event)">复盘</button>
+  <button class="tab" onclick="switchTab('checkin', event)">坚持日记</button>
+  <button class="tab" onclick="switchTab('progress', event)">进度</button>
 </div>
 
 <div id="page-practice" class="page active"></div>
@@ -7906,10 +7906,24 @@ async function requestDataDeletion() {
   }
 }
 
-function switchTab(name) {
+function switchTab(name, evt) {
   document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  event.target.classList.add('active');
+  // Support both click events and programmatic calls
+  if (evt && evt.target) {
+    evt.target.classList.add('active');
+  } else {
+    // Programmatic: find tab button by onclick pattern
+    const tabBtn = document.querySelector(`.tab[onclick*="'${name}'"]`);
+    if (tabBtn) tabBtn.classList.add('active');
+    // Fallback: find by text content
+    if (!tabBtn) {
+      const allTabs = document.querySelectorAll('.tab');
+      const labelMap = {practice:'练习',reports:'报告',timeline:'时间轴',mistakes:'成长记录',achievements:'成就墙',review:'复盘',checkin:'坚持日记',progress:'进度'};
+      const label = labelMap[name] || name;
+      for (const t of allTabs) { if (t.textContent.trim() === label) { t.classList.add('active'); break; } }
+    }
+  }
   document.getElementById('page-'+name).classList.add('active');
 }
 
