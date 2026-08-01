@@ -1436,7 +1436,6 @@ function icon(v) { return v ? '✅' : ''; }
 
 async function viewStudentAnalytics(studentId) {
   switchPage('analytics');
-  // Await loadAnalyticsPage to ensure dropdown is populated
   await loadAnalyticsPage();
   const sel = document.getElementById('analytics-student');
   if (sel && studentId) {
@@ -1444,6 +1443,21 @@ async function viewStudentAnalytics(studentId) {
     sel.dispatchEvent(new Event('change'));
   }
   window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+async function viewStudentMistakes(studentId) {
+  // Look up student access_code and open public page at 成长记录 tab
+  try {
+    const r = await fetch('/api/students/' + studentId);
+    const s = await r.json();
+    if (s && s.access_code) {
+      window.open('/s/' + s.access_code + '#mistakes', '_blank');
+    } else {
+      toast('无法获取学生链接');
+    }
+  } catch(e) {
+    toast('获取学生信息失败');
+  }
 }
 
 // Upload files with progress bar
@@ -2763,7 +2777,7 @@ function pollTask(taskId, prefix) {
         const mc = od.mistakes_count;
         const sid = od.student_id;
         result.innerHTML = '<span style="color:var(--accent);">✅ 处理完成</span>';
-        if (mc) result.innerHTML += `<br>📝 AI 发现 <strong>${mc}</strong> 道错题` + (sid ? ` <a href="javascript:void(0)" onclick="viewStudentAnalytics(${sid})" style="color:var(--accent);font-size:.85em;">→ 查看错题详情</a>` : '');
+        if (mc) result.innerHTML += `<br>📝 AI 发现 <strong>${mc}</strong> 道错题` + (sid ? ` <a href="javascript:void(0)" onclick="viewStudentMistakes(${sid})" style="color:var(--accent);font-size:.85em;">→ 查看错题详情</a>` : '');
         if (rid) {
           result.innerHTML += `<br>📄 <a href="/api/files/${rid}/download" target="_blank" class="btn btn-sm btn-green" style="margin-top:8px;text-decoration:none;">📥 下载分析报告</a>`;
           result.innerHTML += `<br><span style="color:var(--sub);font-size:.8em;">报告已生成，点击上方按钮在新窗口查看</span>`;
@@ -8700,6 +8714,14 @@ function renderSvgChart(labels, values, target) {
   </svg>`;
 }
 
+// Auto-switch to tab from URL hash (e.g. /s/xxx#mistakes)
+if (window.location.hash) {
+  const hashTab = window.location.hash.slice(1);
+  const validTabs = ['practice','reports','timeline','mistakes','achievements','review','checkin','progress'];
+  if (validTabs.includes(hashTab)) {
+    setTimeout(() => switchTab(hashTab), 500);
+  }
+}
 loadData();
 </script>
 </body>
