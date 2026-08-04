@@ -8,6 +8,7 @@ Pipeline 代码只调这个模块，不直接操作 subprocess/LLM。
 
 import json
 import os
+import re
 import subprocess
 import sys
 from typing import Any, Dict, List, Optional
@@ -43,14 +44,26 @@ if MISTAKE_ANALYZER_SCRIPTS not in sys.path:
 # OCR (vision LLM primary, Tesseract fallback)
 # ═══════════════════════════════════════════════════
 
-VISION_OCR_PROMPT = """请仔细识别这张英语试卷图片中的所有文字内容，包括：
-1. 题目编号和题干
-2. 选项（A/B/C/D）
-3. 学生作答痕迹（手写答案、圈选标记）
-4. 批改痕迹（对勾、叉号、分数）
+VISION_OCR_PROMPT = """这是一张学生已作答的英语试卷图片。请仔细识别，并分两部分输出：
 
-请按原文顺序输出所有识别到的文字，保持格式清晰。如果某些文字因手写模糊无法确认，请用[模糊]标记。
-直接输出文字内容，不要添加额外解释。"""
+【第一部分：试卷正文】（按原文顺序）
+- 逐题输出题号、题干、空格（用 ___题号___ 标注，如 ___36___）、选项（A/B/C/D 及其内容）。
+- **重要：空格题号必须严格照抄试卷上印刷的数字，不得改写、重排或跳过。** 例如试卷上印的是 38，就写 ___38___，不要因为前面少识别了一个空格就写成 37。
+- 每道题的选项按试卷原样列出。
+
+【第二部分：学生作答】（重点，逐题识别）
+学生通常在选项上打勾/画圈/填字母，或在横线上手写作答。请逐题列出学生的作答，格式为：
+题号: 学生作答
+例如：
+26: B
+27: even though
+36: A
+- 题号必须与试卷印刷题号一致。
+- 若某题看不到学生作答痕迹，写"题号: 未作答"。
+- 手写模糊无法辨认的，写"题号: [模糊]"，不要猜测具体内容。
+- 特别注意：圈选标记旁边的选项字母、手写字母与题干粘连的情况（如把"B. full of"圈选后识别成"Bofull of"，应还原为 题号: B）。
+
+直接输出内容，不要添加额外解释。"""
 
 
 _MIN_OCR_TEXT_LENGTH = 1
@@ -130,6 +143,42 @@ def _run_tesseract_ocr(image_path: str, lang: str = "chi_sim+eng") -> Dict[str, 
     words = data.get("words", []) if isinstance(data, dict) else []
 
     return {"text": text, "confidence": confidence, "words": words}
+
+
+def run_ocr_parallel(image_paths, task_id=None, max_workers=4, progress=None):
+    """OCR multiple images in parallel, preserving input order.
+
+    Returns a list (same length/order as image_paths) of:
+      {"text": str, "confidence": float, "ok": bool}
+
+    Each page is OCR'd in its own thread (up to max_workers). DB writes use
+    per-call connections (WAL + busy_timeout), so concurrent usage is safe.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    n = len(image_paths)
+    if n == 0:
+        return []
+
+    def _one(i, path):
+        try:
+            r = run_ocr(path, task_id=task_id)
+            return i, {"text": (r.get("text") or "").strip(),
+                       "confidence": r.get("confidence", 0.0), "ok": True}
+        except Exception:
+            return i, {"text": "", "confidence": 0.0, "ok": False}
+
+    results = [None] * n
+    workers = max(1, min(max_workers, n))
+    done_count = 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(_one, i, p): i for i, p in enumerate(image_paths)}
+        for fut in as_completed(futs):
+            i, res = fut.result()
+            results[i] = res
+            done_count += 1
+            if progress and n:
+                progress(f"OCR识别试卷 {done_count}/{n}", 15 + int(done_count / n * 10))
+    return results
 
 
 def run_ocr(image_path: str, lang: str = "chi_sim+eng",
@@ -265,12 +314,19 @@ def generate_exam_html(questions: List[Dict], output_dir: str = None) -> str:
 
 # ── Prompt Templates (extracted from english-mistake-analyzer SKILL.md) ──
 
-MISTAKE_ANALYSIS_PROMPT = """分析以下英语试卷中的错题，返回JSON（不要markdown代码块）:
+MISTAKE_ANALYSIS_PROMPT = """分析以下英语试卷 OCR 文本，**只提取学生真正答错的题**，返回JSON（不要markdown代码块）:
 
 {ocr_text}
 
+【重要规则】
+1. 只把"学生答案确实与正确答案不同"的题放进 mistakes。学生选对/填对的题一律不要放进来。
+2. 比较时忽略选项字母前缀。例如学生答 "D. started a school"、正确答案 "started a school"，二者内容相同 → 学生答对了，**不要**算错题。同理 "A. cold"="cold"、"C, photographer"="photographer" 都算答对。
+3. 注意 OCR 识别瑕疵：选项字母常与答案文字粘连，如 "Bofull of" 实为 "B. full of"、"A.cold" 实为 "A. cold"。需还原成真实作答再判断对错。
+4. user_answer 与 correct_answer 必须用**同一格式**：都只写答案内容（单词/短语/选项文字），**不要带选项字母前缀**（A./B./C./D. 等）。例如 user_answer="started a school"、correct_answer="started a school"，而不是 "D. started a school"。
+5. 若无法判断学生真实作答或该题是否答错，则跳过该题，不要臆造错题。
+
 返回格式:
-{{"mistakes":[{{"question_number":1,"question_text":"...","question_type":"语法填空","correct_answer":"B","user_answer":"C","error_reason":"语法误解","explanation":"本题考查...","knowledge_points":["非谓语动词"],"difficulty":2}}],"summary":{{"total_mistakes":0,"by_type":{{"语法填空":2}},"top_weak_points":["非谓语动词"],"overall_assessment":"..."}}}}"""
+{{"mistakes":[{{"question_number":1,"question_text":"...","question_type":"语法填空","correct_answer":"full of","user_answer":"fill of","error_reason":"拼写错误","explanation":"本题考查...","knowledge_points":["非谓语动词"],"difficulty":2}}],"summary":{{"total_mistakes":0,"by_type":{{"语法填空":2}},"top_weak_points":["非谓语动词"],"overall_assessment":"..."}}}}"""
 
 
 QUESTION_GENERATION_PROMPT = """根据错题生成同类练习题，返回JSON:
@@ -420,6 +476,43 @@ def _get_client():
     return get_client()
 
 
+def _normalize_answer(ans) -> str:
+    """归一化答案用于比对：去选项字母前缀、去引号、统一小写、压缩空白。"""
+    if ans is None:
+        return ''
+    s = str(ans).strip()
+    # 去掉开头的选项字母前缀：A. / B) / C, / D、 / A： 等
+    s = re.sub(r'^[A-Da-d]\s*[.)、,，:：]\s*', '', s)
+    # 去掉首尾引号（中英文）
+    s = s.strip('"\'“”‘’')
+    # 压缩空白
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s.lower()
+
+
+def _filter_real_mistakes(mistakes: List[Dict]) -> List[Dict]:
+    """
+    兜底过滤：把"学生答案与正确答案实质相同"的条目剔除（不算错题）。
+    同时把 user_answer / correct_answer 归一化为不带选项字母的纯答案内容。
+    """
+    real = []
+    for m in mistakes:
+        raw_u = m.get('user_answer')
+        raw_c = m.get('correct_answer')
+        nu = _normalize_answer(raw_u)
+        nc = _normalize_answer(raw_c)
+        # 二者都有内容且实质相同 → 学生答对了，剔除
+        if nu and nc and nu == nc:
+            continue
+        # 归一化写回，保证展示格式一致（不带字母前缀）
+        if raw_u:
+            m['user_answer'] = _normalize_answer(raw_u) or raw_u
+        if raw_c:
+            m['correct_answer'] = _normalize_answer(raw_c) or raw_c
+        real.append(m)
+    return real
+
+
 def analyze_mistakes(ocr_text: str, task_id: int = None) -> Dict[str, Any]:
     """
     Run mistake analysis via LLM (english-mistake-analyzer STEP 2).
@@ -434,9 +527,32 @@ def analyze_mistakes(ocr_text: str, task_id: int = None) -> Dict[str, Any]:
         "mistakes": {"type": "array", "required": True},
         "summary": {"type": "object", "required": True},
     }
-    return _get_client().call(
+    result = _get_client().call(
         prompt=prompt, schema=schema, task_id=task_id, call_type="analyze"
     )
+    # 兜底：剔除"答对却被当成错题"的条目，并归一化答案格式
+    if isinstance(result, dict) and isinstance(result.get('mistakes'), list):
+        before = len(result['mistakes'])
+        result['mistakes'] = _filter_real_mistakes(result['mistakes'])
+        dropped = before - len(result['mistakes'])
+        if isinstance(result.get('summary'), dict):
+            summary = result['summary']
+            if dropped:
+                summary.setdefault('overall_assessment', '')
+                summary['overall_assessment'] = (
+                    f"(已自动剔除 {dropped} 道误判为错题的答对题目) " +
+                    (summary.get('overall_assessment') or '')
+                )
+            # 同步 summary 统计，避免与过滤后的 mistakes 不一致
+            kept = result['mistakes']
+            summary['total_mistakes'] = len(kept)
+            by_type = {}
+            for m in kept:
+                qt = m.get('question_type') or '其他'
+                by_type[qt] = by_type.get(qt, 0) + 1
+            if by_type:
+                summary['by_type'] = by_type
+    return result
 
 
 def generate_questions(mistakes: List[Dict], task_id: int = None,
@@ -549,6 +665,20 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
     # Mark bank questions as used
     if used_ids:
         increment_question_usage(used_ids)
+
+    # Normalize LLM-generated questions: options/knowledge_points must be lists
+    # (LLM may emit null, which crashes renderers iterating over them)
+    for q in generated_questions:
+        if not isinstance(q, dict):
+            continue
+        if q.get("options") is None:
+            q["options"] = []
+        elif not isinstance(q["options"], list):
+            q["options"] = [q["options"]]
+        if q.get("knowledge_points") is None:
+            q["knowledge_points"] = []
+        elif not isinstance(q["knowledge_points"], list):
+            q["knowledge_points"] = [q["knowledge_points"]]
 
     final_questions = selected_from_bank + [
         {**q, "from_bank": False} for q in generated_questions
@@ -761,36 +891,44 @@ def generate_learning_plan(student_info: Dict, diagnosis: Dict,
 
 
 def generate_plan_update(student_id: int, week_start: str,
-                         new_mistakes: List[Dict], mastered_mistakes: List[Dict],
+                         weak_point_matrix=None,
+                         new_mistakes_json: str = "[]",
+                         mastered_mistakes_json: str = "[]",
+                         new_count: int = 0,
+                         mastered_count: int = 0,
                          completion_rate: float = 0.0,
-                         profile: Dict = None,
-                         parent_task_progress: Dict = None,
+                         parent_task_progress_json: str = "{}",
+                         parent_tasks_json: str = "[]",
+                         plan_choices_json: str = "{}",
+                         current_modules_json: str = "[]",
                          task_id: int = None) -> Dict[str, Any]:
     """
     Generate AI Clinic content to update learning plan, incorporating
     weekly completion rate, student profile, and parent task engagement
     for adaptive difficulty.
-    """
-    from db import get_learning_plan
 
-    plan = get_learning_plan(student_id)
-    weak_point_matrix = json.dumps(plan.get("weak_point_matrix", []), ensure_ascii=False) if plan else "[]"
-    current_modules = plan.get("plan_data", {}).get("modules", []) if plan else []
-    parent_tasks = plan.get("plan_data", {}).get("parent_growth_tasks", []) if plan else []
+    All matrix/list inputs arrive pre-serialized by the caller
+    (weekly_pipeline analysis_only stage) to avoid re-fetching from DB.
+    completion_rate may be 0-1 fraction or 0-100 percent; normalized here.
+    """
+    if not isinstance(weak_point_matrix, str):
+        weak_point_matrix = json.dumps(weak_point_matrix or [], ensure_ascii=False)
+
+    rate = completion_rate * 100 if completion_rate <= 1 else completion_rate
 
     prompt = PLAN_UPDATE_PROMPT.format(
         student_id=student_id,
         week_start=week_start,
         weak_point_matrix=weak_point_matrix,
-        new_mistakes_json=json.dumps(new_mistakes, ensure_ascii=False, indent=2),
-        mastered_mistakes_json=json.dumps(mastered_mistakes, ensure_ascii=False, indent=2),
-        new_count=len(new_mistakes),
-        mastered_count=len(mastered_mistakes),
-        completion_rate=round(completion_rate * 100, 1),
-        parent_task_progress_json=json.dumps(parent_task_progress or {}, ensure_ascii=False, indent=2),
-        parent_tasks_json=json.dumps(parent_tasks, ensure_ascii=False, indent=2),
-        plan_choices_json=json.dumps((profile or {}).get("plan_choices", {}), ensure_ascii=False, indent=2),
-        current_modules_json=json.dumps(current_modules, ensure_ascii=False, indent=2),
+        new_mistakes_json=new_mistakes_json,
+        mastered_mistakes_json=mastered_mistakes_json,
+        new_count=new_count,
+        mastered_count=mastered_count,
+        completion_rate=round(rate, 1),
+        parent_task_progress_json=parent_task_progress_json,
+        parent_tasks_json=parent_tasks_json,
+        plan_choices_json=plan_choices_json,
+        current_modules_json=current_modules_json,
     )
     schema = {
         "ai_clinic": {"type": "string", "required": False},
@@ -799,6 +937,68 @@ def generate_plan_update(student_id: int, week_start: str,
         "adjusted_modules": {"type": "array", "required": False},
         "motivation_message": {"type": "string", "required": False},
         "parent_guide": {"type": "string", "required": False},
+    }
+    return _get_client().call(
+        prompt=prompt, schema=schema, task_id=task_id, call_type="plan"
+    )
+
+
+# ═══════════════════════════════════════════════════
+# Monthly Analysis
+# ═══════════════════════════════════════════════════
+
+MONTHLY_ANALYSIS_PROMPT = """你是学生的英语学习顾问，请基于以下月度数据生成分月总结分析，返回JSON（不要markdown代码块）。
+
+学生: {name}, 年级: {grade}, 当前分数: {score}
+月份: {month_label}
+
+月度数据:
+- 总错题数: {total_mistakes}
+- 已攻克数: {mastered_count}
+- 练习次数: {practice_count}
+- 平均正确率: {accuracy}
+
+知识点错题分布:
+{kp_breakdown}
+
+分数变化:
+{score_history}
+
+请从以下维度分析:
+1. 进步亮点: 哪些知识点有明显进步？哪些错误类型在减少？
+2. 需要关注: 哪些知识点反复出错？有没有退步的趋势？
+3. 下月建议: 针对性地给出2-3条下月学习重点建议
+
+返回格式:
+{{"progress_points":["进步1","进步2"],"regression_points":["关注1"],"next_month_suggestions":["建议1","建议2"],"overall_assessment":"一句话总结本月表现和趋势"}}"""
+
+
+def generate_monthly_analysis(
+    student_info: Dict,
+    month_label: str,
+    month_stats: Dict,
+    kp_breakdown: str,
+    score_history: str,
+    task_id: int = None,
+) -> Dict[str, Any]:
+    """Generate AI monthly analysis via LLM."""
+    prompt = MONTHLY_ANALYSIS_PROMPT.format(
+        name=student_info.get("name", ""),
+        grade=student_info.get("grade", ""),
+        score=student_info.get("english_score", "未知"),
+        month_label=month_label,
+        total_mistakes=month_stats.get("total_mistakes", 0),
+        mastered_count=month_stats.get("mastered_count", 0),
+        practice_count=month_stats.get("practice_count", 0),
+        accuracy=month_stats.get("avg_accuracy", "—"),
+        kp_breakdown=kp_breakdown,
+        score_history=score_history,
+    )
+    schema = {
+        "progress_points": {"type": "array", "required": False},
+        "regression_points": {"type": "array", "required": False},
+        "next_month_suggestions": {"type": "array", "required": False},
+        "overall_assessment": {"type": "string", "required": False},
     }
     return _get_client().call(
         prompt=prompt, schema=schema, task_id=task_id, call_type="plan"

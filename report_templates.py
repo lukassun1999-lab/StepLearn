@@ -12,6 +12,54 @@ from datetime import date
 from db import get_teacher_profile
 
 
+# ═══════════════════════════════════════════════════
+# CJK font for xhtml2pdf (PDF export only)
+# xhtml2pdf renders every Chinese glyph as a black box (tofu) unless a CJK
+# font is registered with reportlab's pdfmetrics. We register one up front
+# and reference it by name in CSS — this avoids xhtml2pdf's @font-face URL
+# fetch (which copies to a temp file and can fail on permission/sandbox).
+# ═══════════════════════════════════════════════════
+
+_CJK_FONT_CANDIDATES = [
+    "simhei.ttf",   # 黑体 — clean single TTF, renders well
+    "Deng.ttf",     # 等线 — Windows 10/11 default
+    "simkai.ttf",   # 楷体
+    "simfang.ttf",  # 仿宋
+    "STSONG.TTF",   # 华文宋体
+    "msyh.ttc",     # 微软雅黑 (collection)
+    "simsun.ttc",   # 宋体 (collection, fallback)
+]
+
+_CJK_REGISTERED = False
+
+
+def _ensure_cjk_font() -> str:
+    """Register a CJK font with reportlab. Returns the family name to use in
+    CSS ('CJK'), or '' if no CJK font could be registered (best-effort tofu)."""
+    global _CJK_REGISTERED
+    if _CJK_REGISTERED:
+        return "CJK"
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        if "CJK" in pdfmetrics.getRegisteredFontNames():
+            _CJK_REGISTERED = True
+            return "CJK"
+        fonts_dir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+        for name in _CJK_FONT_CANDIDATES:
+            path = os.path.join(fonts_dir, name)
+            if os.path.exists(path):
+                try:
+                    pdfmetrics.registerFont(TTFont("CJK", path))
+                    _CJK_REGISTERED = True
+                    return "CJK"
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return ""
+
+
 def _base_html(title: str, body: str, css_extra: str = "") -> str:
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -143,21 +191,57 @@ def render_diagnostic_report(
           <span class="badge {badge_cls}">{severity}优先级</span>
         </li>"""
 
-    # Mistake summary
-    mistake_rows = ""
-    for m in mistakes[:10]:  # top 10
-        kps = ", ".join(m.get("knowledge_points", [])[:3])
-        question = m.get('question_text', '') or ''
-        # Truncate long questions
-        if len(question) > 100:
-            question = question[:100] + '...'
-        mistake_rows += f"""
-        <tr>
-          <td>{question}</td>
-          <td>{m.get('question_type', '?')}</td>
-          <td>{kps}</td>
-          <td>{m.get('error_reason', '?')}</td>
-        </tr>"""
+    # Mistake detail cards — full question + wrong/correct answers + explanation
+    mistake_cards = ""
+    for i, m in enumerate(mistakes[:20]):
+        kps = m.get("knowledge_points", [])
+        if isinstance(kps, str):
+            try:
+                import json as _json
+                kps = _json.loads(kps)
+            except Exception:
+                kps = [kps] if kps else []
+        kp_tags = "".join(
+            f'<span style="display:inline-block;background:var(--bg);color:var(--sub);border-radius:100px;padding:2px 10px;font-size:.7rem;margin-right:4px;margin-bottom:4px;">{kp}</span>'
+            for kp in kps[:4]
+        )
+        question = m.get('question_text', '') or m.get('question', '') or ''
+        user_ans = m.get('user_answer', '') or '未识别'
+        correct_ans = m.get('correct_answer', '') or ''
+        explanation = m.get('explanation', '') or m.get('error_reason', '') or ''
+        qtype = m.get('question_type', '')
+        difficulty = m.get('difficulty', '')
+        error_reason = m.get('error_reason', '')
+
+        mistake_cards += f"""
+        <div style="background:var(--card);border-radius:12px;padding:16px;margin-bottom:14px;border:1px solid var(--border);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div style="font-weight:700;font-size:.95rem;">第 {i+1} 题</div>
+            <div style="display:flex;gap:6px;">
+              {f'<span style="background:var(--bg);color:var(--sub);border-radius:100px;padding:2px 10px;font-size:.7rem;">{qtype}</span>' if qtype else ''}
+              {f'<span style="background:var(--bg);color:var(--sub);border-radius:100px;padding:2px 10px;font-size:.7rem;">难度 {difficulty}</span>' if difficulty else ''}
+            </div>
+          </div>
+          <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:10px;white-space:pre-wrap;font-size:.9rem;line-height:1.7;color:var(--text);">{question}</div>
+          <div style="display:flex;gap:10px;margin-bottom:10px;">
+            <div style="flex:1;background:#fef4f4;border-radius:8px;padding:8px 12px;">
+              <div style="font-size:.72rem;color:#d93a46;font-weight:600;margin-bottom:2px;">✗ 你的答案</div>
+              <div style="font-size:.9rem;color:#d93a46;font-weight:600;">{user_ans}</div>
+            </div>
+            <div style="flex:1;background:#effaf3;border-radius:8px;padding:8px 12px;">
+              <div style="font-size:.72rem;color:#0f7b4e;font-weight:600;margin-bottom:2px;">✓ 正确答案</div>
+              <div style="font-size:.9rem;color:#0f7b4e;font-weight:600;">{correct_ans}</div>
+            </div>
+          </div>
+          {f'''<div style="background:var(--accent-light);border-radius:8px;padding:12px;margin-bottom:10px;">
+            <div style="font-size:.72rem;color:var(--accent);font-weight:600;margin-bottom:4px;">📖 解析</div>
+            <div style="font-size:.85rem;line-height:1.7;color:var(--text);">{explanation}</div>
+          </div>''' if explanation else ''}
+          <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+            {kp_tags}
+            {f'<span style="display:inline-block;background:#fef4f4;color:#d93a46;border-radius:100px;padding:2px 10px;font-size:.7rem;">{error_reason}</span>' if error_reason else ''}
+          </div>
+        </div>"""
 
     # Learning modules
     module_cards = ""
@@ -330,14 +414,9 @@ def render_diagnostic_report(
 </div>
 
 <div class="section">
-  <h2>📝 每道题背后的原因</h2>
-  <div style="overflow-x:auto;">
-    <table>
-      <tr><th>题目</th><th>题型</th><th>考查知识点</th><th>错误原因</th></tr>
-      {mistake_rows}
-    </table>
-  </div>
-  <p style="color:var(--sub); font-size:.85em; margin-top:8px;">（仅展示前 10 道错题，完整列表见系统）</p>
+  <h2>📝 错题详解</h2>
+  <p style="color:var(--sub); font-size:.85em; margin-bottom:12px;">每道错题都附有你的答案、正确答案和详细解析</p>
+  {mistake_cards}
 </div>
 
 <div class="section">
@@ -392,10 +471,10 @@ def render_exercise_sheet(student_name: str, questions: list, week_start: str = 
     q_blocks = ""
     for i, q in enumerate(questions):
         opts_html = ""
-        for opt in q.get("options", []):
+        for opt in (q.get("options") or []):
             opts_html += f"<div style='padding:6px 12px; margin:4px 0; background:var(--bg); border-radius:6px;'>{opt}</div>"
 
-        kps = ", ".join(q.get("knowledge_points", []))
+        kps = ", ".join(q.get("knowledge_points") or [])
         q_blocks += f"""
         <div class="card">
           <h3>第 {i+1} 题 <span style="font-weight:400;color:var(--sub);font-size:.85em;">{q.get('question_type', '')} · {kps}</span></h3>
@@ -1055,48 +1134,269 @@ def render_share_poster(student: dict, stats: dict) -> str:
 # ═══════════════════════════════════════════════════
 
 def render_exercise_pdf(student_name: str, questions: list, week_start: str = "") -> bytes:
-    """Generate a print-friendly PDF of practice exercises. Returns PDF bytes."""
+    """Generate a print-friendly PDF of practice exercises using reportlab platypus.
+    xhtml2pdf is bypassed because it cannot reliably embed CJK fonts."""
     from io import BytesIO
-    from xhtml2pdf import pisa
+    import xml.sax.saxutils as _su
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib import colors
 
-    q_blocks = ""
-    for i, q in enumerate(questions):
-        opts_html = ""
-        options = q.get("options", [])
-        if options:
-            for opt in options:
-                opts_html += f"<div style='padding:4px 10px;margin:3px 0;background:#f5f5f5;border-radius:4px;font-size:13px;'>{opt}</div>"
-        kps = ", ".join(q.get("knowledge_points", []))
-        q_blocks += f"""
-        <div style="margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #e0e0e0;">
-          <div style="font-weight:bold;font-size:14px;margin-bottom:6px;">
-            第 {i+1} 题 <span style="font-weight:normal;color:#666;font-size:12px;">{q.get('question_type','')} · {kps}</span>
-          </div>
-          <div style="white-space:pre-wrap;line-height:1.8;font-size:13px;margin-bottom:8px;">{q.get('question_text','')}</div>
-          {opts_html}
-          <div style="margin-top:8px;color:#999;font-size:11px;">我的答案：________</div>
-        </div>"""
+    cjk = _ensure_cjk_font()
+    font = cjk or "Helvetica"
 
-    html = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<style>
-  @page {{ size: A4; margin: 2cm; }}
-  body {{ font-family: "Microsoft YaHei","PingFang SC",sans-serif; color: #1a1a1a; }}
-</style></head><body>
-<div style="text-align:center;margin-bottom:24px;">
-  <h1 style="font-size:20px;margin-bottom:4px;">📝 专属练习题</h1>
-  <p style="color:#666;font-size:13px;">{student_name} · {week_start or date.today().isoformat()} · 共 {len(questions)} 题</p>
-  <p style="color:#999;font-size:11px;">这些题目根据你最近的试卷错题定制，只练最需要的地方</p>
-</div>
-{q_blocks}
-<div style="text-align:center;margin-top:24px;color:#999;font-size:11px;border-top:1px solid #e0e0e0;padding-top:12px;">
-  拾阶而上 · 做完后拍照上传，AI 自动批改
-</div>
-</body></html>"""
+    def esc(text):
+        """Escape XML for reportlab Paragraph and convert newlines to <br/>."""
+        return _su.escape(str(text or "")).replace("\n", "<br/>")
 
     buffer = BytesIO()
-    pisa.CreatePDF(html, dest=buffer)
+    doc = SimpleDocTemplate(buffer, pagesize=A4,
+                            topMargin=2 * cm, bottomMargin=2 * cm,
+                            leftMargin=2 * cm, rightMargin=2 * cm)
+
+    title_st = ParagraphStyle("T", fontName=font, fontSize=18, alignment=TA_CENTER,
+                              spaceAfter=4, leading=24)
+    sub_st = ParagraphStyle("S", fontName=font, fontSize=10, alignment=TA_CENTER,
+                            textColor=colors.HexColor("#666666"), spaceAfter=2)
+    qhead_st = ParagraphStyle("QH", fontName=font, fontSize=12, spaceBefore=14,
+                              spaceAfter=4, leading=16)
+    body_st = ParagraphStyle("B", fontName=font, fontSize=10, leading=16, spaceAfter=4)
+    opt_st = ParagraphStyle("O", fontName=font, fontSize=10, leading=14,
+                            leftIndent=14, spaceAfter=2)
+    ans_st = ParagraphStyle("A", fontName=font, fontSize=9, textColor=colors.grey,
+                            spaceBefore=6, spaceAfter=10)
+    footer_st = ParagraphStyle("F", fontName=font, fontSize=9, alignment=TA_CENTER,
+                               textColor=colors.grey, spaceBefore=20)
+
+    story = [
+        Paragraph("专属练习题", title_st),
+        Paragraph(f"{esc(student_name)} · {week_start or date.today().isoformat()} · 共 {len(questions)} 题", sub_st),
+        Paragraph("这些题目根据你最近的试卷错题定制，只练最需要的地方", sub_st),
+        Spacer(1, 16),
+    ]
+
+    for i, q in enumerate(questions):
+        kps = ", ".join(q.get("knowledge_points", []))
+        qtype = q.get("question_type", "")
+        head = f"第 {i + 1} 题"
+        if qtype or kps:
+            head += f'  <font size="9" color="#888888">{esc(qtype)} · {esc(kps)}</font>'
+        story.append(Paragraph(head, qhead_st))
+        story.append(Paragraph(esc(q.get("question_text", "")), body_st))
+        for opt in q.get("options", []):
+            story.append(Paragraph(esc(opt), opt_st))
+        story.append(Paragraph("我的答案：________________", ans_st))
+
+    story.append(Spacer(1, 20))
+    story.append(Paragraph("拾阶而上 · 做完后拍照上传，AI 自动批改", footer_st))
+
+    doc.build(story)
     return buffer.getvalue()
+
+
+# ═══════════════════════════════════════════════════
+# 周错题本 & 月度总结报告
+# ═══════════════════════════════════════════════════
+
+def render_weekly_mistake_book(
+    student: dict,
+    mistakes: list,
+    week_start: str,
+    week_end: str,
+    mastered_count: int = 0,
+) -> str:
+    """Generate a weekly mistake book HTML — one per student per week."""
+
+    total = len(mistakes)
+    remaining = total - mastered_count
+
+    # Knowledge point breakdown
+    kp_stats: dict = {}
+    for m in mistakes:
+        kps = m.get("knowledge_points", [])
+        if isinstance(kps, str):
+            import json as _j
+            try: kps = _j.loads(kps)
+            except Exception: kps = [kps]
+        for kp in (kps or ["其他"]):
+            kp_stats[kp] = kp_stats.get(kp, 0) + 1
+    kp_sorted = sorted(kp_stats.items(), key=lambda x: -x[1])[:8]
+    kp_tags = "".join(
+        f'<span style="display:inline-block;background:var(--bg);border-radius:100px;'
+        f'padding:4px 12px;font-size:.8rem;margin:2px;">{kp} ×{cnt}</span>'
+        for kp, cnt in kp_sorted
+    )
+
+    # Mistake cards (reuse diagnostic report style)
+    cards = ""
+    for i, m in enumerate(mistakes):
+        kps = m.get("knowledge_points", [])
+        if isinstance(kps, str):
+            import json as _j
+            try: kps = _j.loads(kps)
+            except Exception: kps = []
+        question = m.get("question_text", "") or m.get("question", "") or ""
+        user_ans = m.get("user_answer", "") or "未识别"
+        correct_ans = m.get("correct_answer", "") or ""
+        explanation = m.get("explanation", "") or m.get("error_reason", "") or ""
+        qtype = m.get("question_type", "")
+
+        cards += f"""
+        <div style="background:var(--card);border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-weight:700;">第 {i+1} 题</span>
+            {f'<span style="background:var(--bg);border-radius:100px;padding:2px 10px;font-size:.7rem;color:var(--sub);">{qtype}</span>' if qtype else ''}
+          </div>
+          <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:10px;white-space:pre-wrap;font-size:.9rem;line-height:1.7;">{question}</div>
+          <div style="display:flex;gap:10px;margin-bottom:10px;">
+            <div style="flex:1;background:var(--red-light);border-radius:8px;padding:8px 12px;">
+              <div style="font-size:.72rem;color:var(--red);font-weight:600;">✗ 你的答案</div>
+              <div style="font-size:.9rem;color:var(--red);font-weight:600;">{user_ans}</div>
+            </div>
+            <div style="flex:1;background:var(--green-light);border-radius:8px;padding:8px 12px;">
+              <div style="font-size:.72rem;color:var(--green);font-weight:600;">✓ 正确答案</div>
+              <div style="font-size:.9rem;color:var(--green);font-weight:600;">{correct_ans}</div>
+            </div>
+          </div>
+          {f'<div style="background:var(--accent-light);border-radius:8px;padding:12px;"><div style="font-size:.72rem;color:var(--accent);font-weight:600;margin-bottom:4px;">📖 解析</div><div style="font-size:.85rem;line-height:1.7;">{explanation}</div></div>' if explanation else ''}
+        </div>"""
+
+    body = f"""
+<div class="header">
+  <h1>📒 周错题本</h1>
+  <div class="sub">{student.get('name','同学')} · {week_start} ~ {week_end}</div>
+</div>
+
+<div class="card" style="display:flex;justify-content:space-around;text-align:center;flex-wrap:wrap;gap:12px;">
+  <div><div style="font-size:1.8rem;font-weight:700;color:var(--accent);">{total}</div><div style="color:var(--sub);font-size:.8rem;">本周错题</div></div>
+  <div><div style="font-size:1.8rem;font-weight:700;color:var(--green);">{mastered_count}</div><div style="color:var(--sub);font-size:.8rem;">已攻克</div></div>
+  <div><div style="font-size:1.8rem;font-weight:700;color:var(--red);">{remaining}</div><div style="color:var(--sub);font-size:.8rem;">仍在攻克</div></div>
+</div>
+
+<div class="section">
+  <h2>🏷️ 知识点分布</h2>
+  <div style="line-height:2.4;">{kp_tags or '<span style="color:var(--sub);">暂无</span>'}</div>
+</div>
+
+<div class="section">
+  <h2>📝 错题详解</h2>
+  {cards or '<div class="card"><p>本周无错题记录，继续保持！</p></div>'}
+</div>
+
+<div style="text-align:center;color:var(--mute);font-size:.75rem;margin-top:24px;">
+  拾阶而上 · 每周自动生成 · 坚持复盘就是最好的进步
+</div>
+"""
+    return _base_html(f"{student.get('name','')} 周错题本 {week_start}", body)
+
+
+def render_monthly_report(
+    student: dict,
+    mistakes: list,
+    month_label: str,
+    month_stats: dict,
+    ai_analysis: dict,
+) -> str:
+    """Generate a monthly summary report HTML."""
+
+    total = month_stats.get("total_mistakes", len(mistakes))
+    mastered = month_stats.get("mastered_count", 0)
+    practice_count = month_stats.get("practice_count", 0)
+    avg_accuracy = month_stats.get("avg_accuracy")
+
+    # Knowledge point trends
+    kp_stats: dict = {}
+    for m in mistakes:
+        kps = m.get("knowledge_points", [])
+        if isinstance(kps, str):
+            import json as _j
+            try: kps = _j.loads(kps)
+            except Exception: kps = []
+        for kp in (kps or ["其他"]):
+            kp_stats[kp] = kp_stats.get(kp, 0) + 1
+    kp_sorted = sorted(kp_stats.items(), key=lambda x: -x[1])[:10]
+
+    kp_bars = ""
+    max_count = max((c for _, c in kp_sorted), default=1)
+    for kp, cnt in kp_sorted:
+        pct = int(cnt / max_count * 100)
+        kp_bars += f"""
+        <div style="margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:2px;">
+            <span>{kp}</span><span style="color:var(--sub);">{cnt} 道</span>
+          </div>
+          <div style="height:6px;background:var(--bg);border-radius:6px;overflow:hidden;">
+            <div style="height:100%;width:{pct}%;background:var(--accent);border-radius:6px;"></div>
+          </div>
+        </div>"""
+
+    # AI analysis sections
+    ai = ai_analysis or {}
+    progress = ai.get("progress_points", [])
+    regression = ai.get("regression_points", [])
+    suggestions = ai.get("next_month_suggestions", [])
+    assessment = ai.get("overall_assessment", "")
+
+    progress_html = "".join(f"<li style='color:var(--green);'>{p}</li>" for p in progress)
+    regression_html = "".join(f"<li style='color:var(--red);'>{p}</li>" for p in regression)
+    suggestions_html = "".join(f"<li>{s}</li>" for s in suggestions)
+
+    # Condensed mistake list (grouped by knowledge point)
+    mistake_list = ""
+    for i, m in enumerate(mistakes[:30]):
+        question = (m.get("question_text", "") or m.get("question", ""))[:80]
+        correct = m.get("correct_answer", "")
+        mistake_list += f"""
+        <div style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:.85rem;">
+          <span style="color:var(--sub);">{i+1}.</span> {question}{'...' if len(question)==80 else ''}
+          <span style="color:var(--green);font-weight:600;margin-left:8px;">→ {correct}</span>
+        </div>"""
+
+    accuracy_display = f"{avg_accuracy:.0%}" if isinstance(avg_accuracy, (int, float)) else "—"
+
+    body = f"""
+<div class="header">
+  <h1>📊 月度总结报告</h1>
+  <div class="sub">{student.get('name','同学')} · {month_label}</div>
+</div>
+
+<div class="card" style="display:flex;justify-content:space-around;text-align:center;flex-wrap:wrap;gap:12px;">
+  <div><div style="font-size:1.8rem;font-weight:700;color:var(--accent);">{total}</div><div style="color:var(--sub);font-size:.8rem;">月度错题</div></div>
+  <div><div style="font-size:1.8rem;font-weight:700;color:var(--green);">{mastered}</div><div style="color:var(--sub);font-size:.8rem;">已攻克</div></div>
+  <div><div style="font-size:1.8rem;font-weight:700;color:var(--blue);">{practice_count}</div><div style="color:var(--sub);font-size:.8rem;">练习次数</div></div>
+  <div><div style="font-size:1.8rem;font-weight:700;color:var(--accent);">{accuracy_display}</div><div style="color:var(--sub);font-size:.8rem;">平均正确率</div></div>
+</div>
+
+<div class="section">
+  <h2>📈 知识点错题分布</h2>
+  <div class="card">{kp_bars or '<p style="color:var(--sub);">本月无错题记录</p>'}</div>
+</div>
+
+{f'''<div class="section">
+  <h2>🤖 AI 月度诊断</h2>
+  <div class="card">
+    {f'<p style="margin-bottom:12px;">{assessment}</p>' if assessment else ''}
+    {f'<h3 style="color:var(--green);margin-bottom:6px;">进步亮点</h3><ul style="margin-bottom:12px;">{progress_html}</ul>' if progress else ''}
+    {f'<h3 style="color:var(--red);margin-bottom:6px;">需要关注</h3><ul style="margin-bottom:12px;">{regression_html}</ul>' if regression else ''}
+    {f'<h3 style="margin-bottom:6px;">下月建议</h3><ul>{suggestions_html}</ul>' if suggestions else ''}
+  </div>
+</div>''' if ai else ''}
+
+<div class="section">
+  <h2>📒 月度错题清单</h2>
+  <div class="card" style="padding:0;overflow:hidden;">
+    {mistake_list or '<p style="padding:16px;color:var(--sub);">本月无错题记录</p>'}
+  </div>
+</div>
+
+<div style="text-align:center;color:var(--mute);font-size:.75rem;margin-top:24px;">
+  拾阶而上 · 每月1日自动生成 · 坚持是最有力的成长
+</div>
+"""
+    return _base_html(f"{student.get('name','')} 月度报告 {month_label}", body)
 
 
 # ═══════════════════════════════════════════════════
