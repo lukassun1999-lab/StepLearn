@@ -106,7 +106,7 @@ def _create_sampling_checks(task_id: int, output_data: dict, db_path: str) -> No
 
 def _process_task(task, db_path):
     """Execute a single task under the caller's lock."""
-    from db import update_task, mark_task_failed, mark_task_done, create_task
+    from db import update_task, mark_task_failed, mark_task_done
 
     task_id = task["id"]
     update_task(task_id, {"status": "processing"}, db_path)
@@ -118,34 +118,27 @@ def _process_task(task, db_path):
 
         output_data = handler(task, db_path)
 
-        needs_review = int(output_data.get("needs_review", False))
-        mark_task_done(task_id, output_data, needs_review=needs_review,
-                      db_path=db_path)
+        mark_task_done(task_id, output_data, db_path=db_path)
 
         _create_sampling_checks(task_id, output_data, db_path)
-
-        # Auto-chain: grade_only → analysis_only (so exercises + report are generated)
-        input_data = task.get("input_data") or {}
-        if isinstance(input_data, str):
-            try:
-                input_data = json.loads(input_data)
-            except Exception:
-                input_data = {}
-        stage = input_data.get("stage", "")
-        if task["task_type"] == "weekly" and stage == "grade_only" and output_data.get("mistakes_count", 0) > 0:
-            next_task_id = create_task(
-                student_id=task["student_id"],
-                task_type="weekly",
-                input_data={"stage": "analysis_only"},
-                db_path=db_path,
-            )
-            _task_queue.put((next_task_id, db_path))
+        # P1：grade_only → analysis_only 的自动链已移除。
+        # grade_only 现在是一次任务跑完分析主链（engine 声明式链）。
     except Exception as e:
         error_msg = f"{type(e).__name__}: {e}\n{traceback.format_exc(limit=5)}"
         try:
             mark_task_failed(task_id, error_msg, db_path)
         except Exception:
             pass  # don't let logging failure crash the worker
+        # Refund the quota consumed at upload time so the parent can retry for free
+        try:
+            input_data = task.get("input_data") or {}
+            if isinstance(input_data, str):
+                input_data = json.loads(input_data)
+            if input_data.get("quota_charged"):
+                from db import refund_quota
+                refund_quota(task["student_id"], db_path)
+        except Exception:
+            pass
 
 
 def _worker_loop():
@@ -174,24 +167,82 @@ def _worker_loop():
             traceback.print_exc()
 
 
-def _recover_pending_tasks():
-    """Re-enqueue pending tasks that were lost from a previous server session."""
-    from db import get_connection, DB_PATH as default_db
+ZOMBIE_RESUME_MAX_AGE_H = 24  # zombies younger than this get auto-resumed
+ZOMBIE_MAX_RESUME = 2         # give up after this many auto-resumes
+
+
+def _recover_tasks():
+    """Recover interrupted tasks from a previous server session.
+
+    - pending: re-enqueue (never started).
+    - processing (zombie — server died mid-task): auto-resume if fresh,
+      otherwise mark failed and refund any charged quota so the parent
+      can re-upload without paying twice.
+    """
+    from db import (get_connection, update_task, mark_task_failed,
+                    refund_quota, DB_PATH as default_db)
+    import sys
+    from datetime import datetime
+
     try:
         conn = get_connection(default_db)
         rows = conn.execute(
-            "SELECT id FROM ai_tasks WHERE status = 'pending' ORDER BY id"
+            "SELECT id, student_id, status, input_data, created_at "
+            "FROM ai_tasks WHERE status IN ('pending', 'processing') ORDER BY id"
         ).fetchall()
         conn.close()
-        count = 0
-        for row in rows:
-            _task_queue.put((row["id"], default_db))
-            count += 1
-        if count:
-            import sys
-            print(f"  [worker] 恢复 {count} 个待处理任务", file=sys.stderr)
     except Exception:
-        pass  # DB might not be ready yet — ignore
+        return  # DB might not be ready yet — ignore
+
+    resumed = reaped = 0
+    for row in rows:
+        input_data = {}
+        try:
+            input_data = json.loads(row["input_data"] or "{}")
+        except Exception:
+            pass
+
+        if row["status"] == "pending":
+            _task_queue.put((row["id"], default_db))
+            resumed += 1
+            continue
+
+        # Zombie: at startup no worker can legitimately be running it.
+        resumed_count = int(input_data.get("_auto_resumed", 0) or 0)
+        try:
+            created = datetime.fromisoformat(
+                str(row["created_at"]).replace(" ", "T")[:19])
+            age_h = (datetime.now() - created).total_seconds() / 3600
+        except Exception:
+            age_h = float("inf")
+
+        if age_h <= ZOMBIE_RESUME_MAX_AGE_H and resumed_count < ZOMBIE_MAX_RESUME:
+            input_data["_auto_resumed"] = resumed_count + 1
+            try:
+                update_task(row["id"], {
+                    "status": "pending",
+                    "input_data": json.dumps(input_data, ensure_ascii=False),
+                }, default_db)
+                _task_queue.put((row["id"], default_db))
+                resumed += 1
+            except Exception:
+                pass
+        else:
+            try:
+                mark_task_failed(
+                    row["id"],
+                    "服务重启导致任务中断，且已超过自动恢复时限。"
+                    "请重新上传（本次额度已退还）",
+                    default_db)
+                if input_data.get("quota_charged"):
+                    refund_quota(row["student_id"], default_db)
+                reaped += 1
+            except Exception:
+                pass
+
+    if resumed or reaped:
+        print(f"  [worker] 恢复 {resumed} 个中断任务，收尸 {reaped} 个僵尸任务",
+              file=sys.stderr)
 
 
 def start_worker():
@@ -208,8 +259,17 @@ def start_worker():
             )
             t.start()
             _worker_threads.append(t)
-        # Recover stale pending tasks from previous session
-        _recover_pending_tasks()
+        # Recover stale pending/processing tasks from previous session
+        _recover_tasks()
+        # Start the scheduler (weekly book / monthly summary / Saturday weekly report)
+        from pipeline.scheduler import start_scheduler
+        start_scheduler(lambda task_id, dbp: _task_queue.put((task_id, dbp)))
+
+
+# ═══════════════════════════════════════════════════
+# Daily Scheduler — P1 起迁移至 pipeline/scheduler.py
+# （周一错题本 / 月度总结 / 周六条件式周报）
+# ═══════════════════════════════════════════════════
 
 
 def enqueue_task(task_id: int, db_path: str = None):

@@ -1,0 +1,30 @@
+# 机密与环境配置（严禁入库）
+.env
+.env.bak_*
+cookie*.txt
+
+# 数据文件（含学生个人信息，禁止入库）
+data.db
+data.db.bak_*
+*.sqlite
+*.sqlite-*
+
+# 学生上传与系统产出（PII）
+uploads/
+backups/
+
+# OCR 语言包（体积大，本地维护）
+tessdata/
+*.traineddata
+*.traineddata.gz
+
+# 缓存与临时文件
+__pycache__/
+*.pyc
+.pytest_cache/
+.llm_cache/
+_tmp_*
+
+# 归档（仅本地保留）
+archive/
+scripts/archive/

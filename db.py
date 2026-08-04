@@ -24,7 +24,6 @@ PRICING = {
         "price": 0,
         "unit": "月",
         "monthly_quota": 1,
-        "needs_review": False,
         "description": "1 次入学诊断",
     },
     "basic": {
@@ -32,7 +31,6 @@ PRICING = {
         "price": 99,
         "unit": "月",
         "monthly_quota": 8,
-        "needs_review": False,
         "description": "每周 1 套卷完整循环，AI 自动通过",
     },
     "premium": {
@@ -40,45 +38,18 @@ PRICING = {
         "price": 299,
         "unit": "月",
         "monthly_quota": 16,
-        "needs_review": True,
-        "description": "每周 2 套卷完整循环 + 老师审核 + 家长反馈",
+        "description": "每周 2 套卷完整循环 + AI 即时出结果 + 家长反馈",
+    },
+    "unlimited": {
+        "label": "测试无限",
+        "price": 0,
+        "unit": "月",
+        "monthly_quota": 999999,
+        "unlimited": True,
+        "description": "测试账号，不限调用次数",
     },
 }
 
-
-def _migrate_db(conn: sqlite3.Connection) -> None:
-    """Run lightweight migrations for schema updates."""
-    # Add role column to admin_users if missing
-    cols = conn.execute("PRAGMA table_info(admin_users)").fetchall()
-    col_names = [c["name"] for c in cols]
-    if "role" not in col_names:
-        conn.execute("ALTER TABLE admin_users ADD COLUMN role TEXT DEFAULT 'teacher'")
-        conn.commit()
-
-    # Add subscription quota columns if missing
-    sub_cols = conn.execute("PRAGMA table_info(subscriptions)").fetchall()
-    sub_col_names = [c["name"] for c in sub_cols]
-    for col in ("monthly_quota", "used_count"):
-        if col not in sub_col_names:
-            conn.execute(f"ALTER TABLE subscriptions ADD COLUMN {col} INTEGER DEFAULT 0")
-            conn.commit()
-    if "reset_month" not in sub_col_names:
-        conn.execute("ALTER TABLE subscriptions ADD COLUMN reset_month TEXT")
-        conn.commit()
-    # Backfill existing subscriptions with quota from PRICING
-    for plan, info in PRICING.items():
-        conn.execute(
-            "UPDATE subscriptions SET monthly_quota = ? WHERE plan = ? AND (monthly_quota IS NULL OR monthly_quota = 0)",
-            [info["monthly_quota"], plan],
-        )
-    conn.commit()
-
-    # Add price column to subscriptions if missing
-    sub_cols = conn.execute("PRAGMA table_info(subscriptions)").fetchall()
-    sub_col_names = [c["name"] for c in sub_cols]
-    if "price" not in sub_col_names:
-        conn.execute("ALTER TABLE subscriptions ADD COLUMN price REAL DEFAULT 0")
-        conn.commit()
 
 def get_connection(db_path: str = DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
@@ -119,6 +90,10 @@ def _migrate_db(conn: sqlite3.Connection) -> None:
             conn.commit()
     if "reset_month" not in sub_col_names:
         conn.execute("ALTER TABLE subscriptions ADD COLUMN reset_month TEXT")
+        conn.commit()
+    # P3-16：price 列防御性迁移（原属第一个 _migrate_db 定义，该定义因重复被遮蔽）
+    if "price" not in sub_col_names:
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN price REAL DEFAULT 0")
         conn.commit()
     # Backfill existing subscriptions with quota and price from PRICING
     for plan, info in PRICING.items():
@@ -238,6 +213,68 @@ def _migrate_db(conn: sqlite3.Connection) -> None:
         """)
         conn.commit()
 
+    # ── P1: Cycle 状态机迁移（核心链路架构设计.md §3）──────────────
+    # weekly_records 扶正为 Cycle 表：新增 kind/stage/updated_at，
+    # 唯一约束扩展为 (student_id, week_start, kind)。
+    # SQLite 无法 ALTER 唯一约束，需重建表（数据量小，幂等）。
+    wr_cols = [c["name"] for c in conn.execute("PRAGMA table_info(weekly_records)").fetchall()]
+    if wr_cols and "kind" not in wr_cols:
+        conn.executescript("""
+            CREATE TABLE weekly_records_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL,
+                week_start DATE NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'weekly',
+                stage TEXT NOT NULL DEFAULT 'created',
+                paper_submitted INTEGER DEFAULT 0,
+                paper_analyzed INTEGER DEFAULT 0,
+                exercises_sent INTEGER DEFAULT 0,
+                exercises_completed INTEGER DEFAULT 0,
+                exercises_graded INTEGER DEFAULT 0,
+                report_sent INTEGER DEFAULT 0,
+                flashcard_sent INTEGER DEFAULT 0,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP,
+                FOREIGN KEY (student_id) REFERENCES students(id),
+                UNIQUE(student_id, week_start, kind)
+            );
+            INSERT INTO weekly_records_new (
+                id, student_id, week_start, kind, stage,
+                paper_submitted, paper_analyzed, exercises_sent, exercises_completed,
+                exercises_graded, report_sent, flashcard_sent, notes, created_at
+            )
+            SELECT id, student_id, week_start, 'weekly',
+                CASE
+                    WHEN report_sent = 1 THEN 'reported'
+                    WHEN exercises_sent = 1 THEN 'exercised'
+                    WHEN paper_analyzed = 1 THEN 'graded'
+                    WHEN paper_submitted = 1 THEN 'paper_received'
+                    ELSE 'created'
+                END,
+                paper_submitted, paper_analyzed, exercises_sent, exercises_completed,
+                exercises_graded, report_sent, flashcard_sent, notes, created_at
+            FROM weekly_records;
+            DROP TABLE weekly_records;
+            ALTER TABLE weekly_records_new RENAME TO weekly_records;
+        """)
+        conn.commit()
+
+    # ai_tasks 关联 Cycle（按 student_id + week_start 回填）
+    task_cols = [c["name"] for c in conn.execute("PRAGMA table_info(ai_tasks)").fetchall()]
+    if task_cols and "cycle_id" not in task_cols:
+        conn.execute("ALTER TABLE ai_tasks ADD COLUMN cycle_id INTEGER")
+        conn.execute("""
+            UPDATE ai_tasks SET cycle_id = (
+                SELECT wr.id FROM weekly_records wr
+                WHERE wr.student_id = ai_tasks.student_id
+                  AND wr.week_start = ai_tasks.week_start
+                ORDER BY wr.id LIMIT 1
+            )
+            WHERE week_start IS NOT NULL
+        """)
+        conn.commit()
+
     conn.commit()
 
 
@@ -341,10 +378,13 @@ def init_db(db_path: str = DB_PATH) -> None:
             FOREIGN KEY (student_id) REFERENCES students(id)
         );
 
+        -- weekly_records 即 Cycle 表（学习周期状态机，见 核心链路架构设计.md §3）
         CREATE TABLE IF NOT EXISTS weekly_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             student_id INTEGER NOT NULL,
             week_start DATE NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'weekly',
+            stage TEXT NOT NULL DEFAULT 'created',
             paper_submitted INTEGER DEFAULT 0,
             paper_analyzed INTEGER DEFAULT 0,
             exercises_sent INTEGER DEFAULT 0,
@@ -354,8 +394,9 @@ def init_db(db_path: str = DB_PATH) -> None:
             flashcard_sent INTEGER DEFAULT 0,
             notes TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP,
             FOREIGN KEY (student_id) REFERENCES students(id),
-            UNIQUE(student_id, week_start)
+            UNIQUE(student_id, week_start, kind)
         );
 
         CREATE TABLE IF NOT EXISTS payments (
@@ -397,6 +438,7 @@ def init_db(db_path: str = DB_PATH) -> None:
             task_type TEXT NOT NULL,
             status TEXT DEFAULT 'pending',
             parent_task_id INTEGER,
+            cycle_id INTEGER,
             input_data TEXT,
             output_data TEXT,
             current_step TEXT,
@@ -407,7 +449,8 @@ def init_db(db_path: str = DB_PATH) -> None:
             week_start DATE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             completed_at TIMESTAMP,
-            FOREIGN KEY (student_id) REFERENCES students(id)
+            FOREIGN KEY (student_id) REFERENCES students(id),
+            FOREIGN KEY (cycle_id) REFERENCES weekly_records(id)
         );
 
         -- ── LLM 用量 ─────────────────────────────
@@ -1502,13 +1545,14 @@ def update_task(task_id: int, updates: Dict[str, Any], db_path: str = DB_PATH) -
 
 
 def mark_task_done(task_id: int, output_data: Dict = None,
-                  needs_review: int = 0, db_path: str = DB_PATH) -> None:
+                   db_path: str = DB_PATH) -> None:
+    # P3-13：审核闸门移除，needs_review 恒 0（列保留以兼容历史数据）
     conn = get_connection(db_path)
     conn.execute("""
-        UPDATE ai_tasks SET status = 'done', output_data = ?, needs_review = ?,
+        UPDATE ai_tasks SET status = 'done', output_data = ?, needs_review = 0,
         progress = 100, completed_at = ?
         WHERE id = ?
-    """, [json.dumps(output_data or {}, ensure_ascii=False), needs_review, _now_iso(), task_id])
+    """, [json.dumps(output_data or {}, ensure_ascii=False), _now_iso(), task_id])
     conn.commit()
     conn.close()
 
@@ -1589,39 +1633,45 @@ def get_student_files(student_id: int, file_type: str = None,
 # ═══════════════════════════════════════════════════
 
 def get_or_create_weekly_record(student_id: int, week_start: str = None,
+                                kind: str = "weekly",
                                 db_path: str = DB_PATH) -> Dict[str, Any]:
+    """获取或创建 Cycle 记录（weekly_records 表，kind: weekly|diagnostic）。"""
     if week_start is None:
         week_start = get_week_start()
     conn = get_connection(db_path)
     row = conn.execute("""
-        SELECT * FROM weekly_records WHERE student_id = ? AND week_start = ?
-    """, [student_id, week_start]).fetchone()
+        SELECT * FROM weekly_records
+        WHERE student_id = ? AND week_start = ? AND kind = ?
+    """, [student_id, week_start, kind]).fetchone()
     if not row:
         conn.execute("""
-            INSERT OR IGNORE INTO weekly_records (student_id, week_start)
-            VALUES (?, ?)
-        """, [student_id, week_start])
+            INSERT OR IGNORE INTO weekly_records (student_id, week_start, kind)
+            VALUES (?, ?, ?)
+        """, [student_id, week_start, kind])
         conn.commit()
         row = conn.execute("""
-            SELECT * FROM weekly_records WHERE student_id = ? AND week_start = ?
-        """, [student_id, week_start]).fetchone()
+            SELECT * FROM weekly_records
+            WHERE student_id = ? AND week_start = ? AND kind = ?
+        """, [student_id, week_start, kind]).fetchone()
     conn.close()
     return dict(row)
 
 
 def update_weekly_record(student_id: int, week_start: str = None,
-                         db_path: str = DB_PATH, **fields) -> bool:
+                         kind: str = "weekly", db_path: str = DB_PATH,
+                         **fields) -> bool:
     if week_start is None:
         week_start = get_week_start()
     # ensure record exists
-    get_or_create_weekly_record(student_id, week_start, db_path)
+    get_or_create_weekly_record(student_id, week_start, kind, db_path)
     conn = get_connection(db_path)
+    fields["updated_at"] = _now_iso()
     set_clause = ", ".join(f"{k} = ?" for k in fields)
     values = list(fields.values())
     conn.execute(f"""
         UPDATE weekly_records SET {set_clause}
-        WHERE student_id = ? AND week_start = ?
-    """, values + [student_id, week_start])
+        WHERE student_id = ? AND week_start = ? AND kind = ?
+    """, values + [student_id, week_start, kind])
     conn.commit()
     conn.close()
     return True
@@ -2806,7 +2856,7 @@ def get_student_public_summary(code: str, db_path: str = DB_PATH) -> Optional[Di
     scores = get_score_history(student_id, limit=12, db_path=db_path)
 
     # Check-ins
-    check_ins = get_check_in_calendar(student_id, days=30, db_path=db_path)
+    check_ins = get_check_in_calendar(student_id, days=800, db_path=db_path)
 
     # Weekly activity
     weekly_rows = conn.execute("""
@@ -3693,9 +3743,6 @@ def get_operations_stats(db_path: str = DB_PATH) -> Dict[str, Any]:
     failed_tasks = conn.execute(
         "SELECT COUNT(*) FROM ai_tasks WHERE status = 'failed'"
     ).fetchone()[0]
-    pending_review = conn.execute(
-        "SELECT COUNT(*) FROM ai_tasks WHERE needs_review = 1 AND status = 'done'"
-    ).fetchone()[0]
 
     students_without_consent = conn.execute("""
         SELECT COUNT(*) FROM students s
@@ -3717,7 +3764,6 @@ def get_operations_stats(db_path: str = DB_PATH) -> Dict[str, Any]:
         "total_tasks": total_tasks,
         "failed_tasks": failed_tasks,
         "failure_rate": round(failed_tasks / max(total_tasks, 1) * 100, 1),
-        "pending_review": pending_review,
         "students_without_consent": students_without_consent,
         "pending_deletions": pending_deletions,
         "pending_safety_checks": pending_safety,
@@ -4072,56 +4118,29 @@ def cleanup_old_backups(daily_keep: int = 7, weekly_keep: int = 4,
 # ═══════════════════════════════════════════════════
 
 def get_teacher_workload_stats(db_path: str = DB_PATH) -> Dict[str, Any]:
-    """Get stats for teacher efficiency dashboard."""
+    """Get stats for teacher efficiency dashboard.
+
+    P3-13：审核闸门已移除，删除 pending_review / reviewed_* / recent_rejected
+    等审核口径统计；保留「本周待上传试卷」这一仍有意义的运营提醒。
+    """
     conn = get_connection(db_path)
-    today = date.today().isoformat()
     week_start = get_week_start()
-
-    # Pending review tasks today
-    pending_review = conn.execute("""
-        SELECT COUNT(*) FROM ai_tasks
-        WHERE needs_review = 1 AND status = 'done'
-    """).fetchone()[0]
-
-    # Reviewed today
-    reviewed_today = conn.execute("""
-        SELECT COUNT(*) FROM ai_tasks
-        WHERE status = 'done' AND needs_review = 0
-          AND date(completed_at) = date('now')
-    """).fetchone()[0]
-
-    # Reviewed this week
-    reviewed_this_week = conn.execute("""
-        SELECT COUNT(*) FROM ai_tasks
-        WHERE status = 'done' AND needs_review = 0
-          AND date(completed_at) >= ?
-    """, [week_start]).fetchone()[0]
 
     # Students needing paper upload this week
     pending_paper = conn.execute("""
         SELECT s.id, s.name, s.grade
         FROM students s
-        LEFT JOIN weekly_records wr ON wr.student_id = s.id AND wr.week_start = ?
+        LEFT JOIN weekly_records wr
+               ON wr.student_id = s.id AND wr.week_start = ? AND wr.kind = 'weekly'
         WHERE s.status = 'active'
           AND (wr.paper_submitted IS NULL OR wr.paper_submitted = 0)
         ORDER BY s.name
     """, [week_start]).fetchall()
 
-    # Recent rejected/re-run tasks
-    recent_rejected = conn.execute("""
-        SELECT COUNT(*) FROM ai_tasks
-        WHERE status = 'rejected'
-          AND date(completed_at) >= ?
-    """, [week_start]).fetchone()[0]
-
     conn.close()
 
     return {
-        "pending_review": pending_review,
-        "reviewed_today": reviewed_today,
-        "reviewed_this_week": reviewed_this_week,
         "pending_paper_uploads": [dict(r) for r in pending_paper],
-        "recent_rejected": recent_rejected,
     }
 
 
@@ -4536,12 +4555,14 @@ def create_student(data: Dict[str, Any], db_path: str = DB_PATH) -> int:
     ])
     student_id = cur.lastrowid
 
-    # Auto-create subscription
+    # Auto-create subscription（按 PRICING 填充额度，避免运行时建号额度为 0）
     plan = data.get("plan", "trial")
     conn.execute("""
-        INSERT OR REPLACE INTO subscriptions (student_id, plan, start_date, status)
-        VALUES (?, ?, date('now'), 'active')
-    """, [student_id, plan])
+        INSERT OR REPLACE INTO subscriptions
+            (student_id, plan, monthly_quota, reset_month, start_date, status)
+        VALUES (?, ?, ?, ?, date('now'), 'active')
+    """, [student_id, plan, PRICING.get(plan, {}).get("monthly_quota", 0),
+          date.today().strftime("%Y-%m")])
     conn.commit()
     conn.close()
     return student_id
@@ -4562,9 +4583,13 @@ def update_student(student_id: int, data: Dict[str, Any], db_path: str = DB_PATH
     plan = data.get("plan")
     if plan:
         conn.execute("""
-            INSERT OR REPLACE INTO subscriptions (student_id, plan, start_date, status)
-            VALUES (?, ?, COALESCE((SELECT start_date FROM subscriptions WHERE student_id=?), date('now')), 'active')
-        """, [student_id, plan, student_id])
+            INSERT OR REPLACE INTO subscriptions
+                (student_id, plan, monthly_quota, reset_month, start_date, status)
+            VALUES (?, ?, ?, ?,
+                    COALESCE((SELECT start_date FROM subscriptions WHERE student_id=?), date('now')),
+                    'active')
+        """, [student_id, plan, PRICING.get(plan, {}).get("monthly_quota", 0),
+              date.today().strftime("%Y-%m"), student_id])
     conn.commit()
     conn.close()
     return True
@@ -4691,10 +4716,11 @@ def get_dashboard_stats(db_path: str = DB_PATH) -> Dict[str, Any]:
         SELECT s.id, s.name, s.grade, sub.plan,
                wr.paper_submitted, wr.paper_analyzed, wr.exercises_sent,
                wr.exercises_completed, wr.exercises_graded, wr.report_sent,
-               wr.week_start
+               wr.week_start, wr.stage, wr.updated_at
         FROM students s
         LEFT JOIN subscriptions sub ON sub.student_id = s.id
-        LEFT JOIN weekly_records wr ON wr.student_id = s.id AND wr.week_start = ?
+        LEFT JOIN weekly_records wr
+               ON wr.student_id = s.id AND wr.week_start = ? AND wr.kind = 'weekly'
         WHERE s.status = 'active'
         ORDER BY s.name
     """, [monday]).fetchall()
@@ -4702,41 +4728,20 @@ def get_dashboard_stats(db_path: str = DB_PATH) -> Dict[str, Any]:
     plan_labels = {"trial": "体验", "basic": "基础版", "premium": "托管版"}
     pending_this_week = 0
     pending_list = []
-    review_queue = []
 
+    from domain import cycle as cycle_mod
     for row in pending_rows:
         plan = row["plan"] or "trial"
         rec = dict(row)
         rec["plan_label"] = plan_labels.get(plan, plan)
+        # P2-11：链路视角 —— 周期状态机当前态 + 卡住标记
+        rec["stage_label"] = cycle_mod.stage_label(rec.get("stage"))
+        rec["stuck"] = cycle_mod.is_stuck(rec)
         pending_list.append(rec)
         if not row["exercises_sent"]:
             pending_this_week += 1
 
-    # 待审核队列
-    review_rows = conn.execute("""
-        SELECT t.id, t.task_type, t.status, t.output_data, t.input_data,
-               t.completed_at, t.needs_review, s.name as student_name, s.grade
-        FROM ai_tasks t
-        JOIN students s ON s.id = t.student_id
-        WHERE t.needs_review = 1 AND t.status = 'done'
-        ORDER BY t.completed_at DESC
-        LIMIT 20
-    """).fetchall()
-    review_queue = [dict(r) for r in review_rows]
-
-    # Enrich review queue with correction counts
-    if review_queue:
-        task_ids = [r["id"] for r in review_queue]
-        placeholders = ",".join("?" for _ in task_ids)
-        corr_rows = conn.execute(f"""
-            SELECT task_id, COUNT(*) as cnt
-            FROM ai_corrections
-            WHERE task_id IN ({placeholders}) AND status = 'applied'
-            GROUP BY task_id
-        """, task_ids).fetchall()
-        corr_counts = {row["task_id"]: row["cnt"] for row in corr_rows}
-        for r in review_queue:
-            r["correction_count"] = corr_counts.get(r["id"], 0)
+    # P3-13：审核队列已删除（D1 决策：审核闸门移除，质量靠抽检+纠错回路）
 
     # 订阅到期/续费提醒
     expiring = get_expiring_subscriptions(days=7, db_path=db_path)
@@ -4765,7 +4770,6 @@ def get_dashboard_stats(db_path: str = DB_PATH) -> Dict[str, Any]:
         "pending_this_week": pending_this_week,
         "week_start": monday,
         "pending": pending_list,
-        "review_queue": review_queue,
         "expiring_subscriptions": expiring,
         "question_bank": qb_stats,
         "teacher_workload": teacher_stats,
@@ -4982,6 +4986,16 @@ def _ensure_quota_reset(conn: sqlite3.Connection, sub: Dict[str, Any]) -> Dict[s
     reset_month = sub.get("reset_month") or date.today().strftime("%Y-%m")
     current_month = date.today().strftime("%Y-%m")
     monthly_quota = sub.get("monthly_quota") or 0
+    # 兜底：历史/异常订阅额度为 0 时按 PRICING 回填（单一收口点）
+    if not monthly_quota:
+        plan_quota = PRICING.get(sub.get("plan", ""), {}).get("monthly_quota", 0)
+        if plan_quota:
+            monthly_quota = plan_quota
+            conn.execute(
+                "UPDATE subscriptions SET monthly_quota = ? WHERE student_id = ?",
+                [plan_quota, sub["student_id"]],
+            )
+            conn.commit()
     used_count = sub.get("used_count") or 0
     if reset_month != current_month:
         used_count = 0
@@ -5007,6 +5021,9 @@ def get_remaining_quota(student_id: int, db_path: str = DB_PATH) -> int:
         _ensure_quota_reset(conn, sub)
     finally:
         conn.close()
+    # 测试无限套餐：不限次数
+    if PRICING.get(sub["plan"], {}).get("unlimited"):
+        return 999999
     return max(0, sub["monthly_quota"] - sub["used_count"])
 
 
@@ -5030,6 +5047,9 @@ def consume_quota(student_id: int, db_path: str = DB_PATH) -> bool:
             return False
         sub = dict(row)
         _ensure_quota_reset(conn, sub)
+        # 测试无限套餐：不计数、不限制
+        if PRICING.get(sub["plan"], {}).get("unlimited"):
+            return True
         if sub["used_count"] >= sub["monthly_quota"]:
             return False
         conn.execute(
@@ -5042,21 +5062,20 @@ def consume_quota(student_id: int, db_path: str = DB_PATH) -> bool:
         conn.close()
 
 
-def get_plan_needs_review(student_id: int, db_path: str = DB_PATH) -> bool:
-    """Return whether tasks for this student should enter teacher review.
-
-    Controlled by setting 'review_all_plans':
-      - 'true' (default, cold-start): ALL plans require review before parent sees output
-      - 'false': fall back to per-plan PRICING.needs_review (only Premium)
-    """
-    review_all = get_setting("review_all_plans", db_path)
-    if review_all is None:
-        review_all = "true"  # cold-start default: review everything
-    if str(review_all).lower() in ("true", "1", "yes"):
-        return True
-    sub = get_subscription(student_id, db_path)
-    plan = sub.get("plan", "trial") if sub else "trial"
-    return PRICING.get(plan, {}).get("needs_review", False)
+def refund_quota(student_id: int, db_path: str = DB_PATH) -> bool:
+    """Refund one analysis quota (e.g. when a task failed after charging).
+    Returns True if a quota unit was actually refunded."""
+    conn = get_connection(db_path)
+    try:
+        cur = conn.execute(
+            "UPDATE subscriptions SET used_count = MAX(used_count - 1, 0) "
+            "WHERE student_id = ? AND used_count > 0",
+            [student_id],
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
 
 
 def get_expiring_subscriptions(days: int = 7, db_path: str = DB_PATH) -> List[Dict[str, Any]]:
