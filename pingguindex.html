@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox allow-scripts;">
+<title>拾阶而上 StepLearn — 功能说明（朱总审阅版）</title>
+<style>*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;padding:1.5rem;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.5;color:#1a1a1a;background:#fff}
+img,svg,video,canvas{max-width:100%;height:auto}
+pre,table{max-width:100%;overflow-x:auto}
+:where(a){color:#0969da}</style>
+</head>
+<body>
+<h1 style="text-align:center;margin-bottom:4px;font-size:28px;">拾阶而上 · StepLearn</h1>
+<p style="text-align:center;color:#666;font-size:14px;margin-top:0;">AI 个性化英语学习管理系统 — 功能说明</p>
+<p style="text-align:center;color:#999;font-size:12px;">文档版本 v1.0 · 2026-07-23 · 仅供朱总审阅</p>
+
+<hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
+
+<!-- 一句话定位 -->
+<section style="background:#f8f6f2;border-radius:12px;padding:20px 24px;margin-bottom:28px;">
+  <p style="font-size:16px;margin:0;line-height:1.7;">
+    <strong>一句话定位：</strong>家长每周拍一张孩子英语试卷照片，系统自动完成 OCR → 错题分析 → 同类题生成 → AI 批改 → 知识点追踪 → 家长周报，<strong>把老师数小时的工作压缩到几分钟</strong>，边际成本趋近于零。
+  </p>
+</section>
+
+<!-- 目录 -->
+<nav style="margin-bottom:28px;">
+  <strong style="font-size:14px;color:#888;">目录</strong>
+  <ol style="margin:8px 0 0;padding-left:20px;line-height:2;">
+    <li><a href="#s1">产品定位与目标用户</a></li>
+    <li><a href="#s2">核心功能全景</a></li>
+    <li><a href="#s3">用户角色与使用流程</a></li>
+    <li><a href="#s4">教学引擎：AI 闭环详解</a></li>
+    <li><a href="#s5">技术架构（高层）</a></li>
+    <li><a href="#s6">数据模型概要</a></li>
+    <li><a href="#s7">商业模式与收入结构</a></li>
+    <li><a href="#s8">竞争壁垒</a></li>
+    <li><a href="#s9">开发进度与里程碑</a></li>
+    <li><a href="#s10">待办事项与下一步</a></li>
+  </ol>
+</nav>
+
+<!-- Section 1 -->
+<h2 id="s1">一、产品定位与目标用户</h2>
+
+<table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+  <tr><td style="padding:8px 12px;background:#f9f7f4;font-weight:600;width:140px;border:1px solid #eee;">产品名称</td><td style="padding:8px 12px;border:1px solid #eee;">拾阶而上 / StepLearn</td></tr>
+  <tr><td style="padding:8px 12px;background:#f9f7f4;font-weight:600;border:1px solid #eee;">核心理念</td><td style="padding:8px 12px;border:1px solid #eee;">学习是一步步拾阶而上，周报里的每一点进步就是孩子走过的石阶</td></tr>
+  <tr><td style="padding:8px 12px;background:#f9f7f4;font-weight:600;border:1px solid #eee;">目标用户</td><td style="padding:8px 12px;border:1px solid #eee;">高中生家长（35-50 岁妈妈为主），孩子英语成绩中等或波动大</td></tr>
+  <tr><td style="padding:8px 12px;background:#f9f7f4;font-weight:600;border:1px solid #eee;">付费方</td><td style="padding:8px 12px;border:1px solid #eee;">家长（按月订阅 ¥99/月）</td></tr>
+  <tr><td style="padding:8px 12px;background:#f9f7f4;font-weight:600;border:1px solid #eee;">使用方</td><td style="padding:8px 12px;border:1px solid #eee;">老师（上传/审核）、家长（看报告）、学生（做题/看进度）</td></tr>
+  <tr><td style="padding:8px 12px;background:#f9f7f4;font-weight:600;border:1px solid #eee;">架构模式</td><td style="padding:8px 12px;border:1px solid #eee;">单租户自营（非多租户 SaaS），一家自营班</td></tr>
+  <tr><td style="padding:8px 12px;background:#f9f7f4;font-weight:600;border:1px solid #eee;">聚焦学科</td><td style="padding:8px 12px;border:1px solid #eee;">高中英语单科（高考必考 + 终身能力，LTV 是全科工具的 2-3 倍）</td></tr>
+</table>
+
+<p><strong>解决的核心痛点：</strong></p>
+<ul>
+  <li>家长看不懂错题背后的薄弱点，辅导时焦虑、冲突</li>
+  <li>报班后难以看到真实进步，老师反馈不及时</li>
+  <li>市面教辅标准化，无法针对孩子本周真实错题做精准训练</li>
+  <li>线下 1 对 1 辅导 ¥200-500/小时，普通家庭难以持续</li>
+</ul>
+
+<!-- Section 2 -->
+<h2 id="s2">二、核心功能全景</h2>
+
+<p>系统已实现 <strong>5 大阶段、13 个功能模块</strong>，覆盖从入学到毕业的全生命周期。</p>
+
+<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:14px;">
+  <thead>
+    <tr style="background:#f0ece6;">
+      <th style="padding:10px 12px;text-align:left;border:1px solid #ddd;">模块</th>
+      <th style="padding:10px 12px;text-align:left;border:1px solid #ddd;">功能点</th>
+      <th style="padding:10px 12px;text-align:left;border:1px solid #ddd;">状态</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;" rowspan="3">入学诊断</td><td style="padding:8px 12px;border:1px solid #eee;">上传历史试卷 → OCR → AI 分析错题</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;">生成初始学习方案 + 薄弱点矩阵</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;">四步画像采集（英语学情/学习特质/目标支持/词汇量测评）</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+
+    <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;" rowspan="3">每周循环</td><td style="padding:8px 12px;border:1px solid #eee;">Stage A：本周试卷 → AI 出题 → 生成专属练习题</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;">Stage B：学生答案 → AI 批改 → 更新掌握度</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;">批改反馈报告 + 方案周度更新</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+
+    <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;" rowspan="3">错题本与练习</td><td style="padding:8px 12px;border:1px solid #eee;">错题自动沉淀（知识点/难度/掌握度追踪）</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;">AI 生成同类题 → 入题库 → 优先复用</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;">打卡日历 + 学习进度可视化</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+
+    <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;" rowspan="3">家长触达</td><td style="padding:8px 12px;border:1px solid #eee;">学生公开页（无需登录，查看报告/错题/进度）</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;">周报：薄弱点 + 已攻克知识点 + 沟通话术</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;">转介绍/裂变（邀请有礼、成果海报分享）</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+
+    <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;" rowspan="3">老师效率</td><td style="padding:8px 12px;border:1px solid #eee;">审核队列（一键通过 / 驳回重跑）</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;">批量审核 + 老师工作台 + 待上传提醒</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;">老师纠错 → 模式沉淀 → LLM 提示增强</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+
+    <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;" rowspan="4">运营与合规</td><td style="padding:8px 12px;border:1px solid #eee;">订阅计费（手动收款 + 到期提醒 + 续费）</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;">成本护栏（按学生归集 LLM 成本 + 预算熔断）</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;">数据合规（家长授权 + 数据删除 + 审计日志）</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;">可观测性（任务监控 + 成本告警 + 自动备份）</td><td style="padding:8px 12px;border:1px solid #eee;">✅ 已完成</td></tr>
+  </tbody>
+</table>
+
+<!-- Section 3 -->
+<h2 id="s3">三、用户角色与使用流程</h2>
+
+<h3 style="font-size:15px;">3.1 三角色协作模型</h3>
+
+<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;">
+  <div style="flex:1;min-width:200px;background:#f8f6f2;border-radius:10px;padding:16px;">
+    <strong>👩‍🏫 老师（运营人员）</strong>
+    <ul style="margin:8px 0 0;padding-left:18px;font-size:14px;">
+      <li>添加学生、上传试卷</li>
+      <li>审核 AI 输出（诊断/练习题/批改）</li>
+      <li>纠错沉淀、题库管理</li>
+      <li>发送报告链接给家长</li>
+    </ul>
+  </div>
+  <div style="flex:1;min-width:200px;background:#f0f5ff;border-radius:10px;padding:16px;">
+    <strong>👩 家长（付费方）</strong>
+    <ul style="margin:8px 0 0;padding-left:18px;font-size:14px;">
+      <li>收到报告链接（无需下载 App）</li>
+      <li>查看诊断报告、周报、错题</li>
+      <li>看到孩子每周进步轨迹</li>
+      <li>按月/季/年订阅付费</li>
+    </ul>
+  </div>
+  <div style="flex:1;min-width:200px;background:#f0faf0;border-radius:10px;padding:16px;">
+    <strong>🎓 学生（使用者）</strong>
+    <ul style="margin:8px 0 0;padding-left:18px;font-size:14px;">
+      <li>做专属练习题（只练不会的）</li>
+      <li>拍照上传答案</li>
+      <li>查看错题本和打卡进度</li>
+      <li>收到书写规范性反馈</li>
+    </ul>
+  </div>
+</div>
+
+<h3 style="font-size:15px;">3.2 完整使用流程</h3>
+
+<div style="background:#fafafa;border-radius:10px;padding:16px 20px;font-size:14px;line-height:1.8;overflow-x:auto;">
+<pre style="margin:0;white-space:pre-wrap;font-family:inherit;">
+┌─────────────────────────────────────────────────────────────────────┐
+│ 入学（一次性）                                                       │
+│                                                                     │
+│  添加学生档案 → 四步画像采集 → 上传历史试卷 → AI 诊断 → 老师审核     │
+│                                    ↓                                │
+│                          生成初始学习方案 + 诊断报告                   │
+│                                    ↓                                │
+│                       发送公开页链接给家长 /s/<code>                  │
+└─────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ 每周循环（周六/日）                                                   │
+│                                                                     │
+│  Stage A:                                                           │
+│  家长拍本周试卷 → 上传 → OCR → AI 分析错题 → 生成同类练习题 → 审核   │
+│                                    ↓                                │
+│  Stage B:                                                           │
+│  学生做完练习 → 家长拍答案上传 → OCR → AI 批改 → 更新掌握度 → 审核   │
+│                                    ↓                                │
+│  家长收到周报：本周薄弱点 + 已攻克知识点 + 沟通话术                    │
+└─────────────────────────────────────────────────────────────────────┘
+</pre>
+</div>
+
+<!-- Section 4 -->
+<h2 id="s4">四、教学引擎：AI 闭环详解</h2>
+
+<p>系统的核心不是「AI 聊天答疑」，而是将完整的 <strong>教学闭环</strong> 自动化：</p>
+
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0;align-items:center;font-size:14px;">
+  <span style="background:#e8d5c4;color:#5a3e2b;padding:6px 14px;border-radius:20px;font-weight:600;">📷 拍照上传</span>
+  <span style="color:#999;">→</span>
+  <span style="background:#d4e8d4;color:#2b5a2b;padding:6px 14px;border-radius:20px;font-weight:600;">🔍 OCR 识别</span>
+  <span style="color:#999;">→</span>
+  <span style="background:#d4d4e8;color:#2b2b5a;padding:6px 14px;border-radius:20px;font-weight:600;">🧠 错题分析</span>
+  <span style="color:#999;">→</span>
+  <span style="background:#e8e8d4;color:#5a5a2b;padding:6px 14px;border-radius:20px;font-weight:600;">📝 同类题生成</span>
+  <span style="color:#999;">→</span>
+  <span style="background:#e8d4d4;color:#5a2b2b;padding:6px 14px;border-radius:20px;font-weight:600;">✅ AI 批改</span>
+  <span style="color:#999;">→</span>
+  <span style="background:#d4e8e8;color:#2b5a5a;padding:6px 14px;border-radius:20px;font-weight:600;">📊 掌握追踪</span>
+  <span style="color:#999;">→</span>
+  <span style="background:#f0ece6;color:#5a4a3b;padding:6px 14px;border-radius:20px;font-weight:600;">📋 家长周报</span>
+</div>
+
+<h3 style="font-size:15px;">4.1 OCR 双引擎策略</h3>
+<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px;">
+  <tr style="background:#f9f7f4;">
+    <th style="padding:8px 12px;text-align:left;border:1px solid #eee;">引擎</th>
+    <th style="padding:8px 12px;text-align:left;border:1px solid #eee;">能力</th>
+    <th style="padding:8px 12px;text-align:left;border:1px solid #eee;">角色</th>
+  </tr>
+  <tr>
+    <td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">Kimi Vision（多模态 LLM）</td>
+    <td style="padding:8px 12px;border:1px solid #eee;">手写识别、复杂排版理解、公式/图表</td>
+    <td style="padding:8px 12px;border:1px solid #eee;">主力引擎，准确率 ~90%</td>
+  </tr>
+  <tr>
+    <td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">Tesseract.js（传统 OCR）</td>
+    <td style="padding:8px 12px;border:1px solid #eee;">印刷体识别、无需网络</td>
+    <td style="padding:8px 12px;border:1px solid #eee;">自动降级兜底</td>
+  </tr>
+</table>
+
+<p><strong>关键设计决策：</strong>识别率 ~90% 不是 bug，是物理定律。每个人的字迹独一无二，100% 识别率在物理上不可能。系统将识别失败转化为教学杠杆——「你的字母 a 没有闭合，导致机器误判为 u。高考电子阅卷比本系统更严格。」</p>
+
+<h3 style="font-size:15px;">4.2 掌握度模型</h3>
+<ul>
+  <li>每道错题有 <code>mastery_level</code> 字段和 <code>consecutive_correct</code> 计数器</li>
+  <li>连续答对 <strong>2 次</strong> → 标记为「已掌握」</li>
+  <li>答错 → 重置计数器，继续出现在后续练习中</li>
+  <li>数据飞轮：使用越久，错题本越完整，AI 判断越精准</li>
+</ul>
+
+<h3 style="font-size:15px;">4.3 LLM 多后端架构</h3>
+<p>已接入 5+ 家供应商，任意一家不可用可秒级切换：</p>
+<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px;">
+  <tr style="background:#f9f7f4;">
+    <th style="padding:8px 12px;border:1px solid #eee;">供应商</th>
+    <th style="padding:8px 12px;border:1px solid #eee;">接口协议</th>
+    <th style="padding:8px 12px;border:1px solid #eee;">用途</th>
+  </tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;">Kimi（月之暗面）</td><td style="padding:8px 12px;border:1px solid #eee;">Anthropic 兼容</td><td style="padding:8px 12px;border:1px solid #eee;">OCR Vision + 文本分析（当前主力）</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;">DeepSeek</td><td style="padding:8px 12px;border:1px solid #eee;">OpenAI 兼容</td><td style="padding:8px 12px;border:1px solid #eee;">文本分析备选</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;">MiniMax</td><td style="padding:8px 12px;border:1px solid #eee;">OpenAI 兼容</td><td style="padding:8px 12px;border:1px solid #eee;">文本分析备选</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;">通义千问 Qwen</td><td style="padding:8px 12px;border:1px solid #eee;">OpenAI 兼容</td><td style="padding:8px 12px;border:1px solid #eee;">文本分析备选</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;">GLM（智谱）</td><td style="padding:8px 12px;border:1px solid #eee;">OpenAI 兼容</td><td style="padding:8px 12px;border:1px solid #eee;">文本分析备选</td></tr>
+</table>
+
+<!-- Section 5 -->
+<h2 id="s5">五、技术架构（高层）</h2>
+
+<div style="background:#fafafa;border-radius:10px;padding:16px 20px;font-size:13px;overflow-x:auto;">
+<pre style="margin:0;white-space:pre-wrap;font-family:monospace;">
+┌──────────────────────────────────────────────────────────────┐
+│  前端：原生 HTML/CSS/JS（内联于 app.py）                       │
+│  管理后台 / 学生公开页 /s/&lt;code&gt;                              │
+└────────────────────────┬─────────────────────────────────────┘
+                         │ REST API
+┌────────────────────────▼─────────────────────────────────────┐
+│  app.py — Flask 路由（~1000 行）                               │
+│  40+ API 端点，覆盖学生/任务/审核/合规/监控/备份               │
+└────────────────────────┬─────────────────────────────────────┘
+                         │ enqueue_task()
+┌────────────────────────▼─────────────────────────────────────┐
+│  pipeline_worker.py — 3 线程 Worker Pool                      │
+│  注册表模式，新增任务类型不改 worker                            │
+└──────┬─────────────────────────────────┬─────────────────────┘
+       │                                 │
+┌──────▼──────────────┐    ┌─────────────▼───────────────────┐
+│ onboarding_pipeline │    │ weekly_pipeline                  │
+│ （入学诊断）         │    │ （Stage A 出题 / Stage B 批改）  │
+└──────┬──────────────┘    └─────────────┬───────────────────┘
+       │                                 │
+       └──────────┬──────────────────────┘
+                  │
+    ┌─────────────▼──────────────┐    ┌──────────────────────┐
+    │ skills_bridge.py           │    │ report_templates.py  │
+    │ OCR + LLM 业务封装         │    │ HTML 报告渲染        │
+    └─────────────┬──────────────┘    └──────────────────────┘
+                  │
+    ┌─────────────▼──────────────┐    ┌──────────────────────┐
+    │ llm.py                     │    │ db.py                │
+    │ 多后端/重试/校验/缓存/计费 │    │ SQLite（WAL 模式）   │
+    └────────────────────────────┘    │ 14 张表              │
+                                      └──────────────────────┘
+</pre>
+</div>
+
+<h3 style="font-size:15px;">技术选型摘要</h3>
+<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px;">
+  <tr style="background:#f9f7f4;">
+    <th style="padding:8px 12px;border:1px solid #eee;width:140px;">层</th>
+    <th style="padding:8px 12px;border:1px solid #eee;">选型</th>
+    <th style="padding:8px 12px;border:1px solid #eee;">说明</th>
+  </tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">后端</td><td style="padding:8px 12px;border:1px solid #eee;">Python 3 + Flask</td><td style="padding:8px 12px;border:1px solid #eee;">轻量、无重型框架依赖</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">数据库</td><td style="padding:8px 12px;border:1px solid #eee;">SQLite（WAL 模式）</td><td style="padding:8px 12px;border:1px solid #eee;">零运维；1000 用户后迁移 PostgreSQL</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">异步任务</td><td style="padding:8px 12px;border:1px solid #eee;">threading + Queue（3 Worker）</td><td style="padding:8px 12px;border:1px solid #eee;">无外部依赖（无 Celery/Redis）</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">LLM</td><td style="padding:8px 12px;border:1px solid #eee;">Kimi / DeepSeek / MiniMax / Qwen / GLM</td><td style="padding:8px 12px;border:1px solid #eee;">多后端热备，指数退避重试</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">OCR</td><td style="padding:8px 12px;border:1px solid #eee;">Vision LLM + Tesseract.js</td><td style="padding:8px 12px;border:1px solid #eee;">Vision 优先，Tesseract 自动降级</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">前端</td><td style="padding:8px 12px;border:1px solid #eee;">原生 HTML/CSS/JS</td><td style="padding:8px 12px;border:1px solid #eee;">内联于 app.py，无构建步骤</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">代码量</td><td style="padding:8px 12px;border:1px solid #eee;">~4,000 行 Python</td><td style="padding:8px 12px;border:1px solid #eee;">8 个核心模块，一人独立完成</td></tr>
+</table>
+
+<!-- Section 6 -->
+<h2 id="s6">六、数据模型概要</h2>
+
+<p>系统包含 <strong>14 张数据表</strong>，分为 5 个域：</p>
+
+<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px;">
+  <thead>
+    <tr style="background:#f0ece6;">
+      <th style="padding:8px 12px;border:1px solid #ddd;">域</th>
+      <th style="padding:8px 12px;border:1px solid #ddd;">表</th>
+      <th style="padding:8px 12px;border:1px solid #ddd;">说明</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">业务域</td><td style="padding:8px 12px;border:1px solid #eee;">students, subscriptions, payments, admin_users</td><td style="padding:8px 12px;border:1px solid #eee;">学生档案、订阅计费、管理员账号</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">教学域</td><td style="padding:8px 12px;border:1px solid #eee;">mistakes, practice_records, practice_sessions, learning_plans, plan_updates</td><td style="padding:8px 12px;border:1px solid #eee;">错题、练习、掌握度、学习方案</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">流程域</td><td style="padding:8px 12px;border:1px solid #eee;">ai_tasks, files, weekly_records</td><td style="padding:8px 12px;border:1px solid #eee;">AI 任务状态机、文件管理、周度流程</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">成本域</td><td style="padding:8px 12px;border:1px solid #eee;">llm_usage_log</td><td style="padding:8px 12px;border:1px solid #eee;">每次 LLM 调用的 token/成本/耗时</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">安全合规域</td><td style="padding:8px 12px;border:1px solid #eee;">aigc_safety_checks, ai_corrections, ai_feedback_patterns, alerts, backups, audit_logs</td><td style="padding:8px 12px;border:1px solid #eee;">内容抽检、纠错、告警、备份、审计</td></tr>
+  </tbody>
+</table>
+
+<!-- Section 7 -->
+<h2 id="s7">七、商业模式与收入结构</h2>
+
+<h3 style="font-size:15px;">7.1 收入来源</h3>
+<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px;">
+  <tr style="background:#f9f7f4;">
+    <th style="padding:8px 12px;border:1px solid #eee;">产品</th>
+    <th style="padding:8px 12px;border:1px solid #eee;">价格</th>
+    <th style="padding:8px 12px;border:1px solid #eee;">定位</th>
+  </tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;">单次诊断</td><td style="padding:8px 12px;border:1px solid #eee;">¥9.9</td><td style="padding:8px 12px;border:1px solid #eee;">获客入口，低门槛体验</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;">首月体验</td><td style="padding:8px 12px;border:1px solid #eee;">¥49</td><td style="padding:8px 12px;border:1px solid #eee;">转化钩子</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">月度订阅</td><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">¥99/月</td><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">主营收产品</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;">季度订阅</td><td style="padding:8px 12px;border:1px solid #eee;">¥249/季（≈¥83/月）</td><td style="padding:8px 12px;border:1px solid #eee;">提升预付和留存</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;">年度订阅</td><td style="padding:8px 12px;border:1px solid #eee;">¥799/年（≈¥66/月）</td><td style="padding:8px 12px;border:1px solid #eee;">锁定长期用户</td></tr>
+</table>
+
+<h3 style="font-size:15px;">7.2 单位经济学</h3>
+<div style="background:#f8f6f2;border-radius:10px;padding:16px 20px;margin-bottom:16px;">
+  <table style="width:100%;font-size:14px;">
+    <tr><td style="padding:4px 0;">单用户月度 AI 成本</td><td style="padding:4px 0;text-align:right;font-weight:600;">¥1.5 – 3</td></tr>
+    <tr><td style="padding:4px 0;">月费（标准）</td><td style="padding:4px 0;text-align:right;font-weight:600;">¥99</td></tr>
+    <tr><td style="padding:4px 0;">边际利润率</td><td style="padding:4px 0;text-align:right;font-weight:600;">96%</td></tr>
+    <tr><td style="padding:4px 0;">毛利率（规模化后）</td><td style="padding:4px 0;text-align:right;font-weight:600;">87%+</td></tr>
+    <tr><td style="padding:4px 0;">LTV（基准，8 个月留存）</td><td style="padding:4px 0;text-align:right;font-weight:600;">¥600</td></tr>
+    <tr><td style="padding:4px 0;">CAC（早期，内容+裂变）</td><td style="padding:4px 0;text-align:right;font-weight:600;">¥10 – 20</td></tr>
+    <tr><td style="padding:4px 0;">LTV / CAC</td><td style="padding:4px 0;text-align:right;font-weight:600;">12x</td></tr>
+    <tr><td style="padding:4px 0;">Break-even（当前）</td><td style="padding:4px 0;text-align:right;font-weight:600;">30 个付费用户</td></tr>
+  </table>
+</div>
+
+<h3 style="font-size:15px;">7.3 收入预测</h3>
+<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px;">
+  <tr style="background:#f0ece6;">
+    <th style="padding:8px 12px;border:1px solid #ddd;"></th>
+    <th style="padding:8px 12px;border:1px solid #ddd;">Year 1</th>
+    <th style="padding:8px 12px;border:1px solid #ddd;">Year 2</th>
+    <th style="padding:8px 12px;border:1px solid #ddd;">Year 3</th>
+  </tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">年末付费用户</td><td style="padding:8px 12px;border:1px solid #eee;">1,600</td><td style="padding:8px 12px;border:1px solid #eee;">7,000</td><td style="padding:8px 12px;border:1px solid #eee;">30,000</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">年收入</td><td style="padding:8px 12px;border:1px solid #eee;">¥77 万</td><td style="padding:8px 12px;border:1px solid #eee;">¥510 万</td><td style="padding:8px 12px;border:1px solid #eee;">¥2,200 万</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">毛利率</td><td style="padding:8px 12px;border:1px solid #eee;">80%</td><td style="padding:8px 12px;border:1px solid #eee;">87%+</td><td style="padding:8px 12px;border:1px solid #eee;">90%+</td></tr>
+</table>
+
+<!-- Section 8 -->
+<h2 id="s8">八、竞争壁垒</h2>
+
+<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px;">
+  <tr style="background:#f0ece6;">
+    <th style="padding:10px 12px;border:1px solid #ddd;width:160px;">壁垒类型</th>
+    <th style="padding:10px 12px;border:1px solid #ddd;">说明</th>
+  </tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">全链路自动化</td><td style="padding:8px 12px;border:1px solid #eee;">从拍照到周报，全流程 AI 驱动，无需真人老师。竞品多为「题库+答疑」，缺少完整教学闭环。</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">真实试卷驱动</td><td style="padding:8px 12px;border:1px solid #eee;">基于孩子本周真实错题生成训练，非通用题库。个性化程度远超标准化教辅。</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">数据飞轮</td><td style="padding:12px;border:1px solid #eee;">使用越久，错题本越完整，掌握度模型越精准。竞品难以短期复制。</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">英语单科 LTV 优势</td><td style="padding:8px 12px;border:1px solid #eee;">英语是终身能力，平均留存 8 个月（全科工具仅 3 个月），LTV 是全科的 2-3 倍。</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">成本结构优势</td><td style="padding:8px 12px;border:1px solid #eee;">AI 边际成本 ¥1.5-3/月，且随模型降价持续下降。5+ 供应商热备，天然受益于 AI 价格战。</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;font-weight:600;">识别缺口转化</td><td style="padding:8px 12px;border:1px solid #eee;">将 OCR 识别失败转化为书写教学反馈，模拟高考电子阅卷严苛。竞品用 AI 猜测掩盖缺口，我们诚实暴露问题。</td></tr>
+</table>
+
+<!-- Section 9 -->
+<h2 id="s9">九、开发进度与里程碑</h2>
+
+<div style="margin-bottom:20px;">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+    <span style="background:#4caf50;color:white;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;">Phase 1</span>
+    <span style="font-size:14px;">入学诊断流水线（含审核、驳回重跑、家长公开页）</span>
+    <span style="color:#4caf50;font-size:13px;font-weight:600;">✅</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+    <span style="background:#4caf50;color:white;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;">Phase 2</span>
+    <span style="font-size:14px;">每周循环流水线（Stage A 出题 + Stage B 批改 + 掌握追踪）</span>
+    <span style="color:#4caf50;font-size:13px;font-weight:600;">✅</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+    <span style="background:#4caf50;color:white;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;">Phase 3</span>
+    <span style="font-size:14px;">上线收钱闭环（登录鉴权 + 订阅计费 + 成本护栏）</span>
+    <span style="color:#4caf50;font-size:13px;font-weight:600;">✅</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+    <span style="background:#4caf50;color:white;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;">Phase 4</span>
+    <span style="font-size:14px;">留存与增长（学情看板 + 错题本 + 题库 + 老师效率工具 + 裂变）</span>
+    <span style="color:#4caf50;font-size:13px;font-weight:600;">✅</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+    <span style="background:#4caf50;color:white;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;">Phase 5</span>
+    <span style="font-size:14px;">合规与运营成熟度（数据合规 + AI 安全 + 可观测性 + 自动备份）</span>
+    <span style="color:#4caf50;font-size:13px;font-weight:600;">✅</span>
+  </div>
+</div>
+
+<p><strong>产品已完成全部 5 个阶段的开发，进入商业化验证期。</strong>底层 AI 教学引擎已就绪，代码量约 4,000 行 Python，一人独立完成。</p>
+
+<!-- Section 10 -->
+<h2 id="s10">十、待办事项与下一步</h2>
+
+<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px;">
+  <tr style="background:#f0ece6;">
+    <th style="padding:8px 12px;border:1px solid #ddd;width:60px;">优先级</th>
+    <th style="padding:8px 12px;border:1px solid #ddd;">事项</th>
+    <th style="padding:8px 12px;border:1px solid #ddd;">说明</th>
+  </tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;text-align:center;">🔴 P0</td><td style="padding:8px 12px;border:1px solid #eee;">移动端 H5 拍照诊断</td><td style="padding:8px 12px;border:1px solid #eee;">家长用手机拍照 → 出诊断报告，是付费闭环的前提</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;text-align:center;">🔴 P0</td><td style="padding:8px 12px;border:1px solid #eee;">微信支付接入</td><td style="padding:8px 12px;border:1px solid #eee;">当前线下收款，需接入微信支付实现自助下单和自动续费</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;text-align:center;">🟡 P1</td><td style="padding:8px 12px;border:1px solid #eee;">冷启动验证</td><td style="padding:8px 12px;border:1px solid #eee;">20 位家长微信群 → ¥9.9 诊断 → ¥99/月订阅转化</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;text-align:center;">🟡 P1</td><td style="padding:8px 12px;border:1px solid #eee;">小红书/抖音内容获客</td><td style="padding:8px 12px;border:1px solid #eee;">每周 3-5 条真实案例内容，验证 CAC</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;text-align:center;">🟢 P2</td><td style="padding:8px 12px;border:1px solid #eee;">PostgreSQL 迁移</td><td style="padding:8px 12px;border:1px solid #eee;">1000 用户后从 SQLite 迁移到 PostgreSQL</td></tr>
+  <tr><td style="padding:8px 12px;border:1px solid #eee;text-align:center;">🟢 P2</td><td style="padding:8px 12px;border:1px solid #eee;">扩科（数学）</td><td style="padding:8px 12px;border:12px;border:1px solid #eee;">英语单科跑通后横向复制，提升 ARPU</td></tr>
+</table>
+
+<hr style="border:none;border-top:1px solid #eee;margin:28px 0;">
+
+<section style="background:#f8f6f2;border-radius:12px;padding:20px 24px;">
+  <p style="font-size:15px;margin:0 0 8px;font-weight:600;">总结</p>
+  <ul style="margin:0;padding-left:20px;line-height:1.8;">
+    <li><strong>产品已建成</strong>：5 个阶段全部完成，~4,000 行代码，不是 PPT</li>
+    <li><strong>技术壁垒已建立</strong>：全链路 AI 教学引擎 + 多 LLM 热备 + 数据飞轮</li>
+    <li><strong>单位经济健康</strong>：96% 边际利润率，LTV/CAC = 12x，30 人即盈亏平衡</li>
+    <li><strong>下一步明确</strong>：移动端 H5 + 微信支付 → 冷启动验证 → 内容获客放量</li>
+    <li><strong>资金用途清晰</strong>：不用于研发试错（已完成），用于获客放量</li>
+  </ul>
+</section>
+
+<p style="text-align:center;color:#999;font-size:12px;margin-top:24px;">— 文档结束 · 如需产品演示或详细尽调数据包，请随时安排 —</p>
+
+</body>
+</html>

@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>拾阶而上 · StepLearn — 产品介绍</title>
+<style>
+  :root {
+    --bg:#f8f7f4; --bg-alt:#f1f0ec; --card:#ffffff;
+    --text:#1a1a1a; --text-alt:#37352f; --sub:#6b6b6b; --mute:#9b9b9b;
+    --accent:#e07b4b; --accent-hover:#d06a3a; --accent-light:#fef3ed;
+    --green:#0f7b4e; --green-light:#effaf3;
+    --red:#d93a46; --red-light:#fef4f4;
+    --blue:#4b8dc7; --blue-light:#eef5fb;
+    --border:#e8e6e1;
+    --shadow-sm:0 1px 2px rgba(0,0,0,.03);
+    --shadow:0 1px 3px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.02);
+    --shadow-lg:0 4px 24px rgba(0,0,0,.08);
+    --radius:10px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:var(--bg);
+    color:var(--text-alt);
+    font-family:ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size:.875rem; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .page { max-width:700px; margin:0 auto; padding:0 20px 56px; }
+
+  /* ===== Hero ===== */
+  .hero {
+    text-align:center;
+    padding:48px 20px 40px;
+    background:linear-gradient(180deg, #fef3ed 0%, var(--bg) 100%);
+    border-radius:0 0 24px 24px;
+    margin:0 -20px 32px;
+  }
+  .hero-badge {
+    display:inline-block; padding:4px 14px; border-radius:100px;
+    background:var(--accent-light); color:var(--accent-hover);
+    font-size:.75rem; font-weight:600; letter-spacing:.5px;
+    margin-bottom:16px;
+  }
+  .hero h1 {
+    font-size:1.5rem; font-weight:700; color:var(--text); line-height:1.3;
+    margin-bottom:12px;
+  }
+  .hero h1 .en { color:var(--accent); font-weight:700; }
+  .hero-sub {
+    color:var(--sub); font-size:.95rem; max-width:520px; margin:0 auto 28px;
+  }
+  .hero-sub strong { color:var(--text-alt); font-weight:600; }
+  .stairs-wrap {
+    display:flex; flex-direction:column; align-items:center; gap:10px;
+    margin:0 auto; max-width:320px;
+  }
+  .stairs { display:flex; flex-direction:column; align-items:flex-end; gap:10px; width:100%; }
+  .stair {
+    height:30px; border-radius:8px;
+    background:linear-gradient(90deg, var(--accent-hover), var(--accent));
+    box-shadow:var(--shadow-sm);
+    position:relative;
+  }
+  .stair::after {
+    content:"·"; position:absolute; right:-14px; top:50%; transform:translateY(-50%);
+    color:var(--accent); font-size:1.4rem; font-weight:700;
+  }
+  .stair.s1 { width:46%; }
+  .stair.s2 { width:62%; }
+  .stair.s3 { width:78%; }
+  .stair.s4 { width:94%; }
+  .stair-top { color:var(--accent); font-size:1.3rem; line-height:1; margin-top:-2px; }
+  .stairs-caption { color:var(--mute); font-size:.75rem; }
+
+  /* ===== Sections ===== */
+  section { margin-bottom:40px; }
+  .sec-title {
+    display:flex; align-items:center; gap:10px;
+    font-size:1.15rem; font-weight:600; color:var(--text);
+    border-left:3px solid var(--accent); padding-left:12px;
+    margin-bottom:16px;
+  }
+  .sec-title .ico { font-size:1.05rem; }
+
+  .card {
+    background:var(--card); border-radius:var(--radius);
+    padding:20px; box-shadow:var(--shadow);
+  }
+  .card + .card { margin-top:16px; }
+
+  /* 定位 */
+  .position-list { list-style:none; }
+  .position-list li {
+    display:flex; gap:10px; padding:10px 0;
+    border-bottom:1px solid var(--border);
+    font-size:.9rem;
+  }
+  .position-list li:last-child { border-bottom:none; padding-bottom:0; }
+  .position-list li:first-child { padding-top:0; }
+  .position-list .tag {
+    flex-shrink:0; min-width:84px; text-align:center;
+    padding:2px 10px; border-radius:100px;
+    font-size:.72rem; font-weight:600; height:fit-content;
+    background:var(--accent-light); color:var(--accent-hover);
+  }
+  .position-list .tag.green { background:var(--green-light); color:var(--green); }
+  .position-list .tag.blue { background:var(--blue-light); color:var(--blue); }
+
+  /* 价值链 */
+  .chain {
+    display:grid; grid-template-columns:repeat(5, 1fr); gap:8px;
+    align-items:stretch;
+  }
+  .chain-node {
+    background:var(--card); border-radius:var(--radius);
+    padding:14px 10px; box-shadow:var(--shadow);
+    text-align:center; position:relative;
+  }
+  .chain-node .ico { font-size:1.4rem; display:block; margin-bottom:6px; }
+  .chain-node .t {
+    font-size:.78rem; font-weight:600; color:var(--text);
+    line-height:1.4;
+  }
+  .chain-node .s { font-size:.68rem; color:var(--mute); margin-top:4px; line-height:1.4; }
+  .chain-node.hl { background:var(--accent-light); }
+  .chain-node.hl .t { color:var(--accent-hover); }
+  .chain-arrow {
+    align-self:center; color:var(--accent); font-size:1rem; font-weight:700;
+    text-align:center;
+  }
+
+  /* 使用流程 */
+  .flow-step { display:flex; gap:16px; }
+  .flow-num {
+    flex-shrink:0; width:44px; height:44px; border-radius:12px;
+    background:var(--accent-light); color:var(--accent-hover);
+    display:flex; align-items:center; justify-content:center;
+    font-size:.85rem; font-weight:700;
+  }
+  .flow-body h3 { font-size:.95rem; font-weight:600; color:var(--text); margin-bottom:6px; }
+  .flow-body h3 .emo { margin-right:6px; }
+  .flow-body p { font-size:.85rem; color:var(--sub); }
+  .flow-body .gain {
+    display:inline-block; margin-top:10px; padding:3px 12px;
+    border-radius:100px; font-size:.72rem; font-weight:600;
+    background:var(--green-light); color:var(--green);
+  }
+  .flow-body .quote {
+    margin-top:10px; padding:10px 14px; border-radius:8px;
+    background:var(--bg-alt); color:var(--text-alt);
+    font-size:.8rem; border-left:3px solid var(--accent);
+  }
+
+  /* 对比表 */
+  .table-wrap { overflow-x:auto; }
+  table {
+    width:100%; border-collapse:collapse; background:var(--card);
+    border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow);
+    font-size:.82rem;
+  }
+  thead th {
+    background:var(--bg-alt); padding:10px 14px;
+    font-size:.8rem; font-weight:600; color:var(--sub); text-align:left;
+    white-space:nowrap;
+  }
+  tbody td { padding:12px 14px; border-top:1px solid var(--border); vertical-align:top; }
+  tbody tr:nth-child(even) td { background:rgba(241,240,236,.5); }
+  td.how { font-weight:400; color:var(--sub); white-space:nowrap; }
+  td.pain { color:var(--sub); }
+  td.win { font-weight:600; color:var(--text); }
+  td.win .check { color:var(--green); margin-right:4px; }
+  .moat {
+    margin-top:16px; background:var(--accent-light);
+    border-radius:var(--radius); padding:16px 20px;
+  }
+  .moat .moat-title { font-weight:600; color:var(--accent-hover); margin-bottom:4px; font-size:.85rem; }
+  .moat p { font-size:.82rem; color:var(--text-alt); }
+
+  /* 意义 */
+  .meaning-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:12px; }
+  .meaning {
+    background:var(--card); border-radius:var(--radius);
+    padding:18px; box-shadow:var(--shadow);
+  }
+  .meaning .idx {
+    font-size:.75rem; font-weight:700; color:var(--accent);
+    letter-spacing:1px; margin-bottom:8px;
+  }
+  .meaning h3 { font-size:.9rem; font-weight:600; color:var(--text); margin-bottom:6px; }
+  .meaning p { font-size:.8rem; color:var(--sub); }
+
+  /* 适合家庭 */
+  .family-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:12px; }
+  .family {
+    background:var(--card); border-radius:var(--radius);
+    padding:16px 18px; box-shadow:var(--shadow);
+    display:flex; gap:10px; align-items:flex-start;
+    font-size:.85rem; color:var(--text-alt);
+  }
+  .family .emo { font-size:1.2rem; line-height:1.3; }
+
+  /* 信息表 */
+  .info-table { font-size:.85rem; }
+  .info-table td:first-child {
+    width:96px; white-space:nowrap; font-weight:600; color:var(--text);
+    background:var(--bg-alt);
+  }
+
+  /* 页脚 */
+  .footer {
+    text-align:center; color:var(--mute); font-size:.75rem;
+    padding-top:24px; border-top:1px solid var(--border);
+  }
+  .footer .name { color:var(--accent); font-weight:600; }
+
+  /* ===== 响应式 ===== */
+  @media (max-width:640px) {
+    .chain { grid-template-columns:1fr; }
+    .chain-arrow { transform:rotate(90deg); }
+    .meaning-grid, .family-grid { grid-template-columns:1fr; }
+    .hero { padding:36px 16px 32px; }
+    .card { padding:16px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <span class="hero-badge">AI 个性化学习</span>
+  <h1>拾阶而上 <span class="en">· StepLearn</span></h1>
+  <p class="hero-sub">
+    家长拍一张孩子做过的英语试卷，AI 自动完成错题诊断、针对性练习生成和每周成长报告——<br>
+    <strong>让家长看懂孩子卡在哪，让孩子看到自己在进步。</strong>
+  </p>
+  <div class="stairs-wrap">
+    <div class="stairs">
+      <div class="stair s1"></div>
+      <div class="stair s2"></div>
+      <div class="stair s3"></div>
+      <div class="stair s4"></div>
+    </div>
+    <div class="stair-top">★</div>
+    <div class="stairs-caption">每一周的进步，就是孩子走过的台阶</div>
+  </div>
+</header>
+
+<main class="page">
+
+  <!-- 产品定位 -->
+  <section>
+    <h2 class="sec-title"><span class="ico">🧭</span>产品定位</h2>
+    <div class="card">
+      <ul class="position-list">
+        <li><span class="tag">是什么</span><span>家长与孩子之间的<strong>学习工具</strong>，不是又一个网课，也不是老师管理软件。</span></li>
+        <li><span class="tag green">核心价值</span><span>把试卷里的信息<strong>"翻译"给家长</strong>——大多数家长只能看懂分数，看不懂分数背后的问题。</span></li>
+        <li><span class="tag blue">名字寓意</span><span>"拾阶而上"——学习是一步步拾阶而上，周报里的每一点进步，就是孩子走过的石阶。</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 核心价值链 -->
+  <section>
+    <h2 class="sec-title"><span class="ico">🔗</span>核心价值链</h2>
+    <div class="chain">
+      <div class="chain-node"><span class="ico">📷</span><span class="t">家长拍照</span><span class="s">上传试卷</span></div>
+      <div class="chain-arrow">→</div>
+      <div class="chain-node"><span class="ico">✨</span><span class="t">AI 自动分析</span><span class="s">错因 · 知识点</span></div>
+      <div class="chain-arrow">→</div>
+      <div class="chain-node hl"><span class="ico">🌱</span><span class="t">看到进步 · 肯定成长</span><span class="s">家长的核心动作</span></div>
+      <div class="chain-arrow">→</div>
+      <div class="chain-node"><span class="ico">✍️</span><span class="t">针对性练习</span><span class="s">减少盲目刷题</span></div>
+      <div class="chain-arrow">→</div>
+      <div class="chain-node"><span class="ico">📚</span><span class="t">错题本越读越薄</span><span class="s">越练越有成就感</span></div>
+    </div>
+  </section>
+
+  <!-- 使用流程 -->
+  <section>
+    <h2 class="sec-title"><span class="ico">📱</span>使用流程 · 家长视角</h2>
+    <div class="card flow-step">
+      <div class="flow-num">01</div>
+      <div class="flow-body">
+        <h3><span class="emo">📷</span>拍照上传</h3>
+        <p>拍下孩子做过的英语试卷，上传即可。之后无需任何操作，AI 自动完成分析。</p>
+        <span class="gain">家长操作量：一张照片</span>
+      </div>
+    </div>
+    <div class="card flow-step">
+      <div class="flow-num">02</div>
+      <div class="flow-body">
+        <h3><span class="emo">🩺</span>学情体检单</h3>
+        <p>几分钟后拿到一份家长看得懂的诊断报告：错题集中在哪几个知识点、卡在哪个环节（词汇 / 语法 / 阅读审题）。</p>
+        <div class="quote">"这周只需要聚焦这 3 个知识点，就能看到进步。"</div>
+      </div>
+    </div>
+    <div class="card flow-step">
+      <div class="flow-num">03</div>
+      <div class="flow-body">
+        <h3><span class="emo">✍️</span>针对性练习</h3>
+        <p>系统自动生成错题背后的同类题，做完即时反馈对错。练的是错在哪，不再整本刷题。</p>
+      </div>
+    </div>
+    <div class="card flow-step">
+      <div class="flow-num">04</div>
+      <div class="flow-body">
+        <h3><span class="emo">🌱</span>错题本 + 周报</h3>
+        <p>错题逐道由红变绿、越读越薄；周报是成长叙事，连"这周可以具体怎么夸孩子"都为家长写好。</p>
+        <div class="quote">"你已攻克 47 道错题，还剩 12 道在路上。"</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 独特优势 -->
+  <section>
+    <h2 class="sec-title"><span class="ico">💡</span>独特优势</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>常见做法</th><th>痛点</th><th>拾阶而上</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="how">📸 拍照搜题</td>
+            <td class="pain">只给答案，不解释孩子为什么错</td>
+            <td class="win"><span class="check">✓</span>分析错因，把错题归因到知识点</td>
+          </tr>
+          <tr>
+            <td class="how">🏫 补习班 / 网课</td>
+            <td class="pain">统一进度，不针对你家孩子</td>
+            <td class="win"><span class="check">✓</span>基于孩子<strong>真实试卷</strong>的个性化分析</td>
+          </tr>
+          <tr>
+            <td class="how">👨‍👩‍👧 家长自己辅导</td>
+            <td class="pain">一开口就吵架，越帮越乱</td>
+            <td class="win"><span class="check">✓</span>连"这周怎么夸孩子"都准备好，家长只负责看见和肯定</td>
+          </tr>
+          <tr>
+            <td class="how">📊 只看分数 / 正确率</td>
+            <td class="pain">"60%"摆在那里，不知道该怎么办</td>
+            <td class="win"><span class="check">✓</span>告诉家长卡在哪个环节、这周聚焦什么、下一步做什么</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="moat">
+      <div class="moat-title">🛡️ 核心壁垒</div>
+      <p>全自动 AI 链路：识别 → 错因分析 → 出题 → 批改 → 掌握追踪。家长零操作，孩子持续使用形成数据沉淀——越用，越懂这个孩子。</p>
+    </div>
+  </section>
+
+  <!-- 给家长的意义 -->
+  <section>
+    <h2 class="sec-title"><span class="ico">❤️</span>给家长的意义</h2>
+    <div class="meaning-grid">
+      <div class="meaning">
+        <div class="idx">01</div>
+        <h3>👀 看得懂</h3>
+        <p>把"正确率 60%"翻译成"孩子卡在哪个知识点、哪个环节"。</p>
+      </div>
+      <div class="meaning">
+        <div class="idx">02</div>
+        <h3>🎯 有方法</h3>
+        <p>每周只聚焦 2-3 个知识点，不盲目刷题，把力气用在刀刃上。</p>
+      </div>
+      <div class="meaning">
+        <div class="idx">03</div>
+        <h3>📈 看得见进步</h3>
+        <p>错题本越读越薄，孩子有真实成就感，坚持不靠催。</p>
+      </div>
+      <div class="meaning">
+        <div class="idx">04</div>
+        <h3>💬 会夸孩子</h3>
+        <p>周报提供具体的肯定话术，家长从"催作业的"变成"看得见他努力的人"。</p>
+      </div>
+      <div class="meaning">
+        <div class="idx">05</div>
+        <h3>🗓️ 持续跟踪</h3>
+        <p>每周一张试卷，进步曲线、薄弱点变化全程可见，家长心里有底。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 适合的家庭 -->
+  <section>
+    <h2 class="sec-title"><span class="ico">🏠</span>适合什么样的家庭</h2>
+    <div class="family-grid">
+      <div class="family"><span class="emo">🤔</span><span>想帮孩子、但不知道问题在哪的家长</span></div>
+      <div class="family"><span class="emo">😮‍💨</span><span>一辅导就吵架、亲子关系紧张的家庭</span></div>
+      <div class="family"><span class="emo">📉</span><span>报了班、刷了题，却看不到效果的家长</span></div>
+      <div class="family"><span class="emo">🌱</span><span>孩子努力但成绩不动，需要"看得见的进步"来坚持的</span></div>
+    </div>
+  </section>
+
+  <!-- 基本信息 -->
+  <section>
+    <h2 class="sec-title"><span class="ico">📋</span>基本信息</h2>
+    <div class="table-wrap">
+      <table class="info-table">
+        <tbody>
+          <tr><td>产品名称</td><td>拾阶而上 · StepLearn</td></tr>
+          <tr><td>使用方式</td><td>手机拍照上传，免安装（H5 页面）</td></tr>
+          <tr><td>适用对象</td><td>初高中学生及其家长</td></tr>
+          <tr><td>当前阶段</td><td>英语单科切入，可扩展其他学科</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <span class="name">拾阶而上 · StepLearn</span> &nbsp;·&nbsp; AI 个性化学习
+</footer>
+
+</body>
+</html>
