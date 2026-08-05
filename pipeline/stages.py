@@ -64,6 +64,7 @@ class Ctx:
         self.report_file_id = None
         self.exercise_file_id = None
         self.weekly_report_file_id = None
+        self.essay_review_file_id = None   # 作文批改报告（写作类错题触发）
 
     def progress(self, step: str, pct: int):
         db.update_task_progress(self.task_id, step, pct, self.db_path)
@@ -94,6 +95,7 @@ class Ctx:
             "student_id": self.student_id,
             "exercise_file_id": self.exercise_file_id,
             "report_file_id": self.report_file_id,
+            "essay_review_file_id": self.essay_review_file_id,
             "mistakes_count": len(self.mistakes),
             "questions_count": len(self.questions_data),
             "session_id": self.session_id,
@@ -218,6 +220,55 @@ def node_analyze(ctx: Ctx):
                             db_path=ctx.db_path)
     ctx.analysis = analysis
     ctx.mistakes = mistakes
+    # 试卷内嵌作文批改（写作类错题触发；失败不阻断主链路）
+    node_essay_review(ctx)
+
+
+_WRITING_TYPES = ("书面表达", "写作", "英语写作", "英语表达")
+
+
+def node_essay_review(ctx: Ctx):
+    """作文批改：本次错题含写作类且学生有作文内容时，生成批改报告。
+    独立于主链状态机（由 node_analyze 末尾调用），失败静默。"""
+    if not ctx.mistakes:
+        return
+    essay_mistake = None
+    for m in ctx.mistakes:
+        if (m.get("question_type") or "") in _WRITING_TYPES:
+            essay = str(m.get("user_answer") or "").strip()
+            if essay and essay not in ("未作答", "未填写", "无", "-"):
+                essay_mistake = m
+                break
+    if not essay_mistake:
+        return
+    ctx.progress("批改作文", 42)
+    try:
+        from skills_bridge import review_essay
+        review = review_essay(
+            question=essay_mistake.get("question_text", "") or "英语作文",
+            essay=str(essay_mistake.get("user_answer", "")),
+            grade=(ctx.student or {}).get("grade", ""),
+            task_id=ctx.task_id,
+        )
+        if not isinstance(review, dict) or not review.get("errors"):
+            return
+        from report_templates import render_essay_review
+        html = render_essay_review(ctx.student, essay_mistake, review)
+        essay_dir = os.path.join(UPLOAD_DIR, str(ctx.student_id), "essay_review")
+        os.makedirs(essay_dir, exist_ok=True)
+        fname = f"essay_{ctx.week_start}_{uuid.uuid4().hex[:8]}.html"
+        with open(os.path.join(essay_dir, fname), "w", encoding="utf-8") as f:
+            f.write(html)
+        ctx.essay_review_file_id = db.add_file(
+            student_id=ctx.student_id, uploader_role="teacher",
+            file_type="essay_review", filename=fname,
+            original_filename=f"作文批改-{(ctx.student or {}).get('name', '同学')}.html",
+            week_start=ctx.week_start, file_size=os.path.getsize(
+                os.path.join(essay_dir, fname)),
+            mime_type="text/html", db_path=ctx.db_path,
+        )
+    except Exception:
+        ctx.essay_review_file_id = None
 
 
 def _build_diagnosis(ctx: Ctx) -> dict:

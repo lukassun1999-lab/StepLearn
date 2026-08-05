@@ -18,7 +18,7 @@ from web.shared import (UPLOAD_DIR, _extract_options, _resolve_file_path,
 family_api_bp = Blueprint("family_api", __name__)
 
 # 家长端免登录可下载的文件类型白名单（防枚举：仅 AI 产出的可见成果）
-_PUBLIC_DOWNLOAD_TYPES = ("poster", "report_pdf", "exercise_pdf")
+_PUBLIC_DOWNLOAD_TYPES = ("poster", "report_pdf", "exercise_pdf", "essay_review")
 
 
 _VALID_GRADES = {"初一", "初二", "初三", "高一", "高二", "高三"}
@@ -822,6 +822,7 @@ def api_public_reports(code):
         ("report_file_id", "学情分析报告"),
         ("weekly_report_file_id", "家长周报"),
         ("feedback_file_id", "练习批改反馈"),
+        ("essay_review_file_id", "作文批改"),
     ]
     _STAGE_TITLES = {
         "weekly_book_done": "周错题本",
@@ -838,8 +839,10 @@ def api_public_reports(code):
                     if out.get(key):
                         title = label
                         break
-            if title and out.get("report_file_id") or out.get("weekly_report_file_id") or out.get("feedback_file_id"):
-                fid = out.get("report_file_id") or out.get("weekly_report_file_id") or out.get("feedback_file_id")
+            if title and (out.get("report_file_id") or out.get("weekly_report_file_id")
+                          or out.get("feedback_file_id") or out.get("essay_review_file_id")):
+                fid = (out.get("report_file_id") or out.get("weekly_report_file_id")
+                       or out.get("feedback_file_id") or out.get("essay_review_file_id"))
                 reports.append({
                     "report_file_id": fid,
                     "title": title,

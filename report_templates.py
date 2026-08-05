@@ -573,6 +573,92 @@ def render_exercise_sheet(student_name: str, questions: list, week_start: str = 
 
 
 # ═══════════════════════════════════════════════════
+# 作文批改报告
+# ═══════════════════════════════════════════════════
+
+def render_essay_review(student: dict, mistake: dict, review: dict) -> str:
+    """渲染作文批改报告 HTML：逐句错误标注 + 四维评价 + 评分建议 + 优点 + 建议。"""
+    errors = review.get("errors") or []
+    error_rows = ""
+    for i, e in enumerate(errors[:12]):
+        etype = e.get("type", "")
+        error_rows += f"""
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span style="background:var(--red-light);color:var(--red);border-radius:100px;padding:2px 10px;font-size:.7rem;font-weight:600;">{i + 1}. {etype}</span>
+          </div>
+          <div style="background:#fef4f4;border-radius:6px;padding:6px 10px;font-size:.9rem;margin-bottom:6px;white-space:pre-wrap;"><span style="color:var(--red);font-weight:600;">✗ </span>{e.get('quote', '')}</div>
+          <div style="background:#effaf3;border-radius:6px;padding:6px 10px;font-size:.9rem;white-space:pre-wrap;"><span style="color:var(--green);font-weight:600;">✓ </span>{e.get('suggestion', '')}</div>
+          <div style="font-size:.8rem;color:var(--sub);margin-top:6px;">{e.get('issue', '')}</div>
+        </div>"""
+    if not error_rows:
+        error_rows = '<div class="card"><p style="color:var(--green);">这篇作文没有发现明显错误，继续保持！</p></div>'
+
+    ev = review.get("evaluation") or {}
+    ev_rows = "".join(
+        f"""<div style="flex:1;min-width:150px;background:var(--bg);border-radius:8px;padding:10px 12px;">
+          <div style="font-size:.75rem;color:var(--sub);font-weight:600;margin-bottom:4px;">{label}</div>
+          <div style="font-size:.85rem;line-height:1.6;">{value}</div>
+        </div>"""
+        for label, value in (("内容完整性", ev.get("content")), ("结构逻辑", ev.get("structure")),
+                             ("语言准确性", ev.get("language")), ("词汇丰富度", ev.get("vocabulary")))
+        if value)
+    score = review.get("score_suggestion") or {}
+    strengths = "".join(f"<li>{s}</li>" for s in (review.get("strengths") or [])[:3])
+    advices = "".join(f"<li>{a}</li>" for a in (review.get("advice") or [])[:3])
+
+    body = f"""
+<div class="header">
+  <h1>📝 英语作文批改</h1>
+  <div class="sub">{(student or {}).get('name', '同学')} · {(student or {}).get('grade', '')} · {date.today().isoformat()}</div>
+</div>
+
+<div class="section">
+  <h2>📋 作文题目</h2>
+  <div class="card" style="white-space:pre-wrap;line-height:1.8;">{mistake.get('question_text') or mistake.get('question') or '英语作文'}</div>
+</div>
+
+<div class="section">
+  <h2>✍️ 学生作文</h2>
+  <div class="card" style="white-space:pre-wrap;line-height:1.9;">{mistake.get('user_answer') or ''}</div>
+</div>
+
+<div class="section">
+  <h2>🔍 逐句批注（{len(errors[:12])} 处）</h2>
+  {error_rows}
+</div>
+
+<div class="section">
+  <h2>📊 整体评价</h2>
+  <div class="card">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">{ev_rows}</div>
+    {f'''<div style="margin-top:14px;background:var(--accent-light);border-radius:8px;padding:12px 14px;">
+      <div style="font-size:.8rem;color:var(--sub);font-weight:600;margin-bottom:4px;">评分建议</div>
+      <div style="font-size:1.05rem;font-weight:700;color:var(--accent-hover);">{score.get('band', '')}</div>
+      <div style="font-size:.85rem;color:var(--text-alt);margin-top:4px;">{score.get('basis', '')}</div>
+    </div>''' if score.get('band') else ''}
+  </div>
+</div>
+
+{f'''
+<div class="section">
+  <h2>💛 值得肯定的地方</h2>
+  <div class="card"><ul style="margin:0;padding-left:1.2em;line-height:2;">{strengths}</ul></div>
+</div>
+
+<div class="section">
+  <h2>🎯 下次可以这样改</h2>
+  <div class="card" style="border-left:4px solid var(--green);"><ul style="margin:0;padding-left:1.2em;line-height:2;">{advices}</ul></div>
+</div>
+''' if strengths or advices else ''}
+
+<div class="footer">
+  <p>拾阶而上 · AI 作文批改 · 修改示例供参考</p>
+</div>"""
+    return _base_html("英语作文批改", body)
+
+
+# ═══════════════════════════════════════════════════
 # 批改反馈
 # ═══════════════════════════════════════════════════
 

@@ -348,6 +348,23 @@ class LLMClient:
             "motivation_message": "嘿，我看了你的卷子。你的语法基础其实不错，主要就是几个具体的地方在坑你——非谓语动词到底用doing还是done、强调句和定语从句怎么区分、什么时候该倒装。找到了这几块短板，咱们就集中练，不刷整套卷子。搞定了这些，下次考试至少找回5-8分。怎么样？",
             "parent_guide": "家长只需要做三件事：①每周六上午拍照发一张孩子最近做过的英语卷子；②收到PDF后打印出来放孩子桌上；③孩子做完后拍照发回来。全程不超过15分钟。系统会自动分析、出题、批改、追踪。",
         },
+        "essay_review": {
+            "errors": [
+                {"quote": "I go to school by foot every day.",
+                 "type": "用词", "issue": "by foot 应为 on foot", "suggestion": "I go to school on foot every day."},
+                {"quote": "She don't like math.",
+                 "type": "语法", "issue": "第三人称单数否定应为 doesn't", "suggestion": "She doesn't like math."}
+            ],
+            "evaluation": {
+                "content": "内容切题，覆盖了题目要求的要点，但细节展开不足。",
+                "structure": "有基本结构，缺少衔接词，段落之间过渡生硬。",
+                "language": "语法基本正确，存在少量主谓一致和固定搭配错误。",
+                "vocabulary": "词汇基础可，可尝试更多高级表达（如 instead of, as a result）。"
+            },
+            "score_suggestion": {"band": "二档（13-15/20）", "basis": "内容完整、语言基本准确，结构与词汇有提升空间"},
+            "strengths": ["能完整表达题目要点", "句式尝试多样", "书写规范"],
+            "advice": ["多使用连接词（however/therefore/firstly）增强连贯", "背诵并运用 5 个高分句型", "写完后自查主谓一致"]
+        },
     }
 
     # ── Public API ──────────────────────────────────

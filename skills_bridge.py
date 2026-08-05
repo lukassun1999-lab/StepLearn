@@ -398,6 +398,34 @@ QUESTION_GENERATION_PROMPT = """根据错题生成同类练习题，返回JSON:
 {{"questions":[{{"source_mistake_id":1,"question_type":"语法填空","question_text":"完整题干（含选项，如为有选项题型）","options":["A","B","C","D"],"correct_answer":"按题型规则填字母或答案内容","explanation":"中文解析","knowledge_points":["非谓语动词"],"difficulty":2,"passage":"短文原文（错题有 passage 时原样保留，否则空字符串）"}}]}}"""
 
 
+ESSAY_REVIEW_PROMPT = """批改学生英语作文，返回JSON（不要markdown代码块）。
+
+学生年级: {grade}
+作文题目/要求:
+{question}
+
+学生作文:
+{essay}
+
+批改要求:
+1. errors：逐处标出语法/拼写/用词/标点错误——引用原文片段（quote）、给出类型（type: 语法|拼写|用词|标点）、一句话问题说明（issue）、**局部修改示例**（suggestion，只改该处，不重写整句以上）；错误超过 8 处取最典型的 8 处
+2. evaluation：内容完整性（content）/结构逻辑（structure）/语言准确性（language）/词汇丰富度（vocabulary）四维评价，每维 1-2 句
+3. score_suggestion：按中高考作文评分口径给分数段（band，如"二档（13-15/20）"）+ 一句依据（basis）
+4. strengths：2-3 条具体优点（尽量引用作文中的证据）
+5. advice：给学生的改进建议 2-3 条，具体可执行（如"把 if 条件句改用 unless"、"多使用连接词 however/therefore"），不用空话
+
+内容管控：**不得整篇改写学生作文**；suggestion 仅给局部修改示例；advice 用可执行行动建议。
+
+返回格式:
+{{
+  "errors": [{{"quote": "原文片段", "type": "语法|拼写|用词|标点", "issue": "问题说明", "suggestion": "局部修改示例"}}],
+  "evaluation": {{"content": "", "structure": "", "language": "", "vocabulary": ""}},
+  "score_suggestion": {{"band": "", "basis": ""}},
+  "strengths": ["", ""],
+  "advice": ["", ""]
+}}"""
+
+
 GRADING_PROMPT = """批改学生练习题答案，返回JSON:
 
 练习题: {questions_json}
@@ -1513,6 +1541,22 @@ def _normalize_plan_text_field(value) -> str:
                 parts.append(f"{k}：{str(v).replace(chr(10), ' ')}")
         return "；".join(parts)
     return ""
+
+
+def review_essay(question: str, essay: str, grade: str = "",
+                 task_id: int = None) -> Dict[str, Any]:
+    """批改学生英语作文：逐句错误标注 + 四维评价 + 评分建议 + 优点 + 建议。
+    内容管控：只输出局部修改示例，不整篇改写。"""
+    prompt = ESSAY_REVIEW_PROMPT.format(grade=grade, question=question, essay=essay)
+    schema = {
+        "errors": {"type": "array", "required": True},
+        "evaluation": {"type": "object", "required": True},
+        "score_suggestion": {"type": "object", "required": True},
+        "strengths": {"type": "array", "required": False},
+        "advice": {"type": "array", "required": False},
+    }
+    return _get_client().call(
+        prompt=prompt, schema=schema, task_id=task_id, call_type="essay_review")
 
 
 def generate_learning_plan(student_info: Dict, diagnosis: Dict,
