@@ -157,6 +157,24 @@ td {{ padding:8px 12px; border-bottom:1px solid var(--border); color:var(--text-
 # 首次诊断报告
 # ═══════════════════════════════════════════════════
 
+def _plan_text(value, fallback=""):
+    """报告文本字段兜底：LLM 可能返回 dict（实测 parent_guide 返回了结构化对象），
+    统一转可读多行文本，避免 Python repr 直接渲染到页面。"""
+    if isinstance(value, str):
+        return value or fallback
+    if isinstance(value, dict):
+        labels = {"boarding_advice": "住校", "day_student_advice": "走读",
+                  "time_investment": "时间投入", "monitoring": "效果跟进",
+                  "emotional_support": "情绪支持"}
+        lines = []
+        for k, v in value.items():
+            if isinstance(v, (str, int, float)):
+                lines.append(f"{labels.get(k, k)}：{v}".replace("\n", " "))
+        text = "<br>".join(lines) if lines else ""
+        return text or fallback
+    return fallback
+
+
 def render_diagnostic_report(
     student: dict,
     ocr_confidence: float,
@@ -485,7 +503,7 @@ def render_diagnostic_report(
 <div class="section">
   <h2>💬 想对孩子说的话</h2>
   <div class="quote-box">
-    <p>{learning_plan.get('motivation_message', '每一份试卷都是一次成长的机会。孩子已经在路上了，我们一起陪他走下去。')}</p>
+    <p>{_plan_text(learning_plan.get('motivation_message'), '每一份试卷都是一次成长的机会。孩子已经在路上了，我们一起陪他走下去。')}</p>
   </div>
 </div>
 
@@ -494,7 +512,7 @@ def render_diagnostic_report(
 <div class="section">
   <h2>💛 你可以试试这样做</h2>
   <div class="cta-box">
-    <p>{learning_plan.get('parent_guide', '请每周六上午拍照发一张孩子最近做过的英语卷子，剩下的交给我们。')}</p>
+    <p>{_plan_text(learning_plan.get('parent_guide'), '请每周六上午拍照发一张孩子最近做过的英语卷子，剩下的交给我们。')}</p>
   </div>
 </div>
 

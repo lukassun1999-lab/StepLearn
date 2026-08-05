@@ -467,8 +467,8 @@ LEARNING_PLAN_PROMPT = """为学生生成个性化学习方案，返回JSON（�
   "modules": [{{"name": "词汇", "priority": 1, "weekly_time_minutes": 120, "focus": "高考高频词汇", "daily_word_count": 8}}],
   "weak_point_priority": [{{"knowledge_point": "非谓语动词", "severity": "高", "reason": "2道错题"}}],
   "minimum_standard": {{"boarding": "每日词汇+1篇阅读", "day_student": "每晚词汇+听力"}},
-  "motivation_message": "鼓励话，可结合孩子的1个月小目标和英语变厉害后想做什么",
-  "parent_guide": "家长建议，结合家长陪学时间、监督需求、孩子心声",
+  "motivation_message": "鼓励话，可结合孩子的1个月小目标和英语变厉害后想做什么（必须为纯文本字符串，不得返回 JSON 对象）",
+  "parent_guide": "家长建议，结合家长陪学时间、监督需求、孩子心声（必须为纯文本字符串，不得返回 JSON 对象）",
   "parent_growth_tasks": [
     {{"week": 1, "theme": "观察者", "title": "情绪标注练习", "task": "连续3天，在孩子学英语时观察并记录情绪，不做评判", "example": "'我注意到你做阅读时皱了眉'", "goal": "帮助孩子被看见，降低焦虑"}},
     {{"week": 2, "theme": "倾听者", "title": "5分钟无评判倾听", "task": "每天留5分钟，只听孩子说说学英语的感受", "example": "'今天英语哪个部分最费劲？'", "goal": "建立安全表达通道"}},
@@ -1394,6 +1394,20 @@ def grade_answers(questions: List[Dict], student_answers: List[Dict],
     )
 
 
+def _normalize_plan_text_field(value) -> str:
+    """方案自由文本字段规范化：LLM 可能返回 dict（实测 parent_guide 返回结构化对象），
+    统一转字符串后再入库，保证各消费方拿到一致文本。"""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        parts = []
+        for k, v in value.items():
+            if isinstance(v, (str, int, float)):
+                parts.append(f"{k}：{str(v).replace(chr(10), ' ')}")
+        return "；".join(parts)
+    return ""
+
+
 def generate_learning_plan(student_info: Dict, diagnosis: Dict,
                            profile: Dict = None, task_id: int = None) -> Dict[str, Any]:
     """
@@ -1415,9 +1429,14 @@ def generate_learning_plan(student_info: Dict, diagnosis: Dict,
         "weak_point_priority": {"type": "array", "required": True},
         "modules": {"type": "array", "required": True},
     }
-    return _get_client().call(
+    result = _get_client().call(
         prompt=prompt, schema=schema, task_id=task_id, call_type="plan"
     )
+    # 自由文本字段规范化：LLM 可能把 parent_guide 等返回成 dict，统一转字符串
+    for key in ("parent_guide", "motivation_message"):
+        if isinstance(result.get(key), dict):
+            result[key] = _normalize_plan_text_field(result[key])
+    return result
 
 
 def generate_plan_update(student_id: int, week_start: str,

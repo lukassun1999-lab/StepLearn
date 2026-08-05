@@ -346,3 +346,51 @@ def test_weekly_report_without_cause_trend():
         new_mistakes=0, mastered_count=0, weak_areas=[],
     )
     assert "卡点变化" not in html
+
+
+# ── 报告文本兜底：LLM 把 parent_guide 返回成 dict 的防御（实测发现）──
+
+def test_plan_text_normalization():
+    from report_templates import _plan_text
+    # 字符串原样
+    assert _plan_text("简单建议") == "简单建议"
+    # dict 转可读文本（键名映射中文标签）
+    out = _plan_text({"boarding_advice": "周六陪读", "emotional_support": "多安慰"})
+    assert "住校：周六陪读" in out
+    assert "情绪支持：多安慰" in out
+    assert "<br>" in out
+    # 空 dict / None → fallback
+    assert _plan_text({}, "默认") == "默认"
+    assert _plan_text(None, "默认") == "默认"
+    assert _plan_text([], "默认") == "默认"
+
+
+def test_report_with_dict_parent_guide_no_repr():
+    from report_templates import render_diagnostic_report
+    guide = {"boarding_advice": "孩子住校，周末陪伴", "emotional_support": "考后安慰"}
+    html = render_diagnostic_report(
+        student=_sample_student(),
+        ocr_confidence=0.9,
+        mistakes=[],
+        weak_points=[],
+        learning_plan={
+            "parent_guide": guide,
+            "motivation_message": {"title": "鼓励"},
+        },
+    )
+    # 不再出现 Python repr（dict 字面量）
+    assert "boarding_advice'" not in html
+    assert "{" not in html[html.index("你可以试试这样做"):html.index("你可以试试这样做") + 500]
+    # 渲染的是格式化后的可读文本
+    assert "住校：孩子住校，周末陪伴" in html
+    assert "情绪支持：考后安慰" in html
+    assert "title：鼓励" in html  # 无中文映射的键用原键名
+
+
+def test_normalize_plan_text_field():
+    from skills_bridge import _normalize_plan_text_field
+    assert _normalize_plan_text_field("纯文本") == "纯文本"
+    out = _normalize_plan_text_field({"boarding_advice": "周末陪读", "monitoring": "每周跟进"})
+    assert "boarding_advice：周末陪读" in out
+    assert "；" in out
+    assert _normalize_plan_text_field(None) == ""
