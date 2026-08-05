@@ -80,6 +80,11 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .kp-item:last-child { border-bottom:none; }
 .toast { position:fixed; top:20px; left:50%; transform:translateX(-50%); padding:12px 24px; border-radius:var(--radius); color:#fff; font-size:.95rem; z-index:200; box-shadow:var(--shadow-lg); }
 .toast-success { background:var(--green); }
+/* Modal（修复：此前模板缺失弹窗 CSS，导致弹窗常驻页面） */
+.modal-overlay { display:none; position:fixed; top:0;left:0;right:0;bottom:0; background:rgba(0,0,0,.25); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); z-index:100; align-items:center; justify-content:center; animation:fadeIn .2s ease; }
+.modal-overlay.show { display:flex; }
+.modal { background:var(--card); border-radius:12px; padding:28px; max-width:560px; width:90%; max-height:80vh; overflow-y:auto; box-shadow:var(--shadow-lg); animation:modalEnter .25s ease; }
+@keyframes modalEnter { from{opacity:0;transform:scale(.95) translateY(8px);} to{opacity:1;transform:scale(1) translateY(0);} }
 /* Achievement Wall */
 .ach-card { border-radius:10px; padding:12px 10px; text-align:center; transition:transform .2s; }
 .ach-card:hover { transform:translateY(-2px); }
@@ -137,9 +142,10 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
   <div class="sum-item"><div class="num" id="sum-achievements">--</div><div class="label">成就</div></div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
-  <button class="btn btn-primary" onclick="openInviteModal()">🎁 邀请有礼</button>
-  <button class="btn btn-green" onclick="generatePoster()">📸 生成海报</button>
+<div id="poster-btn-wrap" style="display:none;margin-bottom:16px;">
+  <!-- 2026-08-04: referral entry removed from family home -->
+  <!-- 海报按钮初始隐藏，仅在有学习数据时由 renderHome 显示 -->
+  <button class="btn btn-green" style="width:100%;" onclick="generatePoster()">📸 生成海报</button>
 </div>
 
 <!-- Parent Upload Card -->
@@ -155,33 +161,15 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
   <input type="file" id="parentFileInput" accept="image/*" capture="environment" multiple style="display:none;" onchange="handleParentUpload(this)">
 </div>
 
-<!-- Invite Modal -->
-<div class="modal-overlay" id="invite-modal">
-  <div class="modal" style="max-width:360px;">
-    <h3>🎁 邀请好友一起学</h3>
-    <p class="meta" style="margin-bottom:12px;">好友通过你的邀请码报名，双方各得 <strong id="reward-weeks">1</strong> 周免费学习时长</p>
-    <div class="form-group">
-      <label>你的邀请码</label>
-      <input id="invite-code" readonly style="background:#f5f2ec;font-size:1.1em;text-align:center;font-weight:600;">
-    </div>
-    <div class="form-group">
-      <label>已邀请成功</label>
-      <input id="invite-count" readonly style="background:#f5f2ec;text-align:center;">
-    </div>
-    <button class="btn btn-primary" style="width:100%;" onclick="copyInviteCode()">📋 复制邀请码</button>
-    <div class="btn-group" style="justify-content:flex-end;margin-top:12px;">
-      <button class="btn btn-outline" onclick="closeInviteModal()">关闭</button>
-    </div>
-  </div>
-</div>
-
 <!-- Poster Modal -->
 <div class="modal-overlay" id="poster-modal">
   <div class="modal" style="max-width:420px;">
     <h3>📸 学习成果海报</h3>
-    <p class="meta" style="margin-bottom:12px;">已生成，可截图分享到朋友圈</p>
-    <div id="poster-link" style="margin-bottom:16px;"></div>
+    <p class="meta" style="margin-bottom:12px;">已生成，保存图片即可分享到朋友圈</p>
+    <iframe id="poster-frame" title="学习成果海报" style="width:100%;height:520px;border:1px solid var(--border);border-radius:10px;background:#fff;"></iframe>
+    <div id="poster-link" style="margin:12px 0 16px;text-align:center;"></div>
     <div class="btn-group" style="justify-content:flex-end;">
+      <button class="btn btn-primary" onclick="savePosterImage()">💾 另存为图片</button>
       <button class="btn btn-outline" onclick="closePosterModal()">关闭</button>
     </div>
   </div>
@@ -201,13 +189,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 
 <div id="page-home" class="page active">
   <div id="home-stats" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;"></div>
-  <div id="home-upload-zone" style="background:var(--card);border:2px dashed var(--border);border-radius:16px;padding:32px 20px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:16px;" onclick="document.getElementById('home-file-input').click()">
-    <div style="font-size:2.5rem;">📸</div>
-    <div style="font-weight:600;font-size:1rem;margin-top:8px;">拍照上传试卷</div>
-    <div style="font-size:.8rem;color:var(--sub);margin-top:4px;">拍清晰的试卷照片，AI 自动分析错题并生成专属练习</div>
-  </div>
-  <input type="file" id="home-file-input" accept="image/*" multiple capture="environment" style="display:none;">
-  <div id="home-progress" style="display:none;background:var(--card);border-radius:16px;padding:24px;text-align:center;margin-bottom:16px;"></div>
+  <!-- 2026-08-04: 首页重复上传入口已移除，顶部 upload-card 为唯一拍照上传入口 -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">
     <div onclick="switchTab('practice',null)" style="background:var(--card);border-radius:12px;padding:16px;text-align:center;cursor:pointer;">
       <div style="font-size:1.5rem;">📝</div><div style="font-size:.85rem;font-weight:600;margin-top:4px;">练习题</div>
@@ -349,6 +331,11 @@ function renderHome(d) {
   const checkins = (d.check_ins || []).length;
   const pct = total > 0 ? Math.round(mastered / total * 100) : 0;
 
+  // 海报需学习数据支撑：新学生（无错题/无打卡/无报告）不展示首页海报按钮
+  const hasLearningData = remaining + mastered + checkins + (d.reports ? d.reports.length : 0) > 0;
+  const posterWrap = document.getElementById('poster-btn-wrap');
+  if (posterWrap) posterWrap.style.display = hasLearningData ? 'block' : 'none';
+
   function statCard(icon, num, label) {
     return `<div style="flex:1;min-width:70px;background:var(--card);border-radius:10px;padding:12px 8px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
       <div style="font-size:1.3rem;">${icon}</div>
@@ -376,127 +363,64 @@ function renderHome(d) {
   }
 
   document.getElementById('home-stats').innerHTML = html;
-
-  // Wire up file input (once)
-  const fi = document.getElementById('home-file-input');
-  if (fi && !fi._wired) {
-    fi._wired = true;
-    fi.addEventListener('change', function() {
-      if (this.files && this.files.length > 0) handleHomeUpload(this.files);
-    });
-  }
-}
-
-async function handleHomeUpload(files) {
-  const zone = document.getElementById('home-upload-zone');
-  const prog = document.getElementById('home-progress');
-  const fd = new FormData();
-  for (const f of files) fd.append('file', f);
-
-  zone.style.display = 'none';
-  prog.style.display = 'block';
-  prog.innerHTML = '<div style="font-size:.9rem;color:var(--sub);">正在上传...</div>';
-
-  try {
-    const r = await fetch('/api/public/' + CODE + '/upload', {method:'POST', body:fd});
-    if (r.status === 429) {
-      const err = await r.json().catch(()=>({}));
-      prog.innerHTML = '<div style="color:var(--danger,#d93a46);font-size:.9rem;">' + (err.error||'额度已用完') + '</div>';
-      setTimeout(()=>{ zone.style.display='block'; prog.style.display='none'; }, 3000);
-      return;
-    }
-    if (!r.ok) {
-      prog.innerHTML = '<div style="color:var(--danger,#d93a46);font-size:.9rem;">上传失败，请重试</div>';
-      setTimeout(()=>{ zone.style.display='block'; prog.style.display='none'; }, 3000);
-      return;
-    }
-    const data = await r.json();
-    pollHomeTask(data.task_id);
-  } catch(e) {
-    prog.innerHTML = '<div style="color:var(--danger,#d93a46);font-size:.9rem;">网络错误</div>';
-    setTimeout(()=>{ zone.style.display='block'; prog.style.display='none'; }, 3000);
-  }
-}
-
-async function pollHomeTask(taskId) {
-  const zone = document.getElementById('home-upload-zone');
-  const prog = document.getElementById('home-progress');
-  let attempts = 0;
-
-  const poll = async () => {
-    attempts++;
-    try {
-      const r = await fetch('/api/public/' + CODE + '/task/' + taskId);
-      const t = await r.json();
-
-      if (t.status === 'done') {
-        const out = t.output_data || {};
-        const mc = out.mistakes_count || 0;
-        const qc = out.questions_count || 0;
-        prog.innerHTML = '<div style="font-size:1.2rem;">✅</div>' +
-          '<div style="font-weight:600;margin-top:8px;">分析完成！</div>' +
-          '<div style="font-size:.85rem;color:var(--sub);margin-top:4px;">识别 ' + mc + ' 道错题' + (qc>0?'，生成 '+qc+' 道练习题':'') + '</div>' +
-          '<div style="margin-top:12px;font-size:.8rem;color:var(--accent,#e07b4b);">正在刷新...</div>';
-        setTimeout(()=>{ loadData(); zone.style.display='block'; prog.style.display='none'; switchTab('reports',null); }, 2000);
-        return;
-      } else if (t.status === 'failed') {
-        prog.innerHTML = '<div style="color:var(--danger,#d93a46);font-size:.9rem;">分析失败：' + (t.error_message||'未知错误').slice(0,60) + '</div>' +
-          '<div style="margin-top:8px;font-size:.8rem;color:var(--sub);">额度已自动退还</div>';
-        setTimeout(()=>{ zone.style.display='block'; prog.style.display='none'; }, 4000);
-        return;
-      } else {
-        const pct = t.progress || 0;
-        const step = t.current_step || 'AI正在分析...';
-        prog.innerHTML =
-          '<div style="display:inline-block;width:36px;height:36px;border:3px solid var(--border,#e8e6e1);border-top-color:var(--accent,#e07b4b);border-radius:50%;animation:spin .8s linear infinite;"></div>' +
-          '<div style="margin-top:12px;font-size:.9rem;">' + step + '</div>' +
-          '<div style="margin-top:4px;font-size:.75rem;color:var(--sub);">' + pct + '%</div>' +
-          '<div style="margin-top:12px;height:6px;background:var(--bg);border-radius:6px;overflow:hidden;max-width:200px;margin-left:auto;margin-right:auto;">' +
-          '<div style="height:100%;width:' + Math.min(pct,95) + '%;background:var(--accent,#e07b4b);border-radius:6px;transition:width .5s;"></div></div>';
-        if (attempts < 80) setTimeout(poll, 3000);
-        else prog.innerHTML = '<div style="font-size:.9rem;color:var(--sub);">处理时间较长，请稍后在「报告」和「练习」中查看结果</div>';
-      }
-    } catch(e) {
-      if (attempts < 80) setTimeout(poll, 5000);
-    }
-  };
-  setTimeout(poll, 2000);
-}
-
-async function openInviteModal() {
-  const r = await fetch('/api/referrals/my/' + CODE);
-  if (!r.ok) { toast('加载失败'); return; }
-  const info = await r.json();
-  document.getElementById('invite-code').value = info.invite_code;
-  document.getElementById('invite-count').value = `${info.converted_count} 人（累计 ${info.total_reward_weeks} 周奖励）`;
-  document.getElementById('reward-weeks').textContent = info.referrals.length > 0 ? (info.referrals[0].reward_weeks || 1) : 1;
-  document.getElementById('invite-modal').classList.add('show');
-}
-function closeInviteModal() { document.getElementById('invite-modal').classList.remove('show'); }
-async function copyInviteCode() {
-  const code = document.getElementById('invite-code').value;
-  try {
-    await navigator.clipboard.writeText(code);
-    toast('邀请码已复制');
-  } catch(e) {
-    // Fallback
-    const input = document.getElementById('invite-code');
-    input.select();
-    document.execCommand('copy');
-    toast('邀请码已复制');
-  }
 }
 
 async function generatePoster() {
   const r = await fetch('/api/poster/' + CODE);
   if (!r.ok) { toast('海报生成失败'); return; }
   const d = await r.json();
+  // 内嵌预览（srcdoc 直接渲染海报 HTML，无需登录态/下载头）
+  document.getElementById('poster-frame').srcdoc = d.html || '';
   document.getElementById('poster-link').innerHTML = `
-    <a href="/api/files/${d.file_id}/download" target="_blank" class="btn btn-primary" style="width:100%;">📸 查看/下载海报</a>
+    <a href="/api/public/${CODE}/files/${d.file_id}/download" target="_blank" class="btn btn-outline" style="text-decoration:none;">↗ 打开完整海报</a>
   `;
   document.getElementById('poster-modal').classList.add('show');
 }
 function closePosterModal() { document.getElementById('poster-modal').classList.remove('show'); }
+
+// 海报另存为图片：iframe(srcdoc 同源) → SVG foreignObject → canvas → PNG 下载
+async function savePosterImage() {
+  const frame = document.getElementById('poster-frame');
+  const doc = frame.contentDocument || frame.contentWindow.document;
+  if (!doc || !doc.body) { toast('海报尚未生成'); return; }
+  try {
+    // 等待内嵌图片加载完成
+    await Promise.all(Array.from(doc.querySelectorAll('img')).map(img =>
+      img.complete ? Promise.resolve() : new Promise(r => { img.onload = r; img.onerror = r; })
+    ));
+    const width = doc.body.scrollWidth;
+    const height = doc.body.scrollHeight;
+    if (!width || !height) { toast('海报内容为空'); return; }
+    const styleHtml = Array.from(doc.head.querySelectorAll('style')).map(s => s.textContent).join('');
+    const bodyHtml = new XMLSerializer().serializeToString(doc.body);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+      `<foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml">` +
+      `<style>${styleHtml}</style>${bodyHtml}</div></foreignObject></svg>`;
+    const url = URL.createObjectURL(new Blob([svg], {type: 'image/svg+xml;charset=utf-8'}));
+    const img = new Image();
+    img.onload = () => {
+      const scale = 2; // 2x 高清导出
+      const canvas = document.createElement('canvas');
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = '学习海报.png';
+      a.click();
+      toast('海报已保存');
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      toast('图片生成失败，可点「打开完整海报」查看');
+    };
+    img.src = url;
+  } catch(e) {
+    toast('图片生成失败，可点「打开完整海报」查看');
+  }
+}
 
 // ═══ Interactive Practice (P0) ═══
 let practiceQuestions = [];
@@ -539,18 +463,30 @@ function renderPracticeQuestion() {
       <h3>本轮练习完成！</h3>
       <p style="margin:12px 0;font-size:1.1em;font-weight:700;color:var(--accent);">${practiceCorrect} / ${practiceQuestions.length} 正确</p>
       <p class="meta">${practiceCorrect >= practiceQuestions.length/2 ? '太棒了，继续保持！' : '没关系，错题已加入复习计划，下次会更好'}</p>
-      <button class="btn btn-primary" style="margin-top:16px;" onclick="renderPractice()">再来一轮</button>
+      <button class="btn btn-green" style="margin-top:16px;width:100%;" onclick="generatePoster()">📸 生成学习海报，分享这份进步</button>
+      <button class="btn btn-primary" style="margin-top:10px;width:100%;" onclick="renderPractice()">再来一轮</button>
     </div>`;
     return;
   }
   const q = practiceQuestions[practiceIndex];
   const kpTag = (q.knowledge_points||[]).map(k=>`<span class="badge badge-blue" style="margin-right:4px;">${k}</span>`).join('');
-  const optionsHtml = q.options.length > 0
-    ? q.options.map(o=>`
+  const OPTION_TYPES = ['单项选择','多项选择','选择题','完形填空'];
+  const isOptionType = OPTION_TYPES.includes(q.question_type);
+  const opts = q.options || [];
+  let optionsHtml, submitLabel = '提交答案', submitAction = 'submitPracticeAnswer()';
+  if (isOptionType && opts.length === 0) {
+    // 有选项题型但选项缺失：提示 + 跳过，避免误渲染成填空输入框
+    optionsHtml = `<div style="padding:14px 16px;margin:10px 0;background:var(--red-light);border-radius:10px;color:var(--red);font-size:.9rem;text-align:center;">⚠️ 本题选项加载失败，先跳过，继续练习</div>`;
+    submitLabel = '跳过这道 →';
+    submitAction = 'skipPracticeQuestion()';
+  } else if (isOptionType) {
+    optionsHtml = opts.map(o=>`
       <label class="practice-opt" data-key="${o.key}" onclick="selectOption(this,'${o.key}')" style="display:block;padding:14px 18px;margin:8px 0;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;transition:all .15s;font-size:1rem;line-height:1.6;">
         <strong>${o.key}.</strong> ${o.text}
-      </label>`).join('')
-    : `<input type="text" id="practice-text-answer" placeholder="输入你的答案" style="width:100%;padding:12px 16px;border:1.5px solid var(--border);border-radius:10px;font-size:1rem;margin:10px 0;">`;
+      </label>`).join('');
+  } else {
+    optionsHtml = `<input type="text" id="practice-text-answer" placeholder="输入你的答案" oninput="document.getElementById('practice-submit-btn').disabled = this.value.trim()===''" style="width:100%;padding:12px 16px;border:1.5px solid var(--border);border-radius:10px;font-size:1rem;margin:10px 0;">`;
+  }
 
   div.innerHTML = `
     <div class="card">
@@ -561,9 +497,15 @@ function renderPracticeQuestion() {
       <div style="margin-bottom:10px;">${kpTag}</div>
       <div style="font-weight:600;margin-bottom:16px;line-height:1.8;font-size:1.02rem;white-space:pre-wrap;">${q.question_text.replace(/[A-D]\.\s*.+?(?=\s*[A-D]\.|$)/g,'').trim()}</div>
       <div id="practice-options">${optionsHtml}</div>
-      <button class="btn btn-primary" style="width:100%;margin-top:16px;" id="practice-submit-btn" onclick="submitPracticeAnswer()" disabled>提交答案</button>
+      <button class="btn btn-primary" style="width:100%;margin-top:16px;" id="practice-submit-btn" onclick="${submitAction}" ${isOptionType && opts.length === 0 ? '' : 'disabled'}>${submitLabel}</button>
       <div id="practice-feedback" style="display:none;margin-top:16px;"></div>
     </div>`;
+}
+
+function skipPracticeQuestion() {
+  practiceIndex++;
+  selectedAnswer = '';
+  renderPracticeQuestion();
 }
 
 let selectedAnswer = '';
@@ -580,7 +522,7 @@ async function submitPracticeAnswer() {
   const q = practiceQuestions[practiceIndex];
   const textInput = document.getElementById('practice-text-answer');
   const answer = selectedAnswer || (textInput ? textInput.value.trim() : '');
-  if (!answer) return;
+  if (!answer) { toast('请先作答再提交'); return; }
 
   document.getElementById('practice-submit-btn').disabled = true;
   document.getElementById('practice-submit-btn').textContent = '批改中...';
@@ -733,10 +675,19 @@ function renderReports(d) {
       <div style="margin-top:12px;padding:12px;background:var(--bg);border-radius:6px;">
         <div style="font-weight:600;font-size:.9rem;">${r.title || '学情分析报告'}</div>
         <div class="meta">${r.created_at.slice(0,10)} · ${r.mistakes_count}道错题 · ${r.weak_points_count}个薄弱点</div>
-        <a href="/api/files/${r.report_file_id}/download" target="_blank" class="btn btn-primary" style="margin-top:8px;">📄 查看报告</a>
+        <a href="/api/public/${CODE}/files/${r.report_file_id}/download" target="_blank" class="btn btn-primary" style="margin-top:8px;">📄 查看报告</a>
       </div>
     `).join('');
   }).catch(()=>{});
+}
+
+// 掌握状态助手（全局，供错题本/展开项共用）
+function mistakeStatus(m) {
+  const cc = m.consecutive_correct || 0;
+  const stage = m.review_stage || 0;
+  if (cc >= 2) return {icon: '🟢', label: '已掌握', color: 'var(--green)', bg: 'var(--green-light)'};
+  if (stage >= 3) return {icon: '🟡', label: '在进步', color: 'var(--accent)', bg: 'var(--accent-light)'};
+  return {icon: '🔴', label: '未攻克', color: 'var(--red)', bg: 'var(--red-light)'};
 }
 
 function renderMistakes(d) {
@@ -750,59 +701,8 @@ function renderMistakes(d) {
     return;
   }
 
-  // Group mistakes by knowledge point
-  const groups = {};
-  (d.mistakes || []).forEach(m => {
-    const kps = (m.knowledge_points || []);
-    const kp = kps.length > 0 ? kps[0] : '其他';
-    if (!groups[kp]) groups[kp] = [];
-    groups[kp].push(m);
-  });
-
-  // Status helper
-  const stageLabels = ['1小时', '1天', '2天', '4天', '7天', '15天', '30天', '60天'];
-  function mistakeStatus(m) {
-    const cc = m.consecutive_correct || 0;
-    const stage = m.review_stage || 0;
-    if (cc >= 2) return {icon: '🟢', label: '已掌握', color: 'var(--green)', bg: 'var(--green-light)'};
-    if (stage >= 3) return {icon: '🟡', label: '在进步', color: 'var(--accent)', bg: 'var(--accent-light)'};
-    return {icon: '🔴', label: '未攻克', color: 'var(--red)', bg: 'var(--red-light)'};
-  }
-
-  // Build grouped HTML
-  let groupsHtml = '';
-  for (const [kp, mistakes] of Object.entries(groups)) {
-    const items = mistakes.map(m => {
-      const st = mistakeStatus(m);
-      const dueIds = new Set((d.due_reviews || []).map(r => r.id));
-      const isDue = dueIds.has(m.id);
-      return `
-      <div class="mistake-item" style="border-left:3px solid ${st.color};padding-left:12px;margin:10px 0;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-          <span>${st.icon}</span>
-          <span class="badge" style="background:${st.bg};color:${st.color};">${st.label}</span>
-          ${isDue ? '<span class="badge" style="background:#ffe0e0;color:var(--red);">🔔 待复习</span>' : ''}
-        </div>
-        <div class="mistake-q">${(m.question || '（题目未记录）').slice(0, 120)}</div>
-        <div class="mistake-ans"><strong>答案：</strong>${m.correct_answer || '-'}</div>
-        <button class="btn btn-green" style="margin-top:8px;font-size:.85rem;padding:6px 14px;min-height:38px;" onclick="masterMistake(${m.id})">✅ 已掌握</button>
-        <button class="btn btn-outline" style="margin-top:8px;margin-left:6px;font-size:.85rem;padding:6px 14px;min-height:38px;" onclick="genSimilar(${m.id}, this)">🔍 类似题</button>
-        <div class="similar-questions" id="similar-${m.id}" style="margin-top:8px;display:none;"></div>
-      </div>`;
-    }).join('');
-    groupsHtml += `
-      <div class="card" style="margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <h3 style="font-size:1.05rem;margin:0;">${kp}</h3>
-          <span class="badge badge-blue">${mistakes.length} 道</span>
-        </div>
-        ${items}
-      </div>`;
-  }
-
   // Progress bar (thinning visual)
   const pct = total > 0 ? Math.round(mastered / total * 100) : 0;
-
   div.innerHTML = `
     <div class="card" style="text-align:center;margin-bottom:16px;padding:24px;">
       <div style="font-size:1.2rem;font-weight:800;margin-bottom:10px;line-height:1.6;">
@@ -813,11 +713,85 @@ function renderMistakes(d) {
       </div>
       <div style="font-size:.9rem;color:var(--sub);">错题本完成度 ${pct}% · 越薄越厉害</div>
     </div>
-    ${groupsHtml}
+    <div id="mistake-books"><div class="card"><div class="empty">加载错题本中...</div></div></div>
+  `;
+
+  // 按分析日期分组的错题本（如「20260804错题本」），最新一次默认展开
+  fetch('/api/public/' + CODE + '/mistake-books').then(r=>r.json()).then(data=>{
+    const books = data.books || [];
+    const booksDiv = document.getElementById('mistake-books');
+    if (!booksDiv) return;
+    if (books.length === 0) {
+      booksDiv.innerHTML = '<div class="card"><div class="empty">🎉 暂无错题记录</div></div>';
+      return;
+    }
+    const firstDate = books[0].date;
+    booksDiv.innerHTML = books.map(book=>`
+      <div class="card" style="margin-bottom:12px;padding:0;overflow:hidden;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;cursor:pointer;background:var(--bg);" onclick="toggleMistakeBook('${book.date}', this)">
+          <h3 style="font-size:1.02rem;margin:0;">📚 ${book.label}</h3>
+          <div>
+            <span class="badge badge-blue" style="margin-right:6px;">${book.count} 道</span>
+            <span class="book-arrow" style="font-size:.8em;color:var(--sub);">${book.date === firstDate ? '▼' : '▶'}</span>
+          </div>
+        </div>
+        <div id="book-${book.date}" style="display:${book.date === firstDate ? 'block' : 'none'};padding:12px 16px;">
+          ${book.mistakes.map(m=>mistakeItemHtml(m)).join('')}
+        </div>
+      </div>
+    `).join('');
+  }).catch(()=>{
+    const booksDiv = document.getElementById('mistake-books');
+    if (booksDiv) booksDiv.innerHTML = '<div class="card"><div class="empty">加载失败，请刷新重试</div></div>';
+  });
+
+  div.innerHTML += `
     <div style="margin-top:14px;text-align:center;">
-      <button class="btn btn-primary" onclick="batchGenSimilar()">⚡ 一键生成全部类似题</button>
+      <button class="btn btn-primary" style="width:100%;" onclick="switchTab('practice', event)">🚀 开始练习</button>
+      <button class="btn btn-outline" style="margin-top:8px;font-size:.85rem;width:100%;" onclick="batchGenSimilar()">⚡ 一键生成全部类似题</button>
     </div>
   `;
+}
+
+// 单个错题卡片：题目 + 学生作答 + 正确答案 + 解析（原封不动展示）
+function mistakeItemHtml(m) {
+  const st = mistakeStatus(m);
+  const qtype = m.question_type ? `<span class="badge" style="background:var(--bg);color:var(--sub);">${m.question_type}</span>` : '';
+  return `
+    <div class="mistake-item" style="border-left:3px solid ${st.color};padding-left:12px;margin:12px 0;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+        <span>${st.icon}</span>
+        <span class="badge" style="background:${st.bg};color:${st.color};">${st.label}</span>
+        ${qtype}
+      </div>
+      <div style="font-weight:600;line-height:1.7;white-space:pre-wrap;">${m.question || '（题目未记录）'}</div>
+      <div style="margin-top:8px;">
+        <div style="background:var(--red-light);border-radius:8px;padding:8px 12px;margin-bottom:6px;">
+          <span style="font-size:.72rem;color:var(--red);font-weight:600;">✗ 你的作答：</span>
+          <span style="font-size:.9rem;">${m.user_answer || '（未作答）'}</span>
+        </div>
+        <div style="background:var(--green-light);border-radius:8px;padding:8px 12px;">
+          <span style="font-size:.72rem;color:var(--green);font-weight:600;">✓ 正确答案：</span>
+          <span style="font-size:.9rem;font-weight:600;">${m.correct_answer || '-'}</span>
+        </div>
+        ${m.explanation ? `<div style="background:var(--accent-light);border-radius:8px;padding:8px 12px;margin-top:6px;font-size:.85rem;line-height:1.7;">📖 ${m.explanation}</div>` : ''}
+      </div>
+      <div style="margin-top:8px;">
+        <button class="btn btn-green" style="font-size:.8rem;padding:6px 12px;min-height:34px;" onclick="masterMistake(${m.id})">✅ 已掌握</button>
+        <button class="btn btn-outline" style="font-size:.8rem;padding:6px 12px;min-height:34px;margin-left:6px;" onclick="genSimilar(${m.id}, this)">🔍 类似题</button>
+        <div class="similar-questions" id="similar-${m.id}" style="margin-top:8px;display:none;"></div>
+      </div>
+    </div>`;
+}
+
+// 展开/收起某日错题本
+function toggleMistakeBook(bookDate, el) {
+  const body = document.getElementById('book-' + bookDate);
+  if (!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  const arrow = el.querySelector('.book-arrow');
+  if (arrow) arrow.textContent = open ? '▶' : '▼';
 }
 
 async function genSimilar(mistakeId, btn) {
@@ -1262,6 +1236,48 @@ function renderProgress(d) {
   `;
 }
 
+function renderKnowledgeMastery(weakPoints, opts) {
+  // 薄弱知识点掌握度条（compact 模式，进度 tab 使用）
+  if (!weakPoints || weakPoints.length === 0) return '<p class="meta">暂无薄弱点数据</p>';
+  return weakPoints.map(w => {
+    const m = Number(w.mastery_rate) || 0;
+    const color = m < 30 ? 'var(--red)' : (m < 60 ? '#e6a23c' : 'var(--green)');
+    return `<div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;font-size:.9rem;margin-bottom:4px;">
+        <span>${w.knowledge_point || '未知知识点'}</span><span style="color:var(--sub);">${Math.round(m)}%</span>
+      </div>
+      <div style="height:8px;background:var(--bg);border-radius:6px;overflow:hidden;">
+        <div style="height:100%;width:${Math.min(100, Math.max(0, m))}%;background:${color};border-radius:6px;"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderRadarChart(ls, opts) {
+  // 学习风格四维雷达图（visual/auditory/kinesthetic/read_write，0-10）
+  const size = (opts && opts.size) || 220;
+  const R = size / 2 - 26, cx = size / 2, cy = size / 2;
+  const dims = ['visual', 'auditory', 'kinesthetic', 'read_write'];
+  const labels = ['视觉', '听觉', '动觉', '读写'];
+  const angles = [0, 90, 180, 270].map(a => a * Math.PI / 180);
+  const pts = dims.map((k, i) => {
+    const v = Math.max(0, Math.min(10, Number(ls[k]) || 0)) / 10;
+    return [cx + Math.sin(angles[i]) * R * v, cy - Math.cos(angles[i]) * R * v];
+  });
+  const polygon = pts.map(p => p.join(',')).join(' ');
+  const axisLines = angles.map((a, i) =>
+    `<line x1="${cx}" y1="${cy}" x2="${cx + Math.sin(a) * R}" y2="${cy - Math.cos(a) * R}" stroke="#e5e0d5" stroke-width="1"/>`
+  ).join('');
+  const labelHtml = labels.map((l, i) =>
+    `<text x="${cx + Math.sin(angles[i]) * (R + 20)}" y="${cy - Math.cos(angles[i]) * (R + 20)}" text-anchor="middle" font-size="12" fill="#6b6b6b">${l}</text>`
+  ).join('');
+  return `<svg viewBox="0 0 ${size} ${size}" style="width:100%;max-width:${size}px;height:auto;">
+    ${axisLines}
+    <polygon points="${polygon}" fill="rgba(224,123,75,.25)" stroke="#e07b4b" stroke-width="2"/>
+    ${labelHtml}
+  </svg>`;
+}
+
 function renderSvgChart(labels, values, target) {
   const width = 600, height = 180, padding = 30;
   const chartW = width - padding * 2, chartH = height - padding * 2;
@@ -1466,15 +1482,6 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     <div class="step" id="step2"><div class="num">2</div>AI 看懂</div>
     <div class="step" id="step3"><div class="num">3</div>知道怎么办</div>
   </div>
-
-  <!-- Upload -->
-  <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
-    <span class="icon">📸</span>
-    <div class="title">点这里，拍一张孩子的英语试卷</div>
-    <div class="hint">拍得清楚一点，AI 看得更准哦</div>
-    <img class="preview" id="previewImg" />
-  </div>
-  <input type="file" id="fileInput" accept="image/*" capture="environment" />
 
   <!-- Progress -->
   <div class="progress-card" id="progressCard">
@@ -1718,7 +1725,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     diagnoses.forEach((diag, idx) => {
       const icon = idx === 0 ? '🆕' : '📄';
       const reportLink = diag.report_file_id
-        ? `<a href="/api/files/${diag.report_file_id}/download" target="_blank" rel="noopener" style="font-size:.7rem;color:var(--accent);text-decoration:none;white-space:nowrap;">查看报告 →</a>`
+        ? `<a href="/api/public/${CODE}/files/${diag.report_file_id}/download" target="_blank" rel="noopener" style="font-size:.7rem;color:var(--accent);text-decoration:none;white-space:nowrap;">查看报告 →</a>`
         : '';
       tlHtml += `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
         <span style="font-size:1.2rem;">${icon}</span>
@@ -1837,7 +1844,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     // Action buttons
     let reportBtn = '';
     if (data.report_file_id) {
-      reportBtn = `<a href="/api/files/${data.report_file_id}/download" target="_blank" rel="noopener" style="display:block;padding:14px;background:var(--accent);color:#fff;border-radius:12px;font-weight:600;font-size:.95rem;text-decoration:none;text-align:center;margin-bottom:10px;">📄 查看详细分析报告</a>`;
+      reportBtn = `<a href="/api/public/${CODE}/files/${data.report_file_id}/download" target="_blank" rel="noopener" style="display:block;padding:14px;background:var(--accent);color:#fff;border-radius:12px;font-weight:600;font-size:.95rem;text-decoration:none;text-align:center;margin-bottom:10px;">📄 查看详细分析报告</a>`;
     }
     resultCard.innerHTML += `
       <div style="margin-top:20px;">

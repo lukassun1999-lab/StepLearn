@@ -18,6 +18,9 @@ import json
 
 import db
 
+# 主观题型：不进逐题练习（无标准判分），其错题整理由错题本内容提炼（周报/月度总结素材）
+_SUBJECTIVE_TYPES = ("任务型阅读", "阅读理解", "写作", "书面表达")
+
 
 def _parse_kp(raw):
     if isinstance(raw, str):
@@ -46,16 +49,19 @@ def get_practice_questions(student_id: int, limit: int = 15,
     """
     db_path = db_path or db.DB_PATH
     mastery_clause = "AND m.consecutive_correct < 2" if unmastered_only else ""
+    # 按题目自身题型过滤主观题（源错题题型可能与题目不一致，如任务型阅读题源自选词填空错题）
+    subject_clause = ("AND q.question_type NOT IN ("
+                      + ",".join("?" * len(_SUBJECTIVE_TYPES)) + ")")
     conn = db.get_connection(db_path)
     rows = conn.execute(f"""
         SELECT q.id, q.question_text, q.question_type, q.correct_answer,
                q.explanation, q.knowledge_points, q.difficulty, q.source_mistake_id
         FROM questions q
         JOIN mistakes m ON m.id = q.source_mistake_id
-        WHERE m.student_id = ? AND q.enabled = 1 {mastery_clause}
+        WHERE m.student_id = ? AND q.enabled = 1 {mastery_clause} {subject_clause}
         ORDER BY q.created_at DESC
         LIMIT ?
-    """, [student_id, limit]).fetchall()
+    """, [student_id, *_SUBJECTIVE_TYPES, limit]).fetchall()
     conn.close()
 
     questions = []
@@ -83,6 +89,8 @@ def get_practice_questions(student_id: int, limit: int = 15,
     bank = db.find_similar_questions(list(all_kps), limit=limit)
     for r in bank:
         r = dict(r) if not isinstance(r, dict) else r
+        if r.get("question_type") in _SUBJECTIVE_TYPES:
+            continue  # 主观题型不进逐题练习
         questions.append({
             "id": r.get("id"),
             "question_text": r.get("question_text", ""),

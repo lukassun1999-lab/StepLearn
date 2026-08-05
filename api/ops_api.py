@@ -11,7 +11,7 @@ from werkzeug.security import generate_password_hash
 
 from db import *  # noqa: F401,F403
 from pipeline_worker import enqueue_task
-from web.shared import (UPLOAD_DIR, _enqueue_correction_rerun,
+from web.shared import (UPLOAD_DIR, _enqueue_correction_rerun, _resolve_file_path,
                         _save_uploaded_file, admin_required,
                         login_required)
 
@@ -586,9 +586,8 @@ def api_file_download(file_id):
     f = get_file(file_id)
     if not f:
         return ('', 404)
-    filepath = os.path.join(UPLOAD_DIR, str(f['student_id']),
-                           f['file_type'], f['filename'])
-    if not os.path.exists(filepath):
+    filepath = _resolve_file_path(f)
+    if not filepath:
         return ('', 404)
     return send_file(filepath, download_name=f['original_filename'])
 

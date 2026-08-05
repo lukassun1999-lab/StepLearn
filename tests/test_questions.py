@@ -95,3 +95,33 @@ def test_empty_student_returns_empty(test_db_path, sample_student):
     from domain import questions as q_mod
 
     assert q_mod.get_practice_questions(sample_student, db_path=test_db_path) == []
+
+
+def test_fix_generated_answer_format():
+    """P3 质量硬化：填空类题型答案格式校验（禁止裸字母）。"""
+    from skills_bridge import _fix_generated_answer_format
+
+    # 填空类 + 裸字母 → 回退源错题答案
+    q = {"question_type": "语法填空", "correct_answer": "A"}
+    out = _fix_generated_answer_format(q, source_answer="one of them")
+    assert out["correct_answer"] == "one of them"
+
+    # 源答案带选项字母前缀 → 去除前缀
+    q = {"question_type": "语法填空", "correct_answer": "B"}
+    out = _fix_generated_answer_format(q, source_answer="B. full of")
+    assert out["correct_answer"] == "full of"
+
+    # 填空类 + 已是答案内容 → 不动
+    q = {"question_type": "语法填空", "correct_answer": "full of"}
+    out = _fix_generated_answer_format(q, source_answer="full of")
+    assert out["correct_answer"] == "full of"
+
+    # 选择题 + 字母答案 → 保留字母
+    q = {"question_type": "选择题", "correct_answer": "B"}
+    out = _fix_generated_answer_format(q, source_answer="full of")
+    assert out["correct_answer"] == "B"
+
+    # 填空类 + 无源答案 → 保持原样不崩溃
+    q = {"question_type": "语法填空", "correct_answer": "A"}
+    out = _fix_generated_answer_format(q, source_answer="")
+    assert out["correct_answer"] == "A"

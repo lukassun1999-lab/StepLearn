@@ -44,16 +44,16 @@ def test_public_upload_via_unified_service(client, sample_student, demo_mode,
     body = r.get_json()
     assert body["task_id"] and body["file_ids"]
 
-    # trial 额度 1 次被消耗
+    # trial 注册即享 99 次/月，首次上传消耗 1 次
     has_quota, remaining = db.check_quota(sample_student, test_db_path)
-    assert has_quota is False and remaining == 0
+    assert has_quota is True
+    assert remaining == db.PRICING["trial"]["monthly_quota"] - 1
 
-    # 第二次上传被额度闸门拒绝
+    # 第二次上传仍成功（额度充足）
     data2 = {"file": (io.BytesIO(b"\xff\xd8\xff\xd9"), "paper2.jpg")}
     r2 = client.post(f"/api/public/{code}/upload", data=data2,
                      content_type="multipart/form-data")
-    assert r2.status_code == 429
-    assert "额度" in r2.get_json()["error"]
+    assert r2.status_code == 202
 
 
 def test_parent_diagnose_bootstrap_via_unified_service(client, demo_mode,
@@ -81,5 +81,5 @@ def test_parent_diagnose_bootstrap_via_unified_service(client, demo_mode,
     }
     r2 = client.post("/api/parent/diagnose", data=data2,
                      content_type="multipart/form-data")
-    # trial 额度仅 1 次，第二次应被闸门拒绝
-    assert r2.status_code == 429
+    # trial 有 99 次/月额度，回访第二次仍成功
+    assert r2.status_code == 202

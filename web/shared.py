@@ -87,6 +87,19 @@ def _extract_options(question_text):
         return [{"key": k, "text": v.strip()} for k, v in options]
     return []
 
+
+def _resolve_file_path(f):
+    """解析文件磁盘路径，返回存在的路径或 None。
+
+    兼容历史目录命名偏差：海报曾存于 <file_type>s（posters）目录，
+    而 file_type 为 poster（单数）。
+    """
+    for d in (f["file_type"], f["file_type"] + "s"):
+        p = os.path.join(UPLOAD_DIR, str(f["student_id"]), d, f["filename"])
+        if os.path.exists(p):
+            return p
+    return None
+
 def _save_uploaded_file(file, student_id: int, file_type: str, uploader_role: str) -> int:
     """Save a single uploaded file and return its file_id."""
     ext = os.path.splitext(file.filename)[1] or '.jpg'
