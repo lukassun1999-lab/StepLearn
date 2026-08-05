@@ -89,7 +89,7 @@
 ## 4. 数据模型（35 张表）
 
 **核心实体**
-- `students` — 学生档案（姓名/年级/access_code/parent_access_code/手机号密码）
+- `students` — 学生档案（姓名/年级/教材版本 textbook_version/access_code/parent_access_code/手机号密码；注册时采集年级与教材版本）
 - `student_profiles` — 40+ 字段个性化画像（六大部分 + 测评 + 方案抉择 + 家长任务进度）
 
 **周期与流程**
@@ -98,11 +98,13 @@
 - `files` — 文件元数据（uploads/<student_id>/<file_type>/ 组织）
 
 **教学（错题本是核心资产）**
-- `mistakes` — 错题（题干/答案/知识点/难度/consecutive_correct；连对 2 次即掌握）
+- `mistakes` — 错题（题干/答案/知识点/难度/consecutive_correct；连对 2 次即掌握；**error_cause/cause_evidence** 受控五类错因归因，未作答不进统计）
 - `practice_records` — 作答记录；`practice_sessions` — 考试会话
 - `questions` — 题库（source_mistake_id 溯源；usage_count 复用计数）
 - `learning_plans` — 方案+薄弱矩阵；`plan_updates` — 方案更新史（AI 诊所）
 - `score_history` — 分数趋势；`check_ins` — 打卡
+- `cause_profiles` — **错因因果链画像**（每学生一条：核心瓶颈/传导链/根因聚焦知识点/家长一句话，LLM+统计兜底）
+- `cause_profile_history` — 画像周历史（student_id+week_start 唯一，跨周"卡点变化"叙事数据源）
 
 **商业**
 - `subscriptions`（套餐/月额度/used_count/reset_month）、`payments`、`referrals`
@@ -214,7 +216,7 @@
 **页面（web/pages）**：`/`（运营后台）、`/login`、`/register`、`/student-login`、`/s/<code>`（家庭端）、`/parent`（学情体检）
 
 **家庭端（api/family_api）**：
-- 认证：`/api/register`、`/api/student-login`、`/api/sms/*`
+- 认证：`/api/register`（body: name/phone/password/grade/textbook_version，班级码存在时年级以班级为准）、`/api/student-login`、`/api/sms/*`
 - 公开页（code 作用域）：`/api/public/<code>/*` — upload / task / reports / practice(+submit) / exercise-pdf / review / timeline / achievements / checkins / progress / request-deletion
 - 家长：`/api/parent/diagnose`、`/api/parent/task/<id>`、`/api/parent/progress/<code>`
 - 转介绍：`/api/referrals/*`、`/api/poster/<code>`

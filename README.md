@@ -4,6 +4,8 @@
 
 > **核心价值链**：家长拍照 → AI 自动分析 → 家长看到进步、肯定成长 → 孩子拿到针对性练习 → 错题本越读越薄。
 >
+> **错因因果链**（2026-08-05）：诊断从"哪里不会"升级为"为什么不会、先补什么"。每道错题归因到受控五类（词汇/语法/句法/语篇/审题），聚合出核心瓶颈与传导链；方案与周报按"根因优先、非错误率优先"聚焦，跨周对比生成"卡点变化"进步叙事。
+>
 > 架构模式：**单租户自营**（非多租户 SaaS）。当前为 C 端最小闭环模式，学校/教师功能由 feature flag 封存（见 `FEATURE_FLAGS.md`）。
 
 ---
@@ -116,13 +118,13 @@ StepLearn/
 │   ├── cycle_pipeline.py   #   统一 handler（onboarding + weekly）
 │   └── scheduler.py        #   调度器：周六条件周报/周一错题本/月度总结
 ├── pipeline_worker.py      # 任务队列 + worker 池（僵尸恢复/退额度/抽检）
-├── db.py                   # SQLite 数据层（唯一数据源，35 表）
+├── db.py                   # SQLite 数据层（唯一数据源，35 表，含 cause_profiles 错因画像）
 ├── llm.py                  # LLM 抽象：重试/schema 校验/缓存/成本计费/demo 模式
-├── skills_bridge.py        # OCR + LLM 业务封装（prompt 库）
-├── report_templates.py     # HTML/PDF 报告渲染
+├── skills_bridge.py        # OCR + LLM 业务封装（prompt 库 + 错因因果链分析）
+├── report_templates.py     # HTML/PDF 报告渲染（含错因画像/卡点变化板块）
 ├── ocr_wrapper.js          # Tesseract.js 包装脚本
 ├── tessdata/               # OCR 语言包（.traineddata.gz）
-├── tests/                  # pytest 测试（55 用例）
+├── tests/                  # pytest 测试（90 用例）
 ├── uploads/<student_id>/   # 学生上传文件与产出报告
 ├── backups/                # 自动备份（每日 03:00）
 ├── archive/                # 归档：历史测试产物与备份
@@ -188,6 +190,8 @@ StepLearn/
 - [`功能模块与核心流程梳理.md`](功能模块与核心流程梳理.md)：现状全景梳理
 - [`DEVELOPMENT.md`](DEVELOPMENT.md)：数据模型、API 概览、开发约定
 - [`FEATURE_FLAGS.md`](FEATURE_FLAGS.md)：B 端功能封存与恢复方式
+- [`错因因果链实施方案.md`](错因因果链实施方案.md)：受控错因分类 + 因果链画像的设计与实施记录
+- [`错因校准报告.md`](错因校准报告.md)：首轮运营校准（83 条真实错题回测）
 
 ---
 
