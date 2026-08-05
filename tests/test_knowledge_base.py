@@ -43,6 +43,48 @@ def test_normalize_dedup_and_empty():
     assert normalize_knowledge_points(None) == ([], [])
 
 
+# ── 补词后新增：前缀剥离 / 忽略列表 / 能力类映射 ──
+
+def test_normalize_strips_question_type_prefix():
+    from skills_bridge import normalize_knowledge_points
+    assert normalize_knowledge_points(["阅读理解-细节理解"]) == (["细节理解"], [])
+    assert normalize_knowledge_points(["阅读理解-推理判断"]) == (["推理判断"], [])
+    assert normalize_knowledge_points(["阅读理解-主旨大意"]) == (["主旨大意"], [])
+
+
+def test_normalize_ignores_question_type_words():
+    from skills_bridge import normalize_knowledge_points
+    # 题型词直接丢弃：既不是 canonical 也不进未识别池
+    assert normalize_knowledge_points(["阅读理解", "语法填空", "完形填空",
+                                       "英语写作"]) == ([], [])
+    # 忽略词与真实知识点混合时只保留后者
+    assert normalize_knowledge_points(["阅读理解", "现在完成时"]) == (["现在完成时"], [])
+
+
+def test_normalize_discourse_capability_aliases():
+    from skills_bridge import normalize_knowledge_points
+    assert normalize_knowledge_points(["主旨归纳"]) == (["主旨大意"], [])
+    assert normalize_knowledge_points(["上下文理解"]) == (["语境理解与推断"], [])
+    assert normalize_knowledge_points(["语义理解"]) == (["语境理解与推断"], [])
+
+
+def test_normalize_vocab_discrimination_aliases():
+    from skills_bridge import normalize_knowledge_points
+    assert normalize_knowledge_points(["名词辨析"]) == (["词义辨析（易混词）"], [])
+    assert normalize_knowledge_points(["动词辨析"]) == (["词义辨析（易混词）"], [])
+    assert normalize_knowledge_points(["形容词辨析"]) == (["词义辨析（易混词）"], [])
+
+
+def test_normalize_new_aliases():
+    from skills_bridge import normalize_knowledge_points
+    assert normalize_knowledge_points(["并列谓语"]) == (["并列句"], [])
+    assert normalize_knowledge_points(["介词短语"]) == (["介词固定搭配"], [])
+    assert normalize_knowledge_points(["词性变换"]) == (["词性转换"], [])
+    assert normalize_knowledge_points(["情态动词 can't 的用法"]) == (
+        ["情态动词表推测"], [])
+    assert normalize_knowledge_points(["信息匹配"]) == (["文章结构"], [])
+
+
 def test_record_and_get_unmapped_kps(test_db_path):
     import db
     # 用独特标签避免与其他测试（demo 分析记录"非谓语动词"等）共享 session DB 冲突

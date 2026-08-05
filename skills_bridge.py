@@ -589,6 +589,16 @@ _KP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "knowledge_points.json")
 _KP_TABLE = None       # [{"id","c","a","l","g"}, ...]
 _KP_INDEX = None       # alias/canonical(去空白) → canonical
+# 题型前缀：归一化前剥离（"阅读理解-细节理解" → "细节理解"）
+_KP_TYPE_PREFIXES = ("阅读理解", "阅读", "完形填空", "完形", "语法填空",
+                     "选词填空", "任务型阅读", "信息匹配", "单项选择")
+# 题型词忽略列表：LLM 常把题型当知识点输出，直接忽略（不进词表、不刷未识别池）
+_KP_IGNORE = frozenset({
+    "阅读理解", "阅读", "阅读匹配", "阅读表达", "阅读表达填空", "阅读表达问答",
+    "语法填空", "完形填空", "选词填空", "单项选择", "填空题", "匹配题",
+    "任务型阅读", "任务型", "书面表达", "写作", "英语写作", "英语表达",
+    "补全对话", "问答", "综合", "细节填空", "词形变化", "历史知识",
+})
 
 
 def _load_knowledge_base() -> None:
@@ -619,6 +629,7 @@ def normalize_knowledge_points(raw_labels) -> tuple:
     """受控词表归一化：自由标签 → canonical 列表。
 
     匹配策略（按优先级）：
+    0. 忽略列表中的题型词直接丢弃；剥离题型前缀（"阅读理解-细节理解"）
     1. 精确匹配（canonical 或 alias，忽略空白）
     2. 标签更细：canonical 是标签的子串（"现在完成时的用法"→"现在完成时"），取最长
     3. 标签更粗：标签是 canonical 的子串，仅当唯一匹配时映射（歧义 → 进未识别池）
@@ -626,23 +637,35 @@ def normalize_knowledge_points(raw_labels) -> tuple:
     """
     _load_knowledge_base()
     canonicals, unmapped = [], []
+
+    def _match(key):
+        m = _KP_INDEX.get(key) if _KP_INDEX else None
+        if not m and _KP_TABLE:
+            finer = [p["c"] for p in _KP_TABLE if p["c"].replace(" ", "") in key]
+            if finer:
+                m = max(finer, key=len)
+            else:
+                coarser = [p["c"] for p in _KP_TABLE
+                           if key in p["c"].replace(" ", "")]
+                if len(coarser) == 1:
+                    m = coarser[0]
+        return m
+
     for raw in raw_labels or []:
         label = str(raw or "").strip()
         if not label:
             continue
+        if label in _KP_IGNORE:
+            continue
         key = label.replace(" ", "")
-        matched = _KP_INDEX.get(key) if _KP_INDEX else None
-        if not matched and _KP_TABLE:
-            # 标签更细：canonical 是标签子串
-            finer = [p["c"] for p in _KP_TABLE if p["c"].replace(" ", "") in key]
-            if finer:
-                matched = max(finer, key=len)
-            else:
-                # 标签更粗：仅唯一 canonical 包含标签才映射
-                coarser = [p["c"] for p in _KP_TABLE
-                           if key in p["c"].replace(" ", "")]
-                if len(coarser) == 1:
-                    matched = coarser[0]
+        matched = _match(key)
+        if not matched:
+            # 题型前缀剥离后重试（"阅读理解-细节理解" → "细节理解"）
+            for prefix in _KP_TYPE_PREFIXES:
+                if key.startswith(prefix + "-"):
+                    stripped = key[len(prefix) + 1:]
+                    matched = _match(stripped)
+                    break
         if matched:
             if matched not in canonicals:
                 canonicals.append(matched)
