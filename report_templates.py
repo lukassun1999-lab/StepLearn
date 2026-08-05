@@ -163,6 +163,7 @@ def render_diagnostic_report(
     mistakes: list,
     weak_points: list,
     learning_plan: dict,
+    cause_profile: dict = None,
 ) -> str:
     """Generate the first diagnostic report HTML."""
 
@@ -376,6 +377,48 @@ def render_diagnostic_report(
         </div>
         """
 
+    # 错因画像（错因因果链：核心卡点 + 家长一句话 + 因果链 + 根因聚焦）
+    cause_html = ""
+    if cause_profile and cause_profile.get("primary_cause"):
+        cause_labels = {"vocab": "单词不认识", "grammar": "语法规则没掌握",
+                        "syntax": "长句拆不开", "discourse": "读不懂文章逻辑",
+                        "careless": "看题不仔细"}
+        primary = cause_profile.get("primary_cause", "")
+        primary_label = cause_labels.get(primary, primary)
+        plain = cause_profile.get("plain_language") or ""
+        chain = cause_profile.get("cause_chain") or []
+        chain_html = ""
+        if chain:
+            chain_parts = []
+            for link in chain[:4]:
+                chain_parts.append(
+                    f'<span style="background:var(--accent-light);color:var(--accent-hover);'
+                    f'border-radius:100px;padding:3px 10px;font-size:.75rem;">{link.get("from", "?")}</span>'
+                    f'<span style="color:var(--accent);margin:0 4px;">→</span>'
+                    f'<span style="background:var(--bg);color:var(--sub);border-radius:100px;'
+                    f'padding:3px 10px;font-size:.75rem;">{link.get("to", "?")}</span>'
+                )
+            chain_html = (f'<div style="margin-top:12px;display:flex;align-items:center;'
+                          f'flex-wrap:wrap;gap:2px;">{"".join(chain_parts)}</div>')
+        kps = cause_profile.get("priority_kps") or []
+        kp_tags = "".join(
+            f'<span style="display:inline-block;background:var(--bg);color:var(--text);'
+            f'border:1px solid var(--border);border-radius:100px;padding:3px 12px;'
+            f'font-size:.8rem;margin-right:6px;margin-bottom:6px;">🎯 {kp}</span>'
+            for kp in kps[:3]
+        )
+        cause_html = f"""
+        <div class="section">
+          <h2>🔍 错因画像</h2>
+          <div class="card" style="border-left:4px solid var(--accent);">
+            {f'<p style="font-size:.95rem;font-weight:700;color:var(--text);margin-bottom:8px;">核心卡点：{primary_label}</p>' if primary_label else ''}
+            {f'<p style="font-size:.9rem;line-height:1.8;color:var(--text-alt);margin-bottom:8px;">{plain}</p>' if plain else ''}
+            {chain_html}
+            {f'<div style="margin-top:14px;"><div style="font-size:.78rem;color:var(--sub);margin-bottom:6px;">本周按因果链聚焦（先补根因，次生问题会自己松动）：</div>{kp_tags}</div>' if kp_tags else ''}
+          </div>
+        </div>
+        """
+
     body = f"""
 <div class="header">
   <h1>📋 首次诊断报告</h1>
@@ -394,6 +437,8 @@ def render_diagnostic_report(
   </div>
 </div>
 
+{cause_html}
+
 {diagnosis_html}
 
 <!-- Learning Style Radar -->
@@ -404,6 +449,12 @@ def render_diagnostic_report(
     '</div>'
 ) if learning_plan.get("diagnosis_report", {}).get("learning_style") else ''}
 
+<div class="section">
+  <h2>📝 错题详解</h2>
+  <p style="color:var(--sub); font-size:.85em; margin-bottom:12px;">每道错题都附有你的答案、正确答案和详细解析</p>
+  {mistake_cards}
+</div>
+
 {motivation_html}
 
 {review_html}
@@ -411,12 +462,6 @@ def render_diagnostic_report(
 <div class="section">
   <h2>🌱 接下来重点关注</h2>
   <ul class="priority-list">{wp_rows}</ul>
-</div>
-
-<div class="section">
-  <h2>📝 错题详解</h2>
-  <p style="color:var(--sub); font-size:.85em; margin-bottom:12px;">每道错题都附有你的答案、正确答案和详细解析</p>
-  {mistake_cards}
 </div>
 
 <div class="section">
@@ -821,7 +866,8 @@ def _render_learning_style_radar(learning_style: dict, size: int = 220) -> str:
 
     return f"""
     <div style="max-width:{size}px;margin:0 auto;">
-      <svg viewBox="0 0 {size} {size}" style="width:100%;height:{size}px;display:block;">
+      <!-- viewBox 四周留白 35px：四向维度标签（radius+22 处）超出图表边界会被裁剪 -->
+      <svg viewBox="-35 -35 {size + 70} {size + 70}" style="width:100%;height:{size}px;display:block;">
         {grid_polys}
         {axes}
         {data_poly}
@@ -879,7 +925,8 @@ def render_weekly_report(student_name: str, week_start: str, week_end: str,
                          weak_areas: list, ai_clinic: str = "",
                          comparison: dict = None,
                          learning_style_detail: dict = None,
-                         action_plan: dict = None) -> str:
+                         action_plan: dict = None,
+                         cause_trend: dict = None) -> str:
     """Generate parent weekly report as a growth narrative (成长叙事)."""
 
     # ── Derive narrative data ──
@@ -1016,6 +1063,36 @@ def render_weekly_report(student_name: str, week_start: str, week_end: str,
           </div>
         </div>"""
 
+    # ── 卡点变化（错因跨周对比叙事）──
+    cause_html = ""
+    if cause_trend and cause_trend.get("narrative"):
+        prev_label = cause_trend.get("previous_primary_label", "?")
+        cur_label = cause_trend.get("current_primary_label", "?")
+        prev_pct = cause_trend.get("previous_pct", 0)
+        cur_pct = cause_trend.get("current_pct", 0)
+        same = cause_trend.get("current_primary") == cause_trend.get("previous_primary")
+        arrow_color = "var(--green)" if same and cur_pct <= prev_pct else "var(--accent)"
+        cause_html = f"""
+        <div class="section">
+          <h2>🧭 卡点变化</h2>
+          <div class="card" style="border-left:4px solid var(--accent);">
+            <p style="font-size:.95rem;line-height:1.8;margin-bottom:12px;">{cause_trend["narrative"]}</p>
+            <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
+              <div style="background:var(--bg);border-radius:8px;padding:10px 14px;min-width:130px;">
+                <div style="font-size:.72rem;color:var(--sub);">上周核心卡点</div>
+                <div style="font-weight:700;font-size:.95rem;">{prev_label}</div>
+                <div style="font-size:.78rem;color:var(--sub);">占错题 {prev_pct}%</div>
+              </div>
+              <div style="color:{arrow_color};font-size:1.2rem;font-weight:700;">→</div>
+              <div style="background:var(--accent-light);border-radius:8px;padding:10px 14px;min-width:130px;">
+                <div style="font-size:.72rem;color:var(--sub);">本周核心卡点</div>
+                <div style="font-weight:700;font-size:.95rem;color:var(--accent-hover);">{cur_label}</div>
+                <div style="font-size:.78rem;color:var(--sub);">占错题 {cur_pct}%</div>
+              </div>
+            </div>
+          </div>
+        </div>"""
+
     body = f"""
 <div class="header">
   <h1>📈 本周拾阶而上</h1>
@@ -1027,6 +1104,8 @@ def render_weekly_report(student_name: str, week_start: str, week_end: str,
 {climbing_html}
 
 {new_mistakes_html}
+
+{cause_html}
 
 <div class="section">
   <h2>📊 成长轨迹</h2>
@@ -1059,11 +1138,17 @@ def render_share_poster(student: dict, stats: dict) -> str:
     """Generate a shareable achievement poster HTML for parents."""
     name = student.get("name", "同学")
     grade = student.get("grade", "")
-    current = student.get("english_score") or stats.get("current_score", "?")
-    target = student.get("target_score") or stats.get("target_score", "")
+    current = student.get("english_score") or stats.get("current_score") or None
+    target = student.get("target_score") or stats.get("target_score") or None
     mastered = stats.get("mastered_count", 0)
     mistakes = stats.get("mistakes_count", 0)
     checkins = stats.get("check_in_count", 0)
+
+    # 分数回退：档案未填 → 取最近一次分数（score_history 按时间升序，末位最新）
+    if not current:
+        scores = stats.get("scores") or []
+        if scores:
+            current = scores[-1].get("score") or None
 
     # Encouraging message based on progress
     messages = [
@@ -1074,10 +1159,18 @@ def render_share_poster(student: dict, stats: dict) -> str:
     ]
     message = messages[(student.get("id", 0) + mastered) % len(messages)]
 
-    # Score improvement display
-    score_text = f"{current}分"
-    if target:
-        score_text += f"<span style='font-size:.5em;color:var(--sub);'> / 目标 {target}分</span>"
+    # 主数字区：有分数显示分数；无分数用错题掌握进度（错题本越读越薄）
+    if current:
+        score_label = "当前英语成绩"
+        score_text = f"{current}分"
+        score_sub = ""
+        if target:
+            score_text += f"<span style='font-size:.5em;color:var(--sub);'> / 目标 {target}分</span>"
+    else:
+        score_label = "已稳住错题"
+        score_text = f"{mastered}"
+        score_sub = (f"<div style='font-size:.75em;color:var(--sub);margin-top:6px;'>"
+                     f"共 {mastered + mistakes} 道错题 · 稳住 {mastered} 道，错题本越读越薄</div>")
 
     body = f"""
 <div style="background:linear-gradient(135deg, #e8813b 0%, #f5a56a 100%); min-height:100vh; padding:32px 20px; text-align:center; color:#fff; font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;">
@@ -1087,8 +1180,9 @@ def render_share_poster(student: dict, stats: dict) -> str:
     <div style="font-size:.85em; opacity:.85; margin-bottom:28px;">{grade} · AI 个性化英语学习</div>
 
     <div style="background:#fff; border-radius:16px; padding:24px; color:var(--text); margin-bottom:20px;">
-      <div style="font-size:.85em; color:var(--sub); margin-bottom:8px;">当前英语成绩</div>
+      <div style="font-size:.85em; color:var(--sub); margin-bottom:8px;">{score_label}</div>
       <div style="font-size:3em; font-weight:700; color:var(--accent); line-height:1;">{score_text}</div>
+      {score_sub}
 
       <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:24px;">
         <div style="background:var(--green-light); border-radius:10px; padding:12px 4px;">
@@ -1108,13 +1202,6 @@ def render_share_poster(student: dict, stats: dict) -> str:
 
     <div style="background:rgba(255,255,255,.2); border-radius:12px; padding:16px; margin-bottom:24px;">
       <p style="font-size:1.05em; line-height:1.6; margin:0;">"{message}"</p>
-    </div>
-
-    <div style="border-top:1px dashed rgba(255,255,255,.4); padding-top:20px;">
-      <p style="font-size:.8em; opacity:.85; margin-bottom:8px;">扫码查看完整学习报告</p>
-      <div style="width:120px; height:120px; background:#fff; border-radius:10px; margin:0 auto; display:flex; align-items:center; justify-content:center; color:var(--sub); font-size:.7em;">
-        [二维码区域]
-      </div>
     </div>
   </div>
 

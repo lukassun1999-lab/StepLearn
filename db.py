@@ -23,8 +23,8 @@ PRICING = {
         "label": "体验",
         "price": 0,
         "unit": "月",
-        "monthly_quota": 1,
-        "description": "1 次入学诊断",
+        "monthly_quota": 99,
+        "description": "注册即享 99 次/月分析额度",
     },
     "basic": {
         "label": "基础版",
@@ -139,6 +139,11 @@ def _migrate_db(conn: sqlite3.Connection) -> None:
     for col, default in [("next_review_at", "NULL"), ("review_interval_hours", "0"), ("review_stage", "0")]:
         if col not in mistake_col_names:
             conn.execute(f"ALTER TABLE mistakes ADD COLUMN {col} {'TEXT' if col == 'next_review_at' else 'REAL' if 'hours' in col else 'INTEGER'} DEFAULT {default}")
+            conn.commit()
+    # Add error-cause columns to mistakes (错因因果链: 受控五类 + 判断证据)
+    for col in ("error_cause", "cause_evidence"):
+        if col not in mistake_col_names:
+            conn.execute(f"ALTER TABLE mistakes ADD COLUMN {col} TEXT")
             conn.commit()
     # Add source_mistake_id to questions for similar question tracking
     question_cols = conn.execute("PRAGMA table_info(questions)").fetchall()
@@ -510,6 +515,33 @@ def init_db(db_path: str = DB_PATH) -> None:
             mistake_ids TEXT DEFAULT '[]',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (student_id) REFERENCES students(id)
+        );
+
+        -- ── 错因因果链画像 ────────────────────────
+        CREATE TABLE IF NOT EXISTS cause_profiles (
+            student_id INTEGER PRIMARY KEY,
+            primary_cause TEXT,
+            primary_evidence TEXT,
+            cause_chain TEXT DEFAULT '[]',
+            secondary_causes TEXT DEFAULT '[]',
+            priority_kps TEXT DEFAULT '[]',
+            plain_language TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (student_id) REFERENCES students(id)
+        );
+
+        -- ── 错因画像历史（跨周对比 / 周报进步叙事）────
+        CREATE TABLE IF NOT EXISTS cause_profile_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL,
+            week_start TEXT NOT NULL,
+            primary_cause TEXT,
+            cause_counts TEXT DEFAULT '{}',
+            total_count INTEGER DEFAULT 0,
+            profile_snapshot TEXT DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(student_id, week_start),
             FOREIGN KEY (student_id) REFERENCES students(id)
         );
 
@@ -922,6 +954,8 @@ def add_mistake(
     explanation: str = "",
     knowledge_points: List[str] = None,
     difficulty: int = 2,
+    error_cause: str = "",
+    cause_evidence: str = "",
     db_path: str = DB_PATH,
 ) -> int:
     """Add a new mistake. Returns the integer mistake ID."""
@@ -930,12 +964,14 @@ def add_mistake(
     cur = conn.execute("""
         INSERT INTO mistakes (student_id, source_exam, question, question_type,
             correct_answer, user_answer, explanation, knowledge_points, difficulty,
+            error_cause, cause_evidence,
             next_review_at, review_interval_hours, review_stage, last_reviewed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, [
         student_id, source_exam, question, question_type,
         correct_answer, user_answer, explanation,
         json.dumps(knowledge_points or [], ensure_ascii=False), difficulty,
+        error_cause, cause_evidence,
         now, 1.0, 0, now
     ])
     conn.commit()
@@ -951,6 +987,114 @@ def get_mistake(mistake_id: int, db_path: str = DB_PATH) -> Optional[Dict[str, A
         return None
     d = dict(row)
     d["knowledge_points"] = json.loads(d.get("knowledge_points", "[]"))
+    return d
+
+
+def save_cause_profile(student_id: int, profile: Dict[str, Any],
+                       db_path: str = DB_PATH) -> None:
+    """Upsert a student's error-cause profile (错因因果链画像)."""
+    conn = get_connection(db_path)
+    conn.execute("""
+        INSERT INTO cause_profiles (student_id, primary_cause, primary_evidence,
+            cause_chain, secondary_causes, priority_kps, plain_language, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(student_id) DO UPDATE SET
+            primary_cause=excluded.primary_cause,
+            primary_evidence=excluded.primary_evidence,
+            cause_chain=excluded.cause_chain,
+            secondary_causes=excluded.secondary_causes,
+            priority_kps=excluded.priority_kps,
+            plain_language=excluded.plain_language,
+            updated_at=excluded.updated_at
+    """, [
+        student_id,
+        profile.get("primary_cause") or "",
+        profile.get("primary_evidence") or "",
+        json.dumps(profile.get("cause_chain") or [], ensure_ascii=False),
+        json.dumps(profile.get("secondary_causes") or [], ensure_ascii=False),
+        json.dumps(profile.get("priority_kps") or [], ensure_ascii=False),
+        profile.get("plain_language") or "",
+        _now_iso(),
+    ])
+    conn.commit()
+    conn.close()
+
+
+def get_cause_profile(student_id: int,
+                      db_path: str = DB_PATH) -> Optional[Dict[str, Any]]:
+    """Read a student's error-cause profile; JSON fields decoded."""
+    conn = get_connection(db_path)
+    row = conn.execute(
+        "SELECT * FROM cause_profiles WHERE student_id = ?", [student_id]).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    d = dict(row)
+    for k in ("cause_chain", "secondary_causes", "priority_kps"):
+        try:
+            d[k] = json.loads(d[k] or "[]")
+        except Exception:
+            d[k] = []
+    return d
+
+
+def save_cause_profile_history(student_id: int, week_start: str, profile: Dict[str, Any],
+                               cause_counts: Dict[str, int] = None,
+                               db_path: str = DB_PATH) -> None:
+    """Upsert a student's per-week error-cause snapshot (跨周对比数据源)。"""
+    counts = cause_counts or {}
+    conn = get_connection(db_path)
+    conn.execute("""
+        INSERT INTO cause_profile_history (student_id, week_start, primary_cause,
+            cause_counts, total_count, profile_snapshot, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(student_id, week_start) DO UPDATE SET
+            primary_cause=excluded.primary_cause,
+            cause_counts=excluded.cause_counts,
+            total_count=excluded.total_count,
+            profile_snapshot=excluded.profile_snapshot
+    """, [
+        student_id, week_start, profile.get("primary_cause") or "",
+        json.dumps(counts, ensure_ascii=False), sum(counts.values()),
+        json.dumps(profile, ensure_ascii=False), _now_iso(),
+    ])
+    conn.commit()
+    conn.close()
+
+
+def get_cause_profile_history(student_id: int, week_start: str = None,
+                              before: str = None,
+                              db_path: str = DB_PATH) -> Optional[Dict[str, Any]]:
+    """取错因画像历史：
+    - week_start 指定 → 该周记录
+    - before 指定 → 早于该周的最新一条（上周对比用）
+    - 都未指定 → 最近一条
+    JSON 字段解码后返回。
+    """
+    conn = get_connection(db_path)
+    if week_start:
+        row = conn.execute(
+            "SELECT * FROM cause_profile_history WHERE student_id = ? AND week_start = ?",
+            [student_id, week_start]).fetchone()
+    elif before:
+        row = conn.execute(
+            "SELECT * FROM cause_profile_history WHERE student_id = ? AND week_start < ?"
+            " ORDER BY week_start DESC LIMIT 1",
+            [student_id, before]).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT * FROM cause_profile_history WHERE student_id = ?"
+            " ORDER BY week_start DESC LIMIT 1",
+            [student_id]).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    d = dict(row)
+    for k in ("cause_counts", "profile_snapshot"):
+        try:
+            d[k] = json.loads(d[k] or "{}")
+        except Exception:
+            d[k] = {}
     return d
 
 
@@ -4359,7 +4503,7 @@ def get_llm_cost_this_month(db_path: str = DB_PATH) -> float:
 DEFAULT_BUDGETS = {
     "monthly_total_budget": "100.0",    # USD
     "monthly_student_budget": "20.0",   # USD per student
-    "weekly_question_target": "15",     # 每周练习题目标数量
+    # weekly_question_target 已于 2026-08-04 移除：练习题数量策略改为每错题 2 题、不设总量上限
 }
 
 FEATURE_FLAGS = {
@@ -5307,7 +5451,8 @@ def delete_class(class_id: int, db_path: str = DB_PATH) -> None:
 
 def register_student(phone: str, password_hash: str, name: str,
                      school_id: int, class_id: int,
-                     grade: str = None, db_path: str = DB_PATH) -> int:
+                     grade: str = None, textbook_version: str = None,
+                     db_path: str = DB_PATH) -> int:
     """Register a new student account with phone login."""
     conn = get_connection(db_path)
     existing = conn.execute("SELECT id FROM students WHERE phone = ?", [phone]).fetchone()
@@ -5318,10 +5463,10 @@ def register_student(phone: str, password_hash: str, name: str,
     parent_access_code = _generate_access_code(conn, "students", "parent_access_code")
     cur = conn.execute("""
         INSERT INTO students (name, grade, phone, password_hash, school_id, class_id,
-                              access_code, parent_access_code, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+                              access_code, parent_access_code, textbook_version, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
     """, [name, grade or "高二", phone, password_hash, school_id, class_id,
-          access_code, parent_access_code])
+          access_code, parent_access_code, textbook_version])
     student_id = cur.lastrowid
     conn.execute(
         "INSERT INTO subscriptions (student_id, plan, start_date) VALUES (?, 'trial', ?)",

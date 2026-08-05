@@ -18,7 +18,8 @@ from datetime import date, timedelta
 import db
 from skills_bridge import (
     analyze_mistakes, generate_questions, generate_plan_update,
-    generate_learning_plan,
+    generate_learning_plan, analyze_cause_chain, build_cause_trend,
+    CAUSE_KEYS,
 )
 from report_templates import (
     render_diagnostic_report, render_exercise_sheet, render_weekly_report,
@@ -56,6 +57,7 @@ class Ctx:
         self.session_id = None
         self.saved_mistake_ids = []
         self.weak_points = []
+        self.cause_profile = None    # 错因因果链画像（analyze_cause_chain 产物）
         self.plan = None
         self.questions_data = []
         # ── 产物（files 表 id）──
@@ -203,6 +205,8 @@ def node_analyze(ctx: Ctx):
             explanation=m.get("explanation", "")[:500],
             knowledge_points=m.get("knowledge_points", []),
             difficulty=m.get("difficulty", 2),
+            error_cause=m.get("error_cause", ""),
+            cause_evidence=m.get("cause_evidence", ""),
             db_path=ctx.db_path,
         )
         ctx.saved_mistake_ids.append(mid)
@@ -217,11 +221,13 @@ def node_analyze(ctx: Ctx):
 
 def _build_diagnosis(ctx: Ctx) -> dict:
     """构造方案生成输入：本次运行有分析结果则用之；断点续跑时从 DB 重建。"""
+    cause_profile = db.get_cause_profile(ctx.student_id, db_path=ctx.db_path)
     if ctx.analysis:
         return {
             "mistakes_summary": ctx.analysis.get("summary", {}),
             "mistakes_count": len(ctx.mistakes),
             "weak_points": ctx.weak_points,
+            "cause_profile": cause_profile,
             "ocr_confidence": ctx.ocr_confidence,
         }
     conn = db.get_connection(ctx.db_path)
@@ -246,8 +252,35 @@ def _build_diagnosis(ctx: Ctx) -> dict:
         "mistakes_summary": {},
         "mistakes_count": len(diag_mistakes),
         "weak_points": ctx.weak_points,
+        "cause_profile": cause_profile,
         "ocr_confidence": 0.8,
     }
+
+
+def _reorder_priority_by_cause(plan: dict, cause_profile: dict) -> dict:
+    """确定性保障：把因果链根因知识点排到 weak_point_priority 最前。
+    prompt 只是引导 LLM，这里保证结果——不依赖 LLM 自觉。"""
+    if not isinstance(plan, dict):
+        return plan
+    priority_kps = [k.split("（")[0].strip()
+                    for k in (cause_profile.get("priority_kps") or [])
+                    if k and k.split("（")[0].strip()]
+    items = plan.get("weak_point_priority")
+    if not priority_kps or not isinstance(items, list) or not items:
+        return plan
+    # 根因知识点按 priority_kps 顺序排最前（不是按 plan 原顺序）
+    matched = []
+    for rk in priority_kps:
+        for it in items:
+            kp = it.get("knowledge_point", "")
+            if rk and (rk in kp or kp in rk) and it not in matched:
+                it["severity"] = "高"
+                if not it.get("reason"):
+                    it["reason"] = "因果链根因优先"
+                matched.append(it)
+    rest = [it for it in items if it not in matched]
+    plan["weak_point_priority"] = matched + rest
+    return plan
 
 
 def node_plan(ctx: Ctx):
@@ -259,6 +292,29 @@ def node_plan(ctx: Ctx):
         mastery = wp.get("mastery_rate", 50)
         wp["severity"] = "高" if mastery < 30 else ("中" if mastery < 60 else "低")
     ctx.weak_points = weak_points
+
+    # 错因因果链画像（独立于方案路径，每次分析都刷新；失败不阻断主链路）
+    try:
+        ctx.cause_profile = analyze_cause_chain(
+            student=ctx.student,
+            mistakes=ctx.mistakes or _recent_mistakes_from_db(ctx, limit=20),
+            task_id=ctx.task_id,
+        )
+        if ctx.cause_profile:
+            db.save_cause_profile(ctx.student_id, ctx.cause_profile, db_path=ctx.db_path)
+            # 写入跨周历史（周报"卡点变化"叙事的数据源）
+            counts = {}
+            for m in (ctx.mistakes or _recent_mistakes_from_db(ctx, limit=20)):
+                c = m.get("error_cause") or ""
+                if c in CAUSE_KEYS:
+                    counts[c] = counts.get(c, 0) + 1
+            db.save_cause_profile_history(
+                ctx.student_id, ctx.week_start,
+                profile=ctx.cause_profile, cause_counts=counts,
+                db_path=ctx.db_path,
+            )
+    except Exception:
+        ctx.cause_profile = None
 
     plan_row = db.get_learning_plan(ctx.student_id, db_path=ctx.db_path) or {}
     existing_plan = plan_row.get("plan_data") or {}
@@ -320,6 +376,9 @@ def node_plan(ctx: Ctx):
             profile=profile,
             task_id=ctx.task_id,
         )
+        # 因果链根因优先（确定性重排，prompt 引导之外的兜底保障）
+        if ctx.cause_profile:
+            plan = _reorder_priority_by_cause(plan, ctx.cause_profile)
         # AI 评估的学习风格回写画像
         learning_style_detail = (
             plan.get("diagnosis_report", {}).get("learning_style")
@@ -380,6 +439,8 @@ def node_analysis_report(ctx: Ctx):
         mistakes=mistakes,
         weak_points=ctx.weak_points,
         learning_plan=ctx.plan,
+        cause_profile=(ctx.cause_profile
+                       or db.get_cause_profile(ctx.student_id, db_path=ctx.db_path)),
     )
     report_dir = os.path.join(UPLOAD_DIR, str(ctx.student_id), "report_pdf")
     os.makedirs(report_dir, exist_ok=True)
@@ -469,6 +530,18 @@ def node_weekly_report(ctx: Ctx):
     }
 
     ctx.progress("生成周报", 60)
+    # 错因跨周对比（"卡点变化"叙事；report_only 重跑时只读历史，不重新分析）
+    cause_trend = None
+    try:
+        cur_cause = db.get_cause_profile_history(
+            ctx.student_id, week_start=ctx.week_start, db_path=ctx.db_path)
+        prev_cause = db.get_cause_profile_history(
+            ctx.student_id, before=ctx.week_start, db_path=ctx.db_path)
+        if cur_cause and prev_cause:
+            cause_trend = build_cause_trend(cur_cause, prev_cause)
+    except Exception:
+        cause_trend = None
+
     wr_html = render_weekly_report(
         student_name=ctx.student["name"],
         week_start=ctx.week_start,
@@ -480,6 +553,7 @@ def node_weekly_report(ctx: Ctx):
         comparison=comparison,
         learning_style_detail=learning_style_detail,
         action_plan=action_plan,
+        cause_trend=cause_trend,
     )
     wr_dir = os.path.join(UPLOAD_DIR, str(ctx.student_id), "weekly_pdf")
     os.makedirs(wr_dir, exist_ok=True)

@@ -19,9 +19,8 @@ from llm import OCR_BACKEND, VISION_MODEL, LLMClient
 # Business Constants
 # ═══════════════════════════════════════════════════
 
-# 每周练习题目标数量 —— 核心产品承诺：每周 15 道精准练习题
-# 可通过 DB settings 表覆盖（key: weekly_question_target）
-WEEKLY_QUESTION_TARGET = 15
+# 练习题数量策略（2026-08-04 调整）：每个错题生成 2 道同一知识点练习题，
+# 不设总量上限（此前为 15 道封顶，已取消）。
 
 # ═══════════════════════════════════════════════════
 # Path Constants
@@ -322,11 +321,55 @@ MISTAKE_ANALYSIS_PROMPT = """分析以下英语试卷 OCR 文本，**只提取�
 1. 只把"学生答案确实与正确答案不同"的题放进 mistakes。学生选对/填对的题一律不要放进来。
 2. 比较时忽略选项字母前缀。例如学生答 "D. started a school"、正确答案 "started a school"，二者内容相同 → 学生答对了，**不要**算错题。同理 "A. cold"="cold"、"C, photographer"="photographer" 都算答对。
 3. 注意 OCR 识别瑕疵：选项字母常与答案文字粘连，如 "Bofull of" 实为 "B. full of"、"A.cold" 实为 "A. cold"。需还原成真实作答再判断对错。
-4. user_answer 与 correct_answer 必须用**同一格式**：都只写答案内容（单词/短语/选项文字），**不要带选项字母前缀**（A./B./C./D. 等）。例如 user_answer="started a school"、correct_answer="started a school"，而不是 "D. started a school"。
-5. 若无法判断学生真实作答或该题是否答错，则跳过该题，不要臆造错题。
+4. user_answer 与 correct_answer 必须用**同一格式**：
+   - 有选项题型（单项选择/完形填空/多项选择等）：都写成「选项字母. 内容」（字母大写），如 "B. failed"、"A. until"，两者都带字母前缀；
+   - 无选项题型（语法填空/选词填空/单句填空/翻译/写作等）：都只写答案内容（单词/短语/句子），不带字母。
+5. question_text 必须包含该题**完整选项**：题干 + 换行 + 从 OCR 原样提取的选项列表（"A. xxx"、"B. xxx"...），不得省略选项。选项用于判对错（字母对应内容）与错题本展示。
+6. 若无法判断学生真实作答或该题是否答错，则跳过该题，不要臆造错题。
+   学生未作答/空白的题不要放进 mistakes（缺做不是"错"，无错因可归）。
+7. 每道错题必须做错因分类，error_cause 五类取一：
+   - vocab 单词不认识：生词、拼写、词义混淆、固定搭配不熟
+   - grammar 语法规则没掌握：时态/语态/单复数/冠词/介词/非谓语/从句等规则错误
+   - syntax 长句拆不开：句子结构、成分划分、语序理解失败
+   - discourse 读不懂文章逻辑：主旨、推理、衔接、上下文理解失败
+   - careless 看题不仔细：粗心、漏看、审题失误
+   cause_evidence 用一句话给出判断依据（如"答案含未掌握生词 XXX"、"动词时态与时间状语不符"、"两个选项含义相近，属词义辨析"）。
 
 返回格式:
-{{"mistakes":[{{"question_number":1,"question_text":"...","question_type":"语法填空","correct_answer":"full of","user_answer":"fill of","error_reason":"拼写错误","explanation":"本题考查...","knowledge_points":["非谓语动词"],"difficulty":2}}],"summary":{{"total_mistakes":0,"by_type":{{"语法填空":2}},"top_weak_points":["非谓语动词"],"overall_assessment":"..."}}}}"""
+{{"mistakes":[{{"question_number":1,"question_text":"完整题干（含全部选项）","question_type":"语法填空","correct_answer":"full of","user_answer":"fill of","error_cause":"vocab","cause_evidence":"拼写错误：full 写成 fill","explanation":"本题考查...","knowledge_points":["非谓语动词"],"difficulty":2}}],"summary":{{"total_mistakes":0,"by_type":{{"语法填空":2}},"top_weak_points":["非谓语动词"],"overall_assessment":"..."}}}}"""
+
+
+CAUSE_CHAIN_PROMPT = """分析学生的错因因果链，返回JSON（不要markdown代码块）。
+
+学生年级: {grade}
+教材版本: {textbook_version}
+
+错题清单（已按受控错因分类，含近期多次考试）:
+{mistakes_json}
+
+错因五类定义:
+- vocab 单词不认识：生词、拼写、词义混淆、固定搭配不熟
+- grammar 语法规则没掌握：时态/语态/单复数/冠词/介词/非谓语/从句等规则错误
+- syntax 长句拆不开：句子结构、成分划分、语序理解失败
+- discourse 读不懂文章逻辑：主旨、推理、衔接、上下文理解失败
+- careless 看题不仔细：粗心、漏看、审题失误
+
+判断要求（英语是累积性技能，词汇→句法→语篇层层传导）:
+1. primary_cause 是"核心瓶颈"：不是错得最多的那类，而是"补上它，其他很多错题会跟着减少"的那类
+2. cause_chain 列出核心瓶颈如何传导为其他错因（from→to + 一句说明）
+3. priority_kps 按因果链给出 3 个聚焦知识点：先补根因，不是错误率最高的
+4. plain_language 严格按模板填空（【】内填数据，不自由发挥话术）:
+   "孩子这周真正卡住的是【核心瓶颈通俗名】——【证据一句话】，先补【第一聚焦点】。"
+
+返回格式:
+{{
+  "primary_cause": "vocab|grammar|syntax|discourse|careless",
+  "primary_evidence": "证据：基于错题的统计与判断",
+  "cause_chain": [{{"from": "词汇", "to": "语法", "note": "词汇不足导致无法判断句子成分"}}],
+  "secondary_causes": ["grammar"],
+  "priority_kps": ["高频核心词汇", "现在完成时（受词汇连累，次生）", "长难句主干划分"],
+  "plain_language": "孩子这周真正卡住的是【词汇量】——【语法错题里3道是被生词绊倒的】，先补【高频核心词汇】。"
+}}"""
 
 
 QUESTION_GENERATION_PROMPT = """根据错题生成同类练习题，返回JSON:
@@ -335,8 +378,15 @@ QUESTION_GENERATION_PROMPT = """根据错题生成同类练习题，返回JSON:
 
 题型规范: {question_types_ref}
 
+硬性要求:
+1. 每道题必须自包含：不得引用试卷原文、阅读材料、passage、上文/下文等外部上下文——学生看到题干就能独立作答
+2. 答案格式必须与题型匹配：
+   - 选择题/完形填空等有选项题型：把选项写进题干（如 "___1___ A. ...  B. ...  C. ...  D. ..."），correct_answer 写选项字母
+   - 语法填空/选词填空/单句填空/翻译/写作等无选项题型：correct_answer **必须写单词/短语/句子本身**，严禁写字母（A/B/C/D）！
+3. 题目难度与对应错题一致；每道题提供完整中文解析
+
 返回格式:
-{{"questions":[{{"source_mistake_id":1,"question_type":"语法填空","question_text":"完整题干","options":["A","B","C","D"],"correct_answer":"B","explanation":"中文解析","knowledge_points":["非谓语动词"],"difficulty":2}}]}}"""
+{{"questions":[{{"source_mistake_id":1,"question_type":"语法填空","question_text":"完整题干（含选项，如为有选项题型）","options":["A","B","C","D"],"correct_answer":"按题型规则填字母或答案内容","explanation":"中文解析","knowledge_points":["非谓语动词"],"difficulty":2}}]}}"""
 
 
 GRADING_PROMPT = """批改学生练习题答案，返回JSON:
@@ -362,6 +412,14 @@ LEARNING_PLAN_PROMPT = """为学生生成个性化学习方案，返回JSON（�
 
 个性化画像（参考 chat.md 六大部分）:
 {profile_json}
+
+错因因果链画像（diagnosis_json 中的 cause_profile 字段，可能缺失）:
+- 它给出孩子当前的核心瓶颈（primary_cause，如 vocab=词汇量不足）与传导链（cause_chain，如 词汇→语法）
+- 若存在，weak_point_priority 必须遵守：**根因优先，不是错误率优先**
+  1. 把因果链根因对应的知识点排在最前（即使它当前不是错误率最高的）
+  2. "错得最多但属次生表现"的知识点应降级（如语法错题是词汇不足的下游症状时，语法类知识点排后）
+  3. 每项 reason 必须引用因果链判断（如"词汇量是核心瓶颈，语法错题为次生表现"），不能只写"X道错题"
+- 若 cause_profile 缺失或为空，按薄弱点矩阵常规排序
 
 请基于以上画像做真正个性化的诊断和方案设计，返回格式:
 {{
@@ -490,23 +548,155 @@ def _normalize_answer(ans) -> str:
     return s.lower()
 
 
+def _answer_option_content(ans: str, question_text: str) -> str:
+    """若 ans 为纯字母 A-D，尝试从题干内嵌选项解析对应内容；否则原样返回。
+
+    解决「学生作答只记字母、正确答案记内容」的格式错位：
+    - user_answer='a'、题干含 "A. until ... B. unless" → 解析为 'until'
+    - 无选项可解析 → 返回原字母（保持可比较性）
+    """
+    import re as _re
+    s = str(ans or "").strip()
+    if not _re.fullmatch(r"[A-Da-d]", s):
+        return s
+    opts = _re.findall(
+        r'([A-Da-d])[.、)）:：]\s*(.+?)(?=\s*[A-Da-d][.、)）:：]|$)', question_text or "")
+    mapping = {k.upper(): v.strip() for k, v in opts}
+    return mapping.get(s.upper(), s)
+
+
+# ── 错因五类（受控枚举 + 关键词兜底映射）──────────
+CAUSE_KEYS = ("vocab", "grammar", "syntax", "discourse", "careless")
+CAUSE_LABELS = {"vocab": "词汇", "grammar": "语法", "syntax": "句法",
+                "discourse": "语篇", "careless": "审题"}
+_CAUSE_KEYWORDS = {
+    "vocab": ["拼写", "单词", "词汇", "生词", "词义", "词形", "搭配", "不认识",
+              "辨析", "固定表达", "情景交际"],
+    "grammar": ["时态", "语态", "单复数", "冠词", "介词", "非谓语", "从句",
+                "主谓一致", "语法", "词性", "规则", "连词", "虚拟", "最高级",
+                "比较级", "情态", "复数", "谓语", "代词", "成分"],
+    "syntax": ["长难句", "句子结构", "成分", "语序", "句式", "主干", "拆分"],
+    "discourse": ["主旨", "推理", "逻辑", "上下文", "衔接", "语篇", "篇章",
+                  "细节理解", "态度", "情感"],
+    "careless": ["粗心", "漏看", "审题", "抄错", "笔误", "没看清"],
+}
+_CAUSE_DEFAULT = "grammar"
+_UNANSWERED_MARKERS = ("未作答", "未完成", "空白", "未填写", "没有作答",
+                       "no answer", "blank", "学生未答")
+
+
+def _is_unanswered(m: Dict) -> bool:
+    """未作答/缺做题没有认知层面的错因，不应参与错因统计。
+    以解析文本中的标记为准；user_answer 缺失不算（可能是 LLM 漏输出）。"""
+    reason = " ".join(filter(None, [
+        m.get("error_reason", ""), m.get("cause_evidence", ""),
+        m.get("explanation", ""),
+    ]))
+    if any(k in reason for k in _UNANSWERED_MARKERS):
+        return True
+    user_ans = str(m.get("user_answer") or "").strip()
+    return bool(user_ans) and user_ans in ("-", "—", "？", "?", "/")
+
+
+def _normalize_error_cause(m: Dict) -> Optional[str]:
+    """兜底：LLM 未输出受控错因时，按题型加权 + 关键词映射到五类之一。
+    未作答/缺做返回 None（不进错因统计）。"""
+    cause = (m.get("error_cause") or "").strip()
+    if cause in CAUSE_KEYS:
+        return cause
+    if _is_unanswered(m):
+        return None
+    reason = " ".join(filter(None, [
+        m.get("error_reason", ""), m.get("cause_evidence", ""),
+        m.get("explanation", "")[:80], m.get("question_type", ""),
+    ]))
+    qtype = m.get("question_type") or ""
+    # 题型加权（先于关键词）：阅读/匹配/任务型 → 语篇；情景交际 → 表达积累
+    if any(k in qtype for k in ("阅读", "匹配", "任务型", "信息")):
+        return "discourse"
+    if any(k in qtype for k in ("补全对话", "情景", "交际")):
+        return "vocab"
+    # 完形填空以词义/语境选择为主，除非明确涉及语法规则
+    if "完形" in qtype:
+        if any(k in reason for k in _CAUSE_KEYWORDS["grammar"]):
+            return "grammar"
+        return "vocab"
+    for key in CAUSE_KEYS:
+        if any(k in reason for k in _CAUSE_KEYWORDS[key]):
+            return key
+    return _CAUSE_DEFAULT
+
+
+def _statistical_cause_profile(mistakes: List[Dict]) -> Optional[Dict[str, Any]]:
+    """纯统计兜底画像：LLM 不可用时的错因分布 + 简单传导链（不依赖大模型）。"""
+    counts = {k: 0 for k in CAUSE_KEYS}
+    by_cause = {k: [] for k in CAUSE_KEYS}
+    for m in mistakes:
+        c = _normalize_error_cause(m)
+        if c is None:  # 未作答/缺做：无认知错因，跳过
+            continue
+        counts[c] += 1
+        by_cause[c].append(m)
+    if not mistakes or sum(counts.values()) == 0:
+        return None
+    primary = max(counts, key=counts.get)
+    secondary = [k for k in CAUSE_KEYS if k != primary and counts[k] > 0]
+
+    chain = []
+    cascade = {"vocab": ["grammar", "syntax", "discourse"],
+               "grammar": ["syntax", "discourse"], "syntax": ["discourse"]}
+    for to in cascade.get(primary, []):
+        if counts.get(to, 0) > 0:
+            note = {"vocab": "生词阻断句意理解", "grammar": "规则不牢导致长句分析失败",
+                    "syntax": "长句拆不开导致篇章理解受阻"}.get(to, "层层传导")
+            chain.append({"from": CAUSE_LABELS[primary], "to": CAUSE_LABELS[to], "note": note})
+
+    kp_counter = {}
+    for m in by_cause[primary]:
+        for kp in (m.get("knowledge_points") or [])[:2]:
+            kp_counter[kp] = kp_counter.get(kp, 0) + 1
+    priority_kps = [kp for kp, _ in sorted(kp_counter.items(), key=lambda x: -x[1])][:3]
+
+    label = CAUSE_LABELS[primary]
+    evidence = f"共 {counts[primary]} 道错题集中在这一环节" + (
+        f"，另有 {counts[secondary[0]]} 道属于{CAUSE_LABELS[secondary[0]]}（次生）"
+        if secondary else "")
+    plain = f"孩子这周真正卡住的是【{label}】——【{evidence}】，先补【{priority_kps[0] if priority_kps else '基础'}】。"
+    return {
+        "primary_cause": primary,
+        "primary_evidence": evidence,
+        "cause_chain": chain,
+        "secondary_causes": secondary,
+        "priority_kps": priority_kps,
+        "plain_language": plain,
+    }
+
+
 def _filter_real_mistakes(mistakes: List[Dict]) -> List[Dict]:
     """
     兜底过滤：把"学生答案与正确答案实质相同"的条目剔除（不算错题）。
     同时把 user_answer / correct_answer 归一化为不带选项字母的纯答案内容。
     """
+    import re as _re
     real = []
     for m in mistakes:
         raw_u = m.get('user_answer')
         raw_c = m.get('correct_answer')
         nu = _normalize_answer(raw_u)
         nc = _normalize_answer(raw_c)
+        user_display = None  # 展示用（保留「字母. 内容」格式）
+        # 纯字母作答（如 'a'）：从题干选项解析内容后再比较（'a' → 'until'）
+        if raw_u and _re.fullmatch(r"[A-Da-d]", str(raw_u).strip()):
+            content = _answer_option_content(raw_u, m.get('question_text', ''))
+            if content != str(raw_u).strip():
+                nu = _normalize_answer(content)
+                user_display = f"{str(raw_u).strip().upper()}. {content}"
         # 二者都有内容且实质相同 → 学生答对了，剔除
         if nu and nc and nu == nc:
             continue
-        # 归一化写回，保证展示格式一致（不带字母前缀）
+        # 归一化写回：字母解析过的保留「字母. 内容」，其余去字母前缀
         if raw_u:
-            m['user_answer'] = _normalize_answer(raw_u) or raw_u
+            m['user_answer'] = user_display or (_normalize_answer(raw_u) or raw_u)
         if raw_c:
             m['correct_answer'] = _normalize_answer(raw_c) or raw_c
         real.append(m)
@@ -535,6 +725,11 @@ def analyze_mistakes(ocr_text: str, task_id: int = None) -> Dict[str, Any]:
         before = len(result['mistakes'])
         result['mistakes'] = _filter_real_mistakes(result['mistakes'])
         dropped = before - len(result['mistakes'])
+        # 错因归一化：LLM 未输出受控 error_cause 时按题型加权+关键词兜底映射
+        # （未作答/缺做 → 空串，不进错因统计）
+        for m in result['mistakes']:
+            if not (m.get("error_cause") or "").strip():
+                m["error_cause"] = _normalize_error_cause(m) or ""
         if isinstance(result.get('summary'), dict):
             summary = result['summary']
             if dropped:
@@ -555,6 +750,123 @@ def analyze_mistakes(ocr_text: str, task_id: int = None) -> Dict[str, Any]:
     return result
 
 
+def analyze_cause_chain(student: Dict, mistakes: List[Dict],
+                        task_id: int = None) -> Optional[Dict[str, Any]]:
+    """
+    错因因果链分析（差异化支柱核心）：
+    找出核心瓶颈（primary_cause）、传导链、根因优先的聚焦知识点与家长一句话。
+    LLM 不可用时回退到纯统计画像（_statistical_cause_profile），保证主链路稳定。
+    """
+    from db import get_unmastered_mistakes
+    payload = [m for m in mistakes if m.get("error_cause") or m.get("error_reason")]
+    try:
+        recent = get_unmastered_mistakes(student["id"]) or []
+    except Exception:
+        recent = []
+    for m in recent:
+        if isinstance(m, dict) and m.get("question"):
+            payload.append({
+                "question_type": m.get("question_type", ""),
+                "question_text": m.get("question", "")[:120],
+                "error_cause": m.get("error_cause") or "",
+                "error_reason": (m.get("explanation") or "")[:80],
+                "knowledge_points": m.get("knowledge_points", []),
+            })
+    # 按题干去重（本次与近期可能重复）
+    seen, dedup = set(), []
+    for m in payload:
+        q = (m.get("question_text") or "").strip()
+        if q and q in seen:
+            continue
+        seen.add(q)
+        dedup.append(m)
+    if not dedup:
+        return None
+
+    prompt = CAUSE_CHAIN_PROMPT.format(
+        grade=student.get("grade", "高二"),
+        textbook_version=student.get("textbook_version") or "未选择",
+        mistakes_json=json.dumps(dedup[:30], ensure_ascii=False),
+    )
+    schema = {
+        "primary_cause": {"type": "string", "required": True},
+        "primary_evidence": {"type": "string", "required": True},
+        "cause_chain": {"type": "array", "required": False},
+        "secondary_causes": {"type": "array", "required": False},
+        "priority_kps": {"type": "array", "required": True},
+        "plain_language": {"type": "string", "required": False},
+    }
+    try:
+        result = _get_client().call(
+            prompt=prompt, schema=schema, task_id=task_id, call_type="cause_chain")
+    except Exception:
+        result = {}
+    if not isinstance(result, dict) or result.get("primary_cause") not in CAUSE_KEYS:
+        # LLM 不可用 / 输出无效 → 统计兜底画像
+        return _statistical_cause_profile(dedup)
+
+    profile = {
+        "primary_cause": result["primary_cause"],
+        "primary_evidence": result.get("primary_evidence") or "",
+        "cause_chain": result.get("cause_chain") or [],
+        "secondary_causes": [c for c in (result.get("secondary_causes") or [])
+                             if c in CAUSE_KEYS],
+        "priority_kps": (result.get("priority_kps") or [])[:3],
+        "plain_language": result.get("plain_language") or "",
+    }
+    if not profile["plain_language"]:
+        fallback = _statistical_cause_profile(dedup)
+        profile["plain_language"] = (fallback or {}).get("plain_language", "")
+    return profile
+
+
+def build_cause_trend(current: Dict, previous: Dict) -> Optional[Dict[str, Any]]:
+    """跨周错因对比 → 进步叙事（模板生成，不依赖 LLM）。
+    current/previous 为 cause_profile_history 记录（含 cause_counts 五类分布）。
+    返回 {"narrative", 本周/上周 label 与占比} 或 None（数据不足）。
+    """
+    cur_cause = current.get("primary_cause") or ""
+    prev_cause = previous.get("primary_cause") or ""
+    if cur_cause not in CAUSE_KEYS or prev_cause not in CAUSE_KEYS:
+        return None
+    cur_counts = current.get("cause_counts") or {}
+    prev_counts = previous.get("cause_counts") or {}
+    cur_total = sum(cur_counts.values()) or 1
+    prev_total = sum(prev_counts.values()) or 1
+    cur_pct = round(cur_counts.get(cur_cause, 0) * 100 / cur_total)
+    prev_pct = round(prev_counts.get(prev_cause, 0) * 100 / prev_total)
+    cur_label = CAUSE_LABELS[cur_cause]
+    prev_label = CAUSE_LABELS[prev_cause]
+
+    if cur_cause == prev_cause:
+        if cur_pct < prev_pct:
+            narrative = (f"「{cur_label}」问题在缓解——占错题比例从 {prev_pct}% 降到 {cur_pct}%，"
+                         f"练习见效了，坚持就是胜利。")
+        elif cur_pct > prev_pct:
+            narrative = (f"「{cur_label}」仍是本周的主要卡点（{prev_pct}% → {cur_pct}%），"
+                         f"需要集中火力继续攻。")
+        else:
+            narrative = (f"「{cur_label}」依旧是最需要攻克的部分（约 {cur_pct}% 的错题），"
+                         f"这周继续聚焦。")
+    else:
+        if prev_pct >= cur_pct:
+            narrative = (f"上周的「{prev_label}」（{prev_pct}%）补上来了，"
+                         f"本周新卡点是「{cur_label}」——说明在往前走了。")
+        else:
+            narrative = (f"核心卡点从「{prev_label}」转向「{cur_label}」"
+                         f"（{prev_pct}% → {cur_pct}%），进入新阶段，注意新问题。")
+
+    return {
+        "narrative": narrative,
+        "current_primary": cur_cause,
+        "previous_primary": prev_cause,
+        "current_primary_label": cur_label,
+        "previous_primary_label": prev_label,
+        "current_pct": cur_pct,
+        "previous_pct": prev_pct,
+    }
+
+
 def generate_questions(mistakes: List[Dict], task_id: int = None,
                        target_count: int = None) -> Dict[str, Any]:
     """
@@ -562,23 +874,25 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
     then fall back to LLM for the rest. New LLM-generated questions are
     saved to the bank for future reuse.
 
+    数量策略（2026-08-04 调整）：每个错题生成 2 道同一知识点练习题，
+    不设总量上限（取消 15 道封顶）。
+
     Args:
         mistakes: list of mistake dicts to generate questions for
         task_id: optional AI task id for progress tracking
-        target_count: desired number of questions (default: WEEKLY_QUESTION_TARGET,
-                      or read from DB settings if available)
+        target_count: 兼容参数，已忽略（固定为 len(mistakes) * 2）
 
     Returns: {"questions": [...], "from_bank": int, "generated": int}
     """
-    from db import find_similar_questions, save_question, increment_question_usage, get_setting
+    from db import find_similar_questions, save_question, increment_question_usage
 
-    # Resolve target count: explicit param > DB setting > module constant
-    if target_count is None:
-        db_val = get_setting("weekly_question_target")
-        target_count = int(db_val) if db_val else WEEKLY_QUESTION_TARGET
+    # 主观题型（阅读/任务型/写作等）不进逐题练习：不生成练习题，
+    # 其错题整理由错题本内容提炼（周报/月度总结素材）
+    mistakes = [m for m in mistakes
+                if m.get("question_type") not in _SUBJECTIVE_TYPES]
 
-    # Each mistake yields up to 2 questions, but never exceed target_count
-    target_count = min(len(mistakes) * 2, target_count)
+    # 每错题 2 题，不设总量上限
+    target_count = len(mistakes) * 2
     if target_count == 0:
         return {"questions": [], "from_bank": 0, "generated": 0}
 
@@ -600,6 +914,10 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
     selected_from_bank = []
     used_ids = []
     for q in bank_questions:
+        # 跳过有选项题型但题干未内嵌选项的历史坏题（前端无法渲染）
+        if (str(q.get("question_type") or "") in _OPTION_TYPES
+                and not _options_embedded(q.get("question_text", ""))):
+            continue
         selected_from_bank.append({
             "question_text": q["question_text"],
             "question_type": q["question_type"],
@@ -613,6 +931,7 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
 
     remaining = target_count - len(selected_from_bank)
     generated_questions = []
+    bad_indexes = set()
 
     if remaining > 0:
         # Ask LLM to generate only for mistakes not covered by bank
@@ -635,8 +954,15 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
         for i, q in enumerate(generated_questions):
             mistake = mistakes[i] if i < len(mistakes) else mistakes[-1] if mistakes else {}
             source_mistake_id = mistake.get("id")
+            # P3 质量硬化：填空类题型答案若被写成裸字母，回退源错题答案
+            _fix_generated_answer_format(q, source_answer=mistake.get("correct_answer", ""))
+            # 有选项题型：确保选项内嵌题干；无法拼装则标记坏题（不入库不下发）
+            _ensure_options_embedded(q)
             try:
                 q_text = q.get("question_text", "").strip()
+                if (q.get("question_type") or "") in _OPTION_TYPES and not _options_embedded(q_text):
+                    bad_indexes.add(i)
+                    continue
                 # Skip if too similar to an existing question in the bank
                 existing = find_similar_questions(
                     knowledge_points=q.get("knowledge_points", []),
@@ -680,6 +1006,11 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
         elif not isinstance(q["knowledge_points"], list):
             q["knowledge_points"] = [q["knowledge_points"]]
 
+    # 剔除选项缺失的坏题（有选项题型但题干无内嵌选项）
+    if bad_indexes:
+        generated_questions = [q for j, q in enumerate(generated_questions)
+                               if j not in bad_indexes]
+
     final_questions = selected_from_bank + [
         {**q, "from_bank": False} for q in generated_questions
     ]
@@ -707,9 +1038,86 @@ SIMILAR_QUESTION_PROMPT = """你是一位经验丰富的英语老师。学生做
 3. 每道题的场景必须互不相同（比如一道关于学校、一道关于家庭、一道关于社会）
 4. 题目难度与原题一致
 5. 每道题提供完整中文解析
+6. **题目必须自包含**：不得引用试卷原文、阅读材料、passage、上文/下文等外部上下文——学生看到题干就能独立作答
+7. **答案格式必须与题型匹配**：
+   - 选择题/完形填空（有选项的题型）：把选项写进题干（如 "___1___ A. ...  B. ...  C. ...  D. ..."），correct_answer 写选项字母
+   - 语法填空/选词填空/单句填空/翻译/写作（无选项题型）：correct_answer **必须写单词/短语/句子本身**，严禁写字母（A/B/C/D）！
 
 返回JSON格式:
-{{"questions":[{{"question_text":"完整题干","question_type":"{question_type}","options":["A","B","C","D"],"correct_answer":"A","explanation":"中文解析","knowledge_points":["知识点"],"difficulty":{difficulty}}}]}}"""
+{{"questions":[{{"question_text":"完整题干（含选项，如为有选项题型）","question_type":"{question_type}","options":["A","B","C","D"],"correct_answer":"按题型规则填字母或答案内容","explanation":"中文解析","knowledge_points":["知识点"],"difficulty":{difficulty}}}]}}"""
+
+
+# 无选项题型：答案必须为单词/短语/句子本身（禁止裸字母）
+_FILL_BLANK_TYPES = ("语法填空", "选词填空", "单词拼写", "单句填空", "短文填空",
+                     "翻译", "完成句子", "写作", "书面表达")
+# 有选项题型：选项必须内嵌在题干中（前端/打印版均从题干解析选项）
+_OPTION_TYPES = ("单项选择", "多项选择", "选择题", "完形填空")
+# 主观题型：不生成逐题练习（无标准判分），错题整理由错题本内容提炼
+_SUBJECTIVE_TYPES = ("任务型阅读", "阅读理解", "写作", "书面表达")
+_OPTION_INLINE_RE = None  # 懒加载
+
+
+def _options_embedded(text: str) -> bool:
+    """题干是否已内嵌 ≥2 个 A-D 选项（要求 ≥2 处匹配，避免 'tired.' 之类误报）。"""
+    global _OPTION_INLINE_RE
+    import re as _re
+    if _OPTION_INLINE_RE is None:
+        _OPTION_INLINE_RE = _re.compile(r"[A-Da-d][.、)）:：]\s*\S")
+    return len(_OPTION_INLINE_RE.findall(text or "")) >= 2
+
+
+def _ensure_options_embedded(q: Dict[str, Any]) -> bool:
+    """有选项题型必须把选项内嵌进题干（P3 质量硬化）：
+    - 题干已内嵌选项 → 直接通过
+    - 否则用 LLM 返回的 options 字段拼装进题干
+    - 无法拼装 → 返回 False，调用方应丢弃该题（坏题不入库不下发）
+    无选项题型恒返回 True。
+    """
+    import re as _re
+    qtype = str(q.get("question_type") or "")
+    if qtype not in _OPTION_TYPES:
+        return True
+    text = str(q.get("question_text") or "").strip()
+    if _options_embedded(text):
+        return True
+    opts = q.get("options")
+    letters = ["A", "B", "C", "D", "E", "F"]
+    lines = []
+    if isinstance(opts, list):
+        for i, o in enumerate(opts[:4]):
+            if isinstance(o, dict):
+                key = str(o.get("key") or letters[i])
+                lines.append(f"{key}. {str(o.get('text', '')).strip()}".rstrip())
+            else:
+                o = str(o).strip()
+                if _re.fullmatch(r"[A-Da-d]", o):
+                    return False  # 纯字母无内容，无法拼装
+                if _re.fullmatch(r"[A-Da-d][.、)）:：].*", o):
+                    lines.append(o)
+                else:
+                    lines.append(f"{letters[i]}. {o}")
+    if len(lines) >= 3 and all(l.split(". ", 1)[-1].strip() for l in lines):
+        q["question_text"] = text + "\n" + "\n".join(lines)
+        return True
+    return False
+
+
+def _fix_generated_answer_format(q: Dict[str, Any],
+                                 source_answer: str = "") -> Dict[str, Any]:
+    """生成题答案格式后置校验（P3 质量硬化）：
+    - 无选项题型若答案被写成裸字母（A/B/C/D），回退为源错题的答案内容
+    - 有选项题型：答案保留字母（由前端从题干解析选项）
+    """
+    import re as _re
+    qtype = str(q.get("question_type") or "")
+    answer = str(q.get("correct_answer") or "").strip()
+    if qtype in _FILL_BLANK_TYPES and answer and _re.fullmatch(r"[A-Da-d]", answer):
+        fallback = str(source_answer or "").strip()
+        # 去掉源答案的选项字母前缀（如 "A. xxx" → "xxx"）
+        fallback = _re.sub(r"^[A-Da-d][.、)）:：]\s*", "", fallback)
+        if fallback:
+            q["correct_answer"] = fallback
+    return q
 
 
 def _text_similarity(a: str, b: str) -> float:
@@ -793,6 +1201,8 @@ def generate_similar_questions(mistake: Dict, count: int = 2,
                 break
         if dup:
             continue
+        # P3 质量硬化：填空类题型答案若被写成裸字母，回退源错题答案
+        _fix_generated_answer_format(q, source_answer=mistake.get("correct_answer", ""))
         try:
             q_data = {
                 "question_text": q_text,
