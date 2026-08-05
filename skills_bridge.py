@@ -778,9 +778,31 @@ def _filter_real_mistakes(mistakes: List[Dict]) -> List[Dict]:
         raw_c = m.get('correct_answer')
         nu = _normalize_answer(raw_u)
         nc = _normalize_answer(raw_c)
-        user_display = None  # 展示用（保留「字母. 内容」格式）
+        user_display = None
+        # 括号格式（OCR/LLM 常见）："b (false)"、"a (high)"、"c(so that)"
+        # → 提取 (字母, 内容)；支持纯字母作答与括号格式答案的字母比对
+        up = _re.match(r'^([A-Da-d])\s*[（(]\s*(.+?)\s*[）)]$', str(raw_u or '').strip())
+        cp = _re.match(r'^([A-Da-d])\s*[（(]\s*(.+?)\s*[）)]$', str(raw_c or '').strip())
+        up = (up.group(1).upper(), up.group(2).strip()) if up else None
+        cp = (cp.group(1).upper(), cp.group(2).strip()) if cp else None
+
+        if up and cp:
+            # 双方都是"字母(内容)"：字母相同或内容相同 → 答对
+            if up[0] == cp[0] or up[1] == cp[1]:
+                continue
+            nu, nc = up[1], cp[1]
+        elif up and not cp:
+            # 学生答案"字母(内容)"、正确无字母 → 比较内容
+            nu = up[1]
+            user_display = f"{up[0]}. {up[1]}"
+        elif cp and not up and _re.fullmatch(r"[A-Da-d]", str(raw_u or '').strip()):
+            # 学生纯字母、正确"字母(内容)"：字母相同 → 答对（如 阅读判断 b vs "b (false)"）
+            if str(raw_u).strip().upper() == cp[0]:
+                continue
+            nu = cp[1]
+
         # 纯字母作答（如 'a'）：从题干选项解析内容后再比较（'a' → 'until'）
-        if raw_u and _re.fullmatch(r"[A-Da-d]", str(raw_u).strip()):
+        if raw_u and not up and not cp and _re.fullmatch(r"[A-Da-d]", str(raw_u).strip()):
             content = _answer_option_content(raw_u, m.get('question_text', ''))
             if content != str(raw_u).strip():
                 nu = _normalize_answer(content)
@@ -1173,7 +1195,8 @@ _FILL_BLANK_TYPES = ("语法填空", "选词填空", "单词拼写", "单句填�
 # 有选项题型：选项必须内嵌在题干中（前端/打印版均从题干解析选项）
 _OPTION_TYPES = ("单项选择", "多项选择", "选择题", "完形填空")
 # 主观题型：不生成逐题练习（无标准判分），错题整理由错题本内容提炼
-_SUBJECTIVE_TYPES = ("任务型阅读", "阅读理解", "写作", "书面表达")
+_SUBJECTIVE_TYPES = ("任务型阅读", "阅读理解", "阅读选择", "阅读判断", "阅读匹配",
+                     "阅读表达", "信息匹配", "写作", "书面表达")
 _OPTION_INLINE_RE = None  # 懒加载
 
 

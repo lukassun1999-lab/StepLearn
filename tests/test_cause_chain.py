@@ -394,3 +394,60 @@ def test_normalize_plan_text_field():
     assert "boarding_advice：周末陪读" in out
     assert "；" in out
     assert _normalize_plan_text_field(None) == ""
+
+
+# ── 答案括号格式归一化（OCR 输出 "b (false)" 等，实测导致答对误判）──
+
+def test_filter_real_mistakes_paren_format():
+    from skills_bridge import _filter_real_mistakes
+    # 学生答 b、正确 "b (false)" → 字母相同，答对剔除（实测误判案例）
+    assert _filter_real_mistakes([
+        {"user_answer": "b", "correct_answer": "b (false)", "question_text": "q"}]) == []
+    # 学生答 b、正确 "a (true)" → 字母不同，保留（确实答错）
+    kept = _filter_real_mistakes([
+        {"user_answer": "b", "correct_answer": "a (true)", "question_text": "q"}])
+    assert len(kept) == 1
+    # 学生答 "c (so that)"、正确 "so that" → 内容相同，答对剔除
+    assert _filter_real_mistakes([
+        {"user_answer": "c (so that)", "correct_answer": "so that",
+         "question_text": "q"}]) == []
+    # 学生答 "a (high)"、正确 "highest" → 内容不同，保留（确实答错）
+    kept = _filter_real_mistakes([
+        {"user_answer": "a (high)", "correct_answer": "highest",
+         "question_text": "q"}])
+    assert len(kept) == 1
+    # 双方括号格式、内容不同 → 保留
+    kept = _filter_real_mistakes([
+        {"user_answer": "a (high)", "correct_answer": "b (highest)",
+         "question_text": "q"}])
+    assert len(kept) == 1
+    # 括号格式 + 显示保留「字母. 内容」
+    kept = _filter_real_mistakes([
+        {"user_answer": "a (high)", "correct_answer": "higher",
+         "question_text": "q"}])
+    assert kept[0]["user_answer"] == "A. high"
+
+
+# ── 阅读类题型不进逐题练习（实测生成无选项残题）──
+
+def test_reading_types_excluded_from_practice():
+    from skills_bridge import _SUBJECTIVE_TYPES as sb_types
+    from domain.questions import _SUBJECTIVE_TYPES as dom_types
+    for t in ("阅读选择", "阅读判断", "阅读匹配", "信息匹配"):
+        assert t in sb_types and t in dom_types
+
+
+def test_generate_questions_skips_reading_mistakes(demo_mode, test_db_path):
+    """阅读类错题不生成练习题（无法自包含出题）。"""
+    from skills_bridge import generate_questions
+    mistakes = [{
+        "question_text": "What is David worried about?",
+        "question_type": "阅读选择", "correct_answer": "B", "user_answer": "A",
+        "knowledge_points": ["阅读细节理解"], "difficulty": 2,
+    }, {
+        "question_text": "Tom's grandmother has been in hospital.",
+        "question_type": "阅读判断", "correct_answer": "B", "user_answer": "A",
+        "knowledge_points": ["阅读细节理解"], "difficulty": 2,
+    }]
+    result = generate_questions(mistakes, task_id=None)
+    assert result["questions"] == []  # 全部被过滤，不调 LLM 不产出
