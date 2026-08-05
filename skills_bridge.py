@@ -799,6 +799,10 @@ def _filter_real_mistakes(mistakes: List[Dict]) -> List[Dict]:
             # 学生纯字母、正确"字母(内容)"：字母相同 → 答对（如 阅读判断 b vs "b (false)"）
             if str(raw_u).strip().upper() == cp[0]:
                 continue
+            # 字母不同：若题干无选项可解析 → 无法确认学生选择的内容 → 存疑跳过（不冤枉）
+            content = _answer_option_content(raw_u, m.get('question_text', ''))
+            if content == str(raw_u).strip():
+                continue
             nu = cp[1]
 
         # 纯字母作答（如 'a'）：从题干选项解析内容后再比较（'a' → 'until'）
@@ -807,6 +811,14 @@ def _filter_real_mistakes(mistakes: List[Dict]) -> List[Dict]:
             if content != str(raw_u).strip():
                 nu = _normalize_answer(content)
                 user_display = f"{str(raw_u).strip().upper()}. {content}"
+            else:
+                # 题干无选项、作答为纯字母 → 无法判断对错 → 存疑跳过（不冤枉学生）
+                continue
+        # 正确答案为纯字母（如 'B'）时，从题干解析其内容再比较
+        if nc and _re.fullmatch(r"[A-Da-d]", nc.strip()) and raw_c:
+            cc = _answer_option_content(raw_c, m.get('question_text', ''))
+            if cc != str(raw_c).strip():
+                nc = _normalize_answer(cc)
         # 二者都有内容且实质相同 → 学生答对了，剔除
         if nu and nc and nu == nc:
             continue

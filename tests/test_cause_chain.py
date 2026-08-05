@@ -403,10 +403,9 @@ def test_filter_real_mistakes_paren_format():
     # 学生答 b、正确 "b (false)" → 字母相同，答对剔除（实测误判案例）
     assert _filter_real_mistakes([
         {"user_answer": "b", "correct_answer": "b (false)", "question_text": "q"}]) == []
-    # 学生答 b、正确 "a (true)" → 字母不同，保留（确实答错）
-    kept = _filter_real_mistakes([
-        {"user_answer": "b", "correct_answer": "a (true)", "question_text": "q"}])
-    assert len(kept) == 1
+    # 学生答 b、正确 "a (true)" → 字母不同，但题干无选项无法确认 → 存疑跳过
+    assert _filter_real_mistakes([
+        {"user_answer": "b", "correct_answer": "a (true)", "question_text": "q"}]) == []
     # 学生答 "c (so that)"、正确 "so that" → 内容相同，答对剔除
     assert _filter_real_mistakes([
         {"user_answer": "c (so that)", "correct_answer": "so that",
@@ -426,6 +425,30 @@ def test_filter_real_mistakes_paren_format():
         {"user_answer": "a (high)", "correct_answer": "higher",
          "question_text": "q"}])
     assert kept[0]["user_answer"] == "A. high"
+
+
+def test_filter_real_mistakes_uncertain_skipped():
+    """题干无选项、作答为纯字母 → 无法判断对错 → 存疑跳过（不冤枉学生）。"""
+    from skills_bridge import _filter_real_mistakes
+    # 完形：学生答 b、题干无选项 → 无法确认 b 的内容 → 跳过
+    assert _filter_real_mistakes([
+        {"user_answer": "b", "correct_answer": "parties",
+         "question_text": "Many ___ museums and food festivals, I made friends..."}]) == []
+    # 阅读判断：字母不同（b vs a(true)）但题干无选项 → 存疑跳过
+    assert _filter_real_mistakes([
+        {"user_answer": "b", "correct_answer": "a (true)",
+         "question_text": "Hailey's grandfather had a serious health problem."}]) == []
+    # 题干有选项时仍可正确判断：学生选 b(=highest)，正确 B(=highest) → 答对剔除
+    assert _filter_real_mistakes([
+        {"user_answer": "b",
+         "question_text": "Mount Everest is the ___ mountain.\nA. largest\nB. highest",
+         "correct_answer": "B"}]) == []
+    # 题干有选项、学生选错 → 保留
+    kept = _filter_real_mistakes([
+        {"user_answer": "a",
+         "question_text": "Mount Everest is the ___ mountain.\nA. largest\nB. highest",
+         "correct_answer": "B"}])
+    assert len(kept) == 1
 
 
 # ── 阅读类题型不进逐题练习（实测生成无选项残题）──
