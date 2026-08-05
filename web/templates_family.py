@@ -748,7 +748,6 @@ function renderMistakes(d) {
   div.innerHTML += `
     <div style="margin-top:14px;text-align:center;">
       <button class="btn btn-primary" style="width:100%;" onclick="switchTab('practice', event)">🚀 开始练习</button>
-      <button class="btn btn-outline" style="margin-top:8px;font-size:.85rem;width:100%;" onclick="batchGenSimilar()">⚡ 一键生成全部类似题</button>
     </div>
   `;
 }
@@ -778,8 +777,7 @@ function mistakeItemHtml(m) {
       </div>
       <div style="margin-top:8px;">
         <button class="btn btn-green" style="font-size:.8rem;padding:6px 12px;min-height:34px;" onclick="masterMistake(${m.id})">✅ 已掌握</button>
-        <button class="btn btn-outline" style="font-size:.8rem;padding:6px 12px;min-height:34px;margin-left:6px;" onclick="genSimilar(${m.id}, this)">🔍 类似题</button>
-        <div class="similar-questions" id="similar-${m.id}" style="margin-top:8px;display:none;"></div>
+        <button class="btn btn-primary" style="font-size:.8rem;padding:6px 12px;min-height:34px;margin-left:6px;" onclick="goPractice()">📝 去练习</button>
       </div>
     </div>`;
 }
@@ -794,69 +792,10 @@ function toggleMistakeBook(bookDate, el) {
   if (arrow) arrow.textContent = open ? '▶' : '▼';
 }
 
-async function genSimilar(mistakeId, btn) {
-  const container = document.getElementById('similar-' + mistakeId);
-  // Check if already loaded
-  if (container.style.display === 'block' && container.children.length > 0) {
-    container.style.display = 'none';
-    btn.textContent = '🔍 生成类似题';
-    return;
-  }
-  // Check cache first
-  let r = await fetch('/api/mistakes/' + mistakeId + '/similar');
-  let data = await r.json();
-  if (data.questions && data.questions.length > 0) {
-    renderSimilarQuestions(container, data.questions);
-    btn.textContent = '🔍 隐藏类似题';
-    return;
-  }
-  // Generate new
-  btn.textContent = '⏳ 生成中...';
-  btn.disabled = true;
-  r = await fetch('/api/mistakes/' + mistakeId + '/similar', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({count:2, access_code: CODE})});
-  data = await r.json();
-  btn.textContent = '🔍 隐藏类似题';
-  btn.disabled = false;
-  if (data.questions && data.questions.length > 0) {
-    renderSimilarQuestions(container, data.questions);
-  } else {
-    container.innerHTML = '<p class="meta">生成失败，请重试</p>';
-    container.style.display = 'block';
-  }
-}
-
-function renderSimilarQuestions(container, questions) {
-  container.style.display = 'block';
-  container.innerHTML = questions.map((q, i) => `
-    <div style="background:#f8f6f0;border-radius:6px;padding:10px;margin-top:6px;">
-      <div style="font-weight:600;margin-bottom:4px;">类似题${i+1}：${q.question_text}</div>
-      <div style="font-size:.85em;color:var(--sub);">题型：${q.question_type || '-'} | 答案：${q.correct_answer || '-'}</div>
-      <div style="font-size:.85em;color:var(--sub);">${q.explanation || ''}</div>
-      ${(q.knowledge_points||[]).map(kp=>`<span class="badge badge-blue" style="margin-right:4px;font-size:.75em;">${kp}</span>`).join('')}
-    </div>
-  `).join('');
-}
-
-async function batchGenSimilar() {
-  const btn = event.target;
-  btn.textContent = '⏳ 批量生成中...';
-  btn.disabled = true;
-  const r = await fetch('/api/students/' + STUDENT_ID + '/batch-similar', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({limit:10,count_per:2, access_code: CODE})});
-  const data = await r.json();
-  btn.textContent = '⚡ 一键生成全部类似题';
-  btn.disabled = false;
-  let generated = 0, cached = 0;
-  for (const result of data.results || []) {
-    if (result.cached) cached++;
-    else generated++;
-    const container = document.getElementById('similar-' + result.mistake_id);
-    if (container && result.questions.length > 0) {
-      renderSimilarQuestions(container, result.questions);
-      const btn = container.parentElement.querySelector('button[onclick*="genSimilar"]');
-      if (btn) btn.textContent = '🔍 隐藏类似题';
-    }
-  }
-  toast(`生成完成：新增 ${generated} 组，复用缓存 ${cached} 组`);
+// 去练习：跳转练习 tab（练习题基于未掌握错题生成，即时反馈并更新掌握度）
+function goPractice() {
+  switchTab('practice', null);
+  setTimeout(() => toast('已进入练习——做完即时反馈，连续答对 2 次即掌握'), 500);
 }
 
 async function masterMistake(id) {
