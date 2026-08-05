@@ -384,6 +384,8 @@ QUESTION_GENERATION_PROMPT = """根据错题生成同类练习题，返回JSON:
    - 选择题/完形填空等有选项题型：把选项写进题干（如 "___1___ A. ...  B. ...  C. ...  D. ..."），correct_answer 写选项字母
    - 语法填空/选词填空/单句填空/翻译/写作等无选项题型：correct_answer **必须写单词/短语/句子本身**，严禁写字母（A/B/C/D）！
 3. 题目难度与对应错题一致；每道题提供完整中文解析
+4. 语法填空/单句填空等无选项题型，若正确填答是某词的**词形变化**（比较级/最高级/时态/语态/名词复数/词性转换等），题干必须在空处用括号给出原词，例如 "The mountain is the ___ (high) mountain in Shandong"；否则学生没有词根线索无法作答。纯虚词空（连词/介词/冠词/代词等）无需提示词。
+   判断方法：correct_answer 与空处直接填的词若不同形（如 highest 是 high 的变形），就必须带提示词。
 
 返回格式:
 {{"questions":[{{"source_mistake_id":1,"question_type":"语法填空","question_text":"完整题干（含选项，如为有选项题型）","options":["A","B","C","D"],"correct_answer":"按题型规则填字母或答案内容","explanation":"中文解析","knowledge_points":["非谓语动词"],"difficulty":2}}]}}"""
@@ -1021,6 +1023,27 @@ def build_cause_trend(current: Dict, previous: Dict) -> Optional[Dict[str, Any]]
     }
 
 
+_INFLECTION_HINT_TYPES = ("语法填空", "单句填空", "选词填空", "词汇拼写")
+# 词形变化标记（规则变化）：最高级/比较级/时态/复数/词性后缀
+_INFLECTION_MARKS = ("est", "ier", "iest", "ed", "es", "ies", "ly", "tion", "ment", "ing")
+
+
+def _inflection_missing_hint(q: Dict) -> bool:
+    """无选项题型的词形转换题是否缺括号提示词（实测：highest 无 high 提示，学生无法作答）。
+    纯虚词空（连词/介词/冠词等）无需提示词，不算坏题。"""
+    if not isinstance(q, dict):
+        return False
+    if (q.get("question_type") or "") not in _INFLECTION_HINT_TYPES:
+        return False
+    text = q.get("question_text") or ""
+    if re.search(r"[（(]\s*[a-zA-Z]+", text):
+        return False  # 已有括号提示词
+    ans = str(q.get("correct_answer") or "").strip().lower()
+    if not ans or " " in ans:
+        return False  # 多词答案（the ones / so that 等）通常是虚词或指代，非词形转换
+    return any(ans.endswith(m) for m in _INFLECTION_MARKS if len(ans) > len(m) + 1)
+
+
 def generate_questions(mistakes: List[Dict], task_id: int = None,
                        target_count: int = None) -> Dict[str, Any]:
     """
@@ -1072,6 +1095,9 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
         if (str(q.get("question_type") or "") in _OPTION_TYPES
                 and not _options_embedded(q.get("question_text", ""))):
             continue
+        # 跳过缺提示词的词形转换题（历史坏题，学生无法作答）
+        if _inflection_missing_hint(q):
+            continue
         selected_from_bank.append({
             "question_text": q["question_text"],
             "question_type": q["question_type"],
@@ -1115,6 +1141,10 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
             try:
                 q_text = q.get("question_text", "").strip()
                 if (q.get("question_type") or "") in _OPTION_TYPES and not _options_embedded(q_text):
+                    bad_indexes.add(i)
+                    continue
+                # 无选项词形转换题缺括号提示词 → 坏题（学生无法作答）
+                if _inflection_missing_hint(q):
                     bad_indexes.add(i)
                     continue
                 # Skip if too similar to an existing question in the bank

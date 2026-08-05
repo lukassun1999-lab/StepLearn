@@ -97,6 +97,40 @@ def test_empty_student_returns_empty(test_db_path, sample_student):
     assert q_mod.get_practice_questions(sample_student, db_path=test_db_path) == []
 
 
+def test_inflection_missing_hint():
+    """词形转换题缺括号提示词检测（实测：highest 无 high 提示，学生无法作答）。"""
+    from skills_bridge import _inflection_missing_hint
+    # 最高级无提示词 → 坏题
+    assert _inflection_missing_hint({
+        "question_type": "语法填空", "correct_answer": "highest",
+        "question_text": "Mount Tai is the ___ mountain in Shandong."}) is True
+    # 带括号提示词 → 正常
+    assert _inflection_missing_hint({
+        "question_type": "语法填空", "correct_answer": "highest",
+        "question_text": "Mount Tai is the ___ (high) mountain in Shandong."}) is False
+    # 虚词答案（连词）→ 正常，无需提示词
+    assert _inflection_missing_hint({
+        "question_type": "语法填空", "correct_answer": "so that",
+        "question_text": "She studied hard ___ she could pass."}) is False
+    # 复数词形无提示词 → 坏题
+    assert _inflection_missing_hint({
+        "question_type": "单句填空", "correct_answer": "experiences",
+        "question_text": "My ___ in China were happy."}) is True
+    # 多词答案（代词指代 the ones）→ 非词形转换，正常
+    assert _inflection_missing_hint({
+        "question_type": "语法填空", "correct_answer": "the ones",
+        "question_text": "These athletes are ___ who broke the records."}) is False
+    # 有选项题型不适用该校验
+    assert _inflection_missing_hint({
+        "question_type": "单项选择", "correct_answer": "B",
+        "question_text": "___ is the best.\nA. high\nB. highest"}) is False
+    # 非 dict / 非填空类 → False
+    assert _inflection_missing_hint(None) is False
+    assert _inflection_missing_hint({"question_type": "完形填空",
+                                     "correct_answer": "highest",
+                                     "question_text": "q"}) is False
+
+
 def test_fix_generated_answer_format():
     """P3 质量硬化：填空类题型答案格式校验（禁止裸字母）。"""
     from skills_bridge import _fix_generated_answer_format
