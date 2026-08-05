@@ -319,7 +319,8 @@ def api_generate_similar_questions(mistake_id):
 def api_batch_generate_similar(student_id):
     """Batch generate similar questions. Accepts access_code for public access."""
     from db import get_student_mistake_book, get_connection
-    from skills_bridge import generate_similar_questions as gen_similar
+    from skills_bridge import (generate_similar_questions as gen_similar,
+                               get_similar_questions_for_mistake)
     data = request.get_json() or {}
     # Validate access code
     code = data.get("access_code", "")
