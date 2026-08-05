@@ -11,11 +11,18 @@ from flask import Blueprint, jsonify, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import *  # noqa: F401,F403
-from web.shared import (UPLOAD_DIR, _extract_options,
+from web.shared import (UPLOAD_DIR, _extract_options, _resolve_file_path,
                         _resolve_student_by_code, admin_required,
                         login_required)
 
 family_api_bp = Blueprint("family_api", __name__)
+
+# 家长端免登录可下载的文件类型白名单（防枚举：仅 AI 产出的可见成果）
+_PUBLIC_DOWNLOAD_TYPES = ("poster", "report_pdf", "exercise_pdf")
+
+
+_VALID_GRADES = {"初一", "初二", "初三", "高一", "高二", "高三"}
+_VALID_TEXTBOOKS = {"人教版", "外研社版", "北师大版", "暂不确定"}
 
 
 @family_api_bp.route('/api/register', methods=['POST'])
@@ -25,6 +32,8 @@ def api_register():
     password = data.get('password') or ''
     name = (data.get('name') or '').strip()
     class_code = (data.get('class_code') or '').strip()
+    grade = (data.get('grade') or '').strip()
+    textbook_version = (data.get('textbook_version') or '').strip()
 
     if not phone or not password or not name:
         return jsonify({"error": "手机号、密码和姓名为必填项"}), 400
@@ -32,10 +41,13 @@ def api_register():
         return jsonify({"error": "请输入11位手机号"}), 400
     if len(password) < 6:
         return jsonify({"error": "密码至少6位"}), 400
+    if grade not in _VALID_GRADES:
+        return jsonify({"error": "请选择年级"}), 400
+    if textbook_version not in _VALID_TEXTBOOKS:
+        return jsonify({"error": "请选择教材版本"}), 400
 
     school_id = None
     class_id = None
-    grade = None
     cls = None
     if class_code:
         cls = get_class_by_code(class_code)
@@ -43,7 +55,9 @@ def api_register():
             return jsonify({"error": "班级码无效，请检查后重试"}), 404
         school_id = cls["school_id"]
         class_id = cls["id"]
-        grade = cls.get("grade")
+        # 学校场景下年级以班级为准，避免与班级信息冲突
+        if cls.get("grade"):
+            grade = cls["grade"]
 
     try:
         student_id = register_student(
@@ -53,6 +67,7 @@ def api_register():
             school_id=school_id,
             class_id=class_id,
             grade=grade,
+            textbook_version=textbook_version,
         )
     except ValueError as e:
         return jsonify({"error": str(e)}), 409
@@ -370,6 +385,62 @@ def api_public_practice_submit(code):
         "knowledge_points": json.loads(q["knowledge_points"]) if isinstance(q["knowledge_points"], str) else q["knowledge_points"],
     })
 
+@family_api_bp.route('/api/public/<code>/mistake-books', methods=['GET'])
+def api_public_mistake_books(code):
+    """按分析日期分组的错题本：如「20260804错题本」。
+
+    每次试卷分析入库的错题按 created_at 的日期分组（倒序，最新在前），
+    每组含该次全部错题的题目/学生作答/正确答案/解析，供学生先看后练。
+    """
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT * FROM mistakes WHERE student_id = ?
+        ORDER BY created_at DESC, id ASC
+    """, [student_id]).fetchall()
+    conn.close()
+
+    books = []
+    current = None
+    for r in rows:
+        d = dict(r)
+        day = (d.get("created_at") or "")[:10].replace("-", "")  # 2026-08-04 → 20260804
+        if not current or current["date"] != day:
+            current = {"date": day, "label": f"{day}错题本",
+                       "count": 0, "mistakes": []}
+            books.append(current)
+        try:
+            d["knowledge_points"] = json.loads(d.get("knowledge_points") or "[]")
+        except Exception:
+            d["knowledge_points"] = []
+        d["is_mastered"] = d.get("consecutive_correct", 0) >= 2
+        current["mistakes"].append(d)
+        current["count"] += 1
+    return jsonify({"books": books, "total": sum(b["count"] for b in books)})
+
+
+@family_api_bp.route('/api/public/<code>/files/<int:file_id>/download', methods=['GET'])
+def api_public_file_download(code, file_id):
+    """免登录下载家长端可见产物（海报/报告/练习卷），校验归属学生与类型白名单。
+
+    运营端下载仍走 /api/files/<id>/download（login_required）；
+    家长端（免登录）用本路由，防止任意文件被枚举。
+    """
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+    f = get_file(file_id)
+    if not f or f["student_id"] != student_id \
+            or f["file_type"] not in _PUBLIC_DOWNLOAD_TYPES:
+        return ('', 404)
+    filepath = _resolve_file_path(f)
+    if not filepath:
+        return ('', 404)
+    return send_file(filepath, download_name=f["original_filename"])
+
+
 @family_api_bp.route('/api/public/<code>/exercise-pdf', methods=['GET'])
 def api_public_exercise_pdf(code):
     """Download practice exercises as a print-friendly PDF."""
@@ -525,6 +596,11 @@ def api_generate_poster(code):
     if not summary:
         return jsonify({"error": "invalid code"}), 404
 
+    # 无学习数据不生成海报（新学生：无错题/无打卡）
+    if (summary["mistakes_count"] or 0) + (summary["mastered_count"] or 0) \
+            + len(summary["check_ins"] or []) == 0:
+        return jsonify({"error": "暂无学习数据，先上传试卷或完成练习后再生成海报吧"}), 400
+
     from report_templates import render_share_poster
     poster_html = render_share_poster(summary["student"], {
         "current_score": summary["student"].get("english_score"),
@@ -532,10 +608,11 @@ def api_generate_poster(code):
         "mastered_count": summary["mastered_count"],
         "mistakes_count": summary["mistakes_count"],
         "check_in_count": len(summary["check_ins"]),
+        "scores": summary.get("scores") or [],
     })
 
-    # Save as file
-    poster_dir = os.path.join(UPLOAD_DIR, str(summary["student"]["id"]), "posters")
+    # Save as file（目录与 file_type 一致：poster；历史 posters 目录由 _resolve_file_path 兼容）
+    poster_dir = os.path.join(UPLOAD_DIR, str(summary["student"]["id"]), "poster")
     os.makedirs(poster_dir, exist_ok=True)
     filename = f"poster_{date.today().isoformat()}_{uuid.uuid4().hex[:8]}.html"
     filepath = os.path.join(poster_dir, filename)
@@ -551,7 +628,8 @@ def api_generate_poster(code):
         file_size=os.path.getsize(filepath),
         mime_type="text/html",
     )
-    return jsonify({"file_id": file_id, "path": filepath})
+    # html 随接口返回，前端用 iframe srcdoc 内嵌预览（附件下载头/登录态不影响预览）
+    return jsonify({"file_id": file_id, "path": filepath, "html": poster_html})
 
 @family_api_bp.route('/api/parent/diagnose', methods=['POST'])
 def api_parent_diagnose():

@@ -260,6 +260,26 @@ button:disabled{opacity:.6;cursor:not-allowed;transform:none}
 <label>密码</label>
 <input type="password" id="pwd" placeholder="至少6位">
 
+<label>年级</label>
+<select id="grade">
+  <option value="">请选择年级</option>
+  <option value="初一">初一</option>
+  <option value="初二">初二</option>
+  <option value="初三">初三</option>
+  <option value="高一">高一</option>
+  <option value="高二">高二</option>
+  <option value="高三">高三</option>
+</select>
+
+<label>教材版本</label>
+<select id="textbook-version">
+  <option value="">请选择教材版本</option>
+  <option value="人教版">人教版</option>
+  <option value="外研社版">外研社版</option>
+  <option value="北师大版">北师大版</option>
+  <option value="暂不确定">暂不确定</option>
+</select>
+
 {% if feature_school %}
 <label>学校</label>
 <div class="autocomplete">
@@ -336,15 +356,19 @@ async function doRegister(){
   const name=document.getElementById('name').value.trim();
   const phone=document.getElementById('phone').value.trim();
   const pwd=document.getElementById('pwd').value;
+  const grade=document.getElementById('grade').value;
+  const textbookVersion=document.getElementById('textbook-version').value;
   const classCodeEl=document.getElementById('class-code');
   const classCode=classCodeEl?classCodeEl.value.trim():'';
   if(!name){err.textContent='请输入姓名';err.style.display='block';return;}
   if(!phone||phone.length!==11){err.textContent='请输入11位手机号';err.style.display='block';return;}
   if(!pwd||pwd.length<6){err.textContent='密码至少6位';err.style.display='block';return;}
+  if(!grade){err.textContent='请选择年级';err.style.display='block';return;}
+  if(!textbookVersion){err.textContent='请选择教材版本';err.style.display='block';return;}
   if(hasSchoolFields&&!classCode){err.textContent='请输入班级码';err.style.display='block';return;}
   const btn=document.getElementById('btn');btn.disabled=true;btn.textContent='注册中...';
   try{
-    const body={name,phone,password:pwd};
+    const body={name,phone,password:pwd,grade,textbook_version:textbookVersion};
     if(classCode)body.class_code=classCode;
     const r=await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await r.json();
