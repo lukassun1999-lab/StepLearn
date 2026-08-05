@@ -799,9 +799,16 @@ function goPractice() {
 }
 
 async function masterMistake(id) {
-  const r = await fetch('/api/mistakes/' + id + '/master', {method:'POST'});
+  const r = await fetch('/api/mistakes/' + id + '/master', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({access_code: CODE})
+  });
   if (r.ok) { toast('已标记掌握'); loadData(); }
-  else toast('操作失败');
+  else {
+    const d = await r.json().catch(() => ({}));
+    toast(d.error || '操作失败');
+  }
 }
 
 async function renderTimeline() {

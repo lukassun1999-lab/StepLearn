@@ -83,3 +83,26 @@ def test_parent_diagnose_bootstrap_via_unified_service(client, demo_mode,
                      content_type="multipart/form-data")
     # trial 有 99 次/月额度，回访第二次仍成功
     assert r2.status_code == 202
+
+
+def test_master_mistake_public_access(client, test_db_path, sample_student):
+    """成长记录'已掌握'：家庭端凭 access_code 公开操作（实测 401 修复）。"""
+    import db
+    mid = db.add_mistake(
+        student_id=sample_student, source_exam="测试", question="q",
+        question_type="语法填空", correct_answer="a", user_answer="b",
+        db_path=test_db_path)
+    code = db.get_student(sample_student)["access_code"]
+
+    # 正确 access_code → 200
+    r = client.post(f"/api/mistakes/{mid}/master", json={"access_code": code})
+    assert r.status_code == 200
+    # 错误 access_code → 403
+    r = client.post(f"/api/mistakes/{mid}/master", json={"access_code": "WRONG"})
+    assert r.status_code == 403
+    # 无 access_code 且未登录 → 401
+    r = client.post(f"/api/mistakes/{mid}/master", json={})
+    assert r.status_code == 401
+    # 错题不存在 → 404
+    r = client.post("/api/mistakes/999999/master", json={"access_code": code})
+    assert r.status_code == 404

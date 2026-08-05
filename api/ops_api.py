@@ -243,9 +243,26 @@ def api_student_mistakes(student_id):
     return jsonify(get_student_mistake_book(student_id, mastered=mastered))
 
 @ops_api_bp.route('/api/mistakes/<int:mistake_id>/master', methods=['POST'])
-@login_required
 def api_mark_mistake_mastered(mistake_id):
-    """Mark a mistake as mastered."""
+    """Mark a mistake as mastered.
+    家庭端（公开页免登录）传 access_code 校验归属；运营端走登录 session。"""
+    mistake = get_mistake(mistake_id)
+    if not mistake:
+        return jsonify({"error": "错题不存在"}), 404
+    data = request.get_json() or {}
+    code = (data.get("access_code") or "").strip()
+    if code:
+        # 家庭端：access_code 必须属于该错题的学生
+        conn = get_connection()
+        ok = conn.execute(
+            "SELECT 1 FROM students WHERE access_code = ? AND status = 'active' AND id = ?",
+            [code, mistake["student_id"]]).fetchone()
+        conn.close()
+        if not ok:
+            return jsonify({"error": "无权限"}), 403
+    elif not session.get("user_id"):
+        # 运营端：需登录
+        return jsonify({"error": "未登录"}), 401
     success = mark_mistake_mastered(mistake_id)
     if not success:
         return jsonify({"error": "错题不存在"}), 404
