@@ -18,11 +18,14 @@ import json
 
 import db
 
-# 主观/无法自包含题型：不进逐题练习（无标准判分或需原文上下文），
+# 主观/无法自包含题型：不进逐题练习（无标准判分或需原文上下文/音频），
 # 其错题整理由错题本内容提炼（周报/月度总结素材）。
-# 阅读选择/判断/匹配等虽为客观题，但脱离原文无法自包含出题（会生成无选项残题），一并排除。
+# 阅读选择/判断/匹配、听力、补全对话等虽为客观题，但脱离原文/音频无法自包含出题
+# （会生成无选项/无上下文残题），一并排除。
 _SUBJECTIVE_TYPES = ("任务型阅读", "阅读理解", "阅读选择", "阅读判断", "阅读匹配",
-                     "阅读表达", "信息匹配", "写作", "书面表达")
+                     "阅读表达", "阅读表达填空", "阅读表达问答", "信息匹配", "匹配题",
+                     "补全对话", "情景交际", "填空题", "书面表达", "写作", "英语写作",
+                     "听力填空", "听力选择", "听力判断", "听力匹配", "听短文填空", "听短文选择")
 
 
 def _parse_kp(raw):
@@ -52,9 +55,13 @@ def get_practice_questions(student_id: int, limit: int = 15,
     """
     db_path = db_path or db.DB_PATH
     mastery_clause = "AND m.consecutive_correct < 2" if unmastered_only else ""
-    # 按题目自身题型过滤主观题（源错题题型可能与题目不一致，如任务型阅读题源自选词填空错题）
+    # 按题目自身题型过滤主观/无法自包含题（源错题题型可能与题目不一致，如任务型阅读题源自选词填空错题）
+    # 听力/听短文/补全对话等用模糊匹配兜底（题型标签变体多）
     subject_clause = ("AND q.question_type NOT IN ("
-                      + ",".join("?" * len(_SUBJECTIVE_TYPES)) + ")")
+                      + ",".join("?" * len(_SUBJECTIVE_TYPES))
+                      + ") AND q.question_type NOT LIKE '%听力%'"
+                        " AND q.question_type NOT LIKE '%听短文%'"
+                        " AND q.question_type NOT LIKE '%补全对话%'")
     conn = db.get_connection(db_path)
     rows = conn.execute(f"""
         SELECT q.id, q.question_text, q.question_type, q.correct_answer,

@@ -386,6 +386,8 @@ QUESTION_GENERATION_PROMPT = """根据错题生成同类练习题，返回JSON:
 3. 题目难度与对应错题一致；每道题提供完整中文解析
 4. 语法填空/单句填空等无选项题型，若正确填答是某词的**词形变化**（比较级/最高级/时态/语态/名词复数/词性转换等），题干必须在空处用括号给出原词，例如 "The mountain is the ___ (high) mountain in Shandong"；否则学生没有词根线索无法作答。纯虚词空（连词/介词/冠词/代词等）无需提示词。
    判断方法：correct_answer 与空处直接填的词若不同形（如 highest 是 high 的变形），就必须带提示词。
+5. 选词填空必须提供**候选词框**：在题干末尾列出 6-8 个候选词（含正确答案与干扰词），如 "候选词：although, though, because, since, unless, whether"；没有词库学生无法作答。
+   若错题本身带词库，优先沿用原词库。
 
 返回格式:
 {{"questions":[{{"source_mistake_id":1,"question_type":"语法填空","question_text":"完整题干（含选项，如为有选项题型）","options":["A","B","C","D"],"correct_answer":"按题型规则填字母或答案内容","explanation":"中文解析","knowledge_points":["非谓语动词"],"difficulty":2}}]}}"""
@@ -1063,10 +1065,8 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
     """
     from db import find_similar_questions, save_question, increment_question_usage
 
-    # 主观题型（阅读/任务型/写作等）不进逐题练习：不生成练习题，
-    # 其错题整理由错题本内容提炼（周报/月度总结素材）
-    mistakes = [m for m in mistakes
-                if m.get("question_type") not in _SUBJECTIVE_TYPES]
+    # 主观/无法自包含/需特殊资源题型（阅读/听力/对话等）不进逐题练习
+    mistakes = [m for m in mistakes if not _is_excluded_type(m.get("question_type", ""))]
 
     # 每错题 2 题，不设总量上限
     target_count = len(mistakes) * 2
@@ -1091,6 +1091,9 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
     selected_from_bank = []
     used_ids = []
     for q in bank_questions:
+        # 跳过主观/无法自包含题型的历史坏题（阅读/听力/对话等）
+        if _is_excluded_type(str(q.get("question_type") or "")):
+            continue
         # 跳过有选项题型但题干未内嵌选项的历史坏题（前端无法渲染）
         if (str(q.get("question_type") or "") in _OPTION_TYPES
                 and not _options_embedded(q.get("question_text", ""))):
@@ -1235,10 +1238,22 @@ SIMILAR_QUESTION_PROMPT = """你是一位经验丰富的英语老师。学生做
 _FILL_BLANK_TYPES = ("语法填空", "选词填空", "单词拼写", "单句填空", "短文填空",
                      "翻译", "完成句子", "写作", "书面表达")
 # 有选项题型：选项必须内嵌在题干中（前端/打印版均从题干解析选项）
-_OPTION_TYPES = ("单项选择", "多项选择", "选择题", "完形填空")
+_OPTION_TYPES = ("单项选择", "单项选择题", "多项选择", "选择题", "完形填空")
 # 主观题型：不生成逐题练习（无标准判分），错题整理由错题本内容提炼
 _SUBJECTIVE_TYPES = ("任务型阅读", "阅读理解", "阅读选择", "阅读判断", "阅读匹配",
-                     "阅读表达", "信息匹配", "写作", "书面表达")
+                     "阅读表达", "阅读表达填空", "阅读表达问答", "信息匹配", "匹配题",
+                     "补全对话", "情景交际", "填空题", "书面表达", "写作", "英语写作",
+                     "听力填空", "听力选择", "听力判断", "听力匹配", "听短文填空", "听短文选择")
+
+
+def _is_excluded_type(question_type: str) -> bool:
+    """是否排除出逐题练习：主观/无法自包含/需特殊资源（阅读类、听力类、对话类）。"""
+    qt = question_type or ""
+    if qt in _SUBJECTIVE_TYPES:
+        return True
+    if "听力" in qt or "听短文" in qt or "补全对话" in qt:
+        return True
+    return False
 _OPTION_INLINE_RE = None  # 懒加载
 
 

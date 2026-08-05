@@ -131,6 +131,32 @@ def test_inflection_missing_hint():
                                      "question_text": "q"}) is False
 
 
+def test_is_excluded_type():
+    """无法自包含题型排除：阅读/听力/对话/匹配/填空（含模糊匹配）。"""
+    from skills_bridge import _is_excluded_type
+    # 排除
+    for t in ("任务型阅读", "阅读理解", "阅读选择", "阅读判断", "阅读匹配",
+              "阅读表达填空", "阅读表达问答", "信息匹配", "匹配题", "补全对话",
+              "听力填空", "听力选择", "听力判断", "听短文填空", "听短文选择",
+              "填空题", "情景交际", "书面表达"):
+        assert _is_excluded_type(t), t
+    # 模糊匹配：新出现的听力/对话标签变体
+    assert _is_excluded_type("听力匹配题") is True
+    assert _is_excluded_type("听短文回答问题") is True
+    assert _is_excluded_type("补全对话七选五") is True
+    # 保留（可自包含）
+    for t in ("语法填空", "选词填空", "单项选择", "单项选择题", "完形填空",
+              "词汇拼写", "单句填空"):
+        assert _is_excluded_type(t) is False, t
+
+
+def test_option_types_include_variants():
+    """选项题型标签变体（单项选择题）应被识别为有选项题型。"""
+    from skills_bridge import _OPTION_TYPES
+    assert "单项选择题" in _OPTION_TYPES
+    assert "单项选择" in _OPTION_TYPES
+
+
 def test_fix_generated_answer_format():
     """P3 质量硬化：填空类题型答案格式校验（禁止裸字母）。"""
     from skills_bridge import _fix_generated_answer_format
