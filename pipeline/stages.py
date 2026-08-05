@@ -207,6 +207,7 @@ def node_analyze(ctx: Ctx):
             difficulty=m.get("difficulty", 2),
             error_cause=m.get("error_cause", ""),
             cause_evidence=m.get("cause_evidence", ""),
+            passage=m.get("passage", ""),
             db_path=ctx.db_path,
         )
         ctx.saved_mistake_ids.append(mid)

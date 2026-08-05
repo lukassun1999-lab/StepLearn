@@ -538,9 +538,17 @@ def render_exercise_sheet(student_name: str, questions: list, week_start: str = 
             opts_html += f"<div style='padding:6px 12px; margin:4px 0; background:var(--bg); border-radius:6px;'>{opt}</div>"
 
         kps = ", ".join(q.get("knowledge_points") or [])
+        passage_html = ""
+        if q.get("passage"):
+            passage_html = f"""
+            <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin:12px 0;white-space:pre-wrap;line-height:1.8;">
+              <div style="font-size:.72rem;color:var(--sub);font-weight:600;margin-bottom:4px;">📄 阅读短文</div>
+              {q.get("passage")}
+            </div>"""
         q_blocks += f"""
         <div class="card">
           <h3>第 {i+1} 题 <span style="font-weight:400;color:var(--sub);font-size:.85em;">{q.get('question_type', '')} · {kps}</span></h3>
+          {passage_html}
           <div style="white-space:pre-wrap; margin:12px 0; line-height:1.9;">{q.get('question_text', '')}</div>
           {opts_html}
         </div>"""
@@ -1290,6 +1298,10 @@ def render_exercise_pdf(student_name: str, questions: list, week_start: str = ""
         if qtype or kps:
             head += f'  <font size="9" color="#888888">{esc(qtype)} · {esc(kps)}</font>'
         story.append(Paragraph(head, qhead_st))
+        if q.get("passage"):
+            story.append(Paragraph(
+                f'<font size="8" color="#888888">📄 阅读短文</font><br/>{esc(q["passage"])}',
+                body_st))
         story.append(Paragraph(esc(q.get("question_text", "")), body_st))
         for opt in q.get("options", []):
             story.append(Paragraph(esc(opt), opt_st))

@@ -145,6 +145,10 @@ def _migrate_db(conn: sqlite3.Connection) -> None:
         if col not in mistake_col_names:
             conn.execute(f"ALTER TABLE mistakes ADD COLUMN {col} TEXT")
             conn.commit()
+    # Add passage column to mistakes (阅读题所属短文原文，练习生成时随题展示)
+    if "passage" not in mistake_col_names:
+        conn.execute("ALTER TABLE mistakes ADD COLUMN passage TEXT")
+        conn.commit()
     # Add source_mistake_id to questions for similar question tracking
     question_cols = conn.execute("PRAGMA table_info(questions)").fetchall()
     question_col_names = [c["name"] for c in question_cols]
@@ -964,6 +968,7 @@ def add_mistake(
     difficulty: int = 2,
     error_cause: str = "",
     cause_evidence: str = "",
+    passage: str = "",
     db_path: str = DB_PATH,
 ) -> int:
     """Add a new mistake. Returns the integer mistake ID."""
@@ -972,14 +977,14 @@ def add_mistake(
     cur = conn.execute("""
         INSERT INTO mistakes (student_id, source_exam, question, question_type,
             correct_answer, user_answer, explanation, knowledge_points, difficulty,
-            error_cause, cause_evidence,
+            error_cause, cause_evidence, passage,
             next_review_at, review_interval_hours, review_stage, last_reviewed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, [
         student_id, source_exam, question, question_type,
         correct_answer, user_answer, explanation,
         json.dumps(knowledge_points or [], ensure_ascii=False), difficulty,
-        error_cause, cause_evidence,
+        error_cause, cause_evidence, passage,
         now, 1.0, 0, now
     ])
     conn.commit()

@@ -454,8 +454,10 @@ def test_filter_real_mistakes_uncertain_skipped():
 # ── 阅读类题型不进逐题练习（实测生成无选项残题）──
 
 def test_reading_types_excluded_from_practice():
-    from skills_bridge import _SUBJECTIVE_TYPES as sb_types
-    from domain.questions import _SUBJECTIVE_TYPES as dom_types
+    """阅读类题型在 _READING_TYPES（有短文才可练），两处定义一致。"""
+    from skills_bridge import _READING_TYPES as sb_types
+    from domain.questions import _READING_TYPES as dom_types
+    assert set(sb_types) == set(dom_types)
     for t in ("阅读选择", "阅读判断", "阅读匹配", "信息匹配"):
         assert t in sb_types and t in dom_types
 

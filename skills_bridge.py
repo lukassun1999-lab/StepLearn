@@ -334,9 +334,10 @@ MISTAKE_ANALYSIS_PROMPT = """分析以下英语试卷 OCR 文本，**只提取�
    - discourse 读不懂文章逻辑：主旨、推理、衔接、上下文理解失败
    - careless 看题不仔细：粗心、漏看、审题失误
    cause_evidence 用一句话给出判断依据（如"答案含未掌握生词 XXX"、"动词时态与时间状语不符"、"两个选项含义相近，属词义辨析"）。
+8. 每道错题输出 passage 字段：该题所属**阅读短文/对话的完整原文**（从 OCR 文本中原样提取，保留段落与题号不混入；若题目本身无短文——如语法填空/单项选择/单句完形——passage 必须为空字符串 ""）。
 
 返回格式:
-{{"mistakes":[{{"question_number":1,"question_text":"完整题干（含全部选项）","question_type":"语法填空","correct_answer":"full of","user_answer":"fill of","error_cause":"vocab","cause_evidence":"拼写错误：full 写成 fill","explanation":"本题考查...","knowledge_points":["非谓语动词"],"difficulty":2}}],"summary":{{"total_mistakes":0,"by_type":{{"语法填空":2}},"top_weak_points":["非谓语动词"],"overall_assessment":"..."}}}}"""
+{{"mistakes":[{{"question_number":1,"question_text":"完整题干（含全部选项）","question_type":"语法填空","correct_answer":"full of","user_answer":"fill of","error_cause":"vocab","cause_evidence":"拼写错误：full 写成 fill","passage":"","explanation":"本题考查...","knowledge_points":["非谓语动词"],"difficulty":2}}],"summary":{{"total_mistakes":0,"by_type":{{"语法填空":2}},"top_weak_points":["非谓语动词"],"overall_assessment":"..."}}}}"""
 
 
 CAUSE_CHAIN_PROMPT = """分析学生的错因因果链，返回JSON（不要markdown代码块）。
@@ -388,9 +389,13 @@ QUESTION_GENERATION_PROMPT = """根据错题生成同类练习题，返回JSON:
    判断方法：correct_answer 与空处直接填的词若不同形（如 highest 是 high 的变形），就必须带提示词。
 5. 选词填空必须提供**候选词框**：在题干末尾列出 6-8 个候选词（含正确答案与干扰词），如 "候选词：although, though, because, since, unless, whether"；没有词库学生无法作答。
    若错题本身带词库，优先沿用原词库。
+6. 若错题含 **passage 字段**（阅读类），新题必须基于该短文出题：
+   - 短文**原样**放入返回的 passage 字段（不得改写、缩写或省略）
+   - 题目从短文内容出（事实细节/主旨/推理/词义猜测等），带 4 个选项，题干自包含不引用外部材料
+   - 题干中不得出现"根据上文/原文/文章"这类依赖未提供材料的表述
 
 返回格式:
-{{"questions":[{{"source_mistake_id":1,"question_type":"语法填空","question_text":"完整题干（含选项，如为有选项题型）","options":["A","B","C","D"],"correct_answer":"按题型规则填字母或答案内容","explanation":"中文解析","knowledge_points":["非谓语动词"],"difficulty":2}}]}}"""
+{{"questions":[{{"source_mistake_id":1,"question_type":"语法填空","question_text":"完整题干（含选项，如为有选项题型）","options":["A","B","C","D"],"correct_answer":"按题型规则填字母或答案内容","explanation":"中文解析","knowledge_points":["非谓语动词"],"difficulty":2,"passage":"短文原文（错题有 passage 时原样保留，否则空字符串）"}}]}}"""
 
 
 GRADING_PROMPT = """批改学生练习题答案，返回JSON:
@@ -1065,8 +1070,18 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
     """
     from db import find_similar_questions, save_question, increment_question_usage
 
-    # 主观/无法自包含/需特殊资源题型（阅读/听力/对话等）不进逐题练习
-    mistakes = [m for m in mistakes if not _is_excluded_type(m.get("question_type", ""))]
+    # 过滤：听力/对话/写作等一律排除；阅读类仅在有短文（passage）时保留
+    # （无短文无法自包含出题——此前会生成"引用 passage 但没给文章"的残题）
+    kept = []
+    for m in mistakes:
+        qt = m.get("question_type", "")
+        if qt in _READING_TYPES:
+            if (m.get("passage") or "").strip():
+                kept.append(m)  # 有短文 → 生成带原文的练习
+            continue
+        if not _is_excluded_type(qt):
+            kept.append(m)
+    mistakes = kept
 
     # 每错题 2 题，不设总量上限
     target_count = len(mistakes) * 2
@@ -1091,8 +1106,10 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
     selected_from_bank = []
     used_ids = []
     for q in bank_questions:
-        # 跳过主观/无法自包含题型的历史坏题（阅读/听力/对话等）
+        # 跳过主观/无法自包含题型的历史坏题（听力/对话等）；阅读类题库题无短文信息，不可做
         if _is_excluded_type(str(q.get("question_type") or "")):
+            continue
+        if str(q.get("question_type") or "") in _READING_TYPES:
             continue
         # 跳过有选项题型但题干未内嵌选项的历史坏题（前端无法渲染）
         if (str(q.get("question_type") or "") in _OPTION_TYPES
@@ -1109,6 +1126,7 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
             "knowledge_points": q["knowledge_points"],
             "difficulty": q["difficulty"],
             "from_bank": True,
+            "passage": "",
         })
         used_ids.append(q["id"])
 
@@ -1134,9 +1152,13 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
         generated_questions = result.get("questions", [])[:remaining]
 
         # Save new questions to bank (linked to source mistake for tracking)
+        mistake_by_id = {m.get("id"): m for m in mistakes}
         for i, q in enumerate(generated_questions):
             mistake = mistakes[i] if i < len(mistakes) else mistakes[-1] if mistakes else {}
             source_mistake_id = mistake.get("id")
+            # 阅读类：生成题附带源错题的短文原文（渲染时随题展示，学生可依据短文答题）
+            src = mistake_by_id.get(q.get("source_mistake_id")) or mistake
+            q["passage"] = (src.get("passage") or "")
             # P3 质量硬化：填空类题型答案若被写成裸字母，回退源错题答案
             _fix_generated_answer_format(q, source_answer=mistake.get("correct_answer", ""))
             # 有选项题型：确保选项内嵌题干；无法拼装则标记坏题（不入库不下发）
@@ -1246,11 +1268,16 @@ _SUBJECTIVE_TYPES = ("任务型阅读", "阅读理解", "阅读选择", "阅读�
                      "听力填空", "听力选择", "听力判断", "听力匹配", "听短文填空", "听短文选择")
 
 
+# 阅读类题型：有短文（passage）时可生成带原文的练习；无短文则无法自包含
+_READING_TYPES = ("阅读理解", "阅读选择", "阅读判断", "阅读匹配", "阅读表达",
+                  "阅读表达填空", "阅读表达问答", "任务型阅读", "信息匹配", "匹配题")
+
+
 def _is_excluded_type(question_type: str) -> bool:
-    """是否排除出逐题练习：主观/无法自包含/需特殊资源（阅读类、听力类、对话类）。"""
+    """是否排除出逐题练习：主观/无法自包含/需特殊资源（听力类、对话类、无短文阅读类）。"""
     qt = question_type or ""
-    if qt in _SUBJECTIVE_TYPES:
-        return True
+    if qt in _SUBJECTIVE_TYPES and qt not in _READING_TYPES:
+        return True  # 阅读类单独按 passage 判断
     if "听力" in qt or "听短文" in qt or "补全对话" in qt:
         return True
     return False

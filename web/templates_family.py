@@ -470,6 +470,12 @@ function renderPracticeQuestion() {
   }
   const q = practiceQuestions[practiceIndex];
   const kpTag = (q.knowledge_points||[]).map(k=>`<span class="badge badge-blue" style="margin-right:4px;">${k}</span>`).join('');
+  // 阅读类：随题展示短文原文（学生可依据短文答题）
+  const passageHtml = q.passage ? `
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px;white-space:pre-wrap;line-height:1.9;font-size:.95rem;">
+      <div style="font-size:.75rem;color:var(--sub);margin-bottom:6px;font-weight:600;">📄 阅读短文</div>
+      ${q.passage}
+    </div>` : '';
   const OPTION_TYPES = ['单项选择','多项选择','选择题','完形填空'];
   const isOptionType = OPTION_TYPES.includes(q.question_type);
   const opts = q.options || [];
@@ -495,6 +501,7 @@ function renderPracticeQuestion() {
         <span style="font-size:.85em;color:var(--sub);">${q.question_type}</span>
       </div>
       <div style="margin-bottom:10px;">${kpTag}</div>
+      ${passageHtml}
       <div style="font-weight:600;margin-bottom:16px;line-height:1.8;font-size:1.02rem;white-space:pre-wrap;">${q.question_text.replace(/[A-D]\.\s*.+?(?=\s*[A-D]\.|$)/g,'').trim()}</div>
       <div id="practice-options">${optionsHtml}</div>
       <button class="btn btn-primary" style="width:100%;margin-top:16px;" id="practice-submit-btn" onclick="${submitAction}" ${isOptionType && opts.length === 0 ? '' : 'disabled'}>${submitLabel}</button>
