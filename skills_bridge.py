@@ -655,8 +655,6 @@ def normalize_knowledge_points(raw_labels) -> tuple:
         label = str(raw or "").strip()
         if not label:
             continue
-        if label in _KP_IGNORE:
-            continue
         key = label.replace(" ", "")
         matched = _match(key)
         if not matched:
@@ -665,10 +663,16 @@ def normalize_knowledge_points(raw_labels) -> tuple:
                 if key.startswith(prefix + "-"):
                     stripped = key[len(prefix) + 1:]
                     matched = _match(stripped)
+                    key = stripped
                     break
         if matched:
             if matched not in canonicals:
                 canonicals.append(matched)
+        elif (key in _KP_IGNORE or label in _KP_IGNORE
+              or any(label.startswith(ig + "（") or label.startswith(ig + "(")
+                     for ig in _KP_IGNORE)):
+            # 题型词/带括号说明的题型词直接丢弃（"历史知识（工业革命前的睡眠习惯）"）
+            continue
         else:
             if label not in unmapped:
                 unmapped.append(label)

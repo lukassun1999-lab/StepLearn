@@ -59,6 +59,8 @@ def test_normalize_ignores_question_type_words():
                                        "英语写作"]) == ([], [])
     # 忽略词与真实知识点混合时只保留后者
     assert normalize_knowledge_points(["阅读理解", "现在完成时"]) == (["现在完成时"], [])
+    # 带括号说明的题型词同样忽略（真实 LLM 输出风格）
+    assert normalize_knowledge_points(["历史知识（工业革命前的睡眠习惯）"]) == ([], [])
 
 
 def test_normalize_discourse_capability_aliases():
