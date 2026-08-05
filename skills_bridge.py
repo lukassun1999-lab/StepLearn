@@ -584,6 +584,73 @@ _CAUSE_DEFAULT = "grammar"
 _UNANSWERED_MARKERS = ("未作答", "未完成", "空白", "未填写", "没有作答",
                        "no answer", "blank", "学生未答")
 
+# ── 受控知识点词表（knowledge_points.json，归一化映射）──
+_KP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "knowledge_points.json")
+_KP_TABLE = None       # [{"id","c","a","l","g"}, ...]
+_KP_INDEX = None       # alias/canonical(去空白) → canonical
+
+
+def _load_knowledge_base() -> None:
+    """加载受控知识点词表（进程内缓存）。缺失时降级为空词表（不阻断主链路）。"""
+    global _KP_TABLE, _KP_INDEX
+    if _KP_TABLE is not None:
+        return
+    try:
+        with open(_KP_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        _KP_TABLE = data.get("points") or []
+        _KP_INDEX = {}
+        for p in _KP_TABLE:
+            c = (p.get("c") or "").strip()
+            if not c:
+                continue
+            _KP_INDEX[c.replace(" ", "")] = c
+            for a in p.get("a") or []:
+                a = (a or "").strip()
+                if a:
+                    _KP_INDEX[a.replace(" ", "")] = c
+    except Exception:
+        _KP_TABLE = []
+        _KP_INDEX = {}
+
+
+def normalize_knowledge_points(raw_labels) -> tuple:
+    """受控词表归一化：自由标签 → canonical 列表。
+
+    匹配策略（按优先级）：
+    1. 精确匹配（canonical 或 alias，忽略空白）
+    2. 标签更细：canonical 是标签的子串（"现在完成时的用法"→"现在完成时"），取最长
+    3. 标签更粗：标签是 canonical 的子串，仅当唯一匹配时映射（歧义 → 进未识别池）
+    返回 (canonical 去重列表, 未识别标签去重列表)。
+    """
+    _load_knowledge_base()
+    canonicals, unmapped = [], []
+    for raw in raw_labels or []:
+        label = str(raw or "").strip()
+        if not label:
+            continue
+        key = label.replace(" ", "")
+        matched = _KP_INDEX.get(key) if _KP_INDEX else None
+        if not matched and _KP_TABLE:
+            # 标签更细：canonical 是标签子串
+            finer = [p["c"] for p in _KP_TABLE if p["c"].replace(" ", "") in key]
+            if finer:
+                matched = max(finer, key=len)
+            else:
+                # 标签更粗：仅唯一 canonical 包含标签才映射
+                coarser = [p["c"] for p in _KP_TABLE
+                           if key in p["c"].replace(" ", "")]
+                if len(coarser) == 1:
+                    matched = coarser[0]
+        if matched:
+            if matched not in canonicals:
+                canonicals.append(matched)
+        else:
+            if label not in unmapped:
+                unmapped.append(label)
+    return canonicals, unmapped
+
 
 def _is_unanswered(m: Dict) -> bool:
     """未作答/缺做题没有认知层面的错因，不应参与错因统计。
@@ -730,6 +797,23 @@ def analyze_mistakes(ocr_text: str, task_id: int = None) -> Dict[str, Any]:
         for m in result['mistakes']:
             if not (m.get("error_cause") or "").strip():
                 m["error_cause"] = _normalize_error_cause(m) or ""
+        # 知识点归一化：自由标签 → 受控词表 canonical；未识别进池（带频次统计）
+        unmapped_all = []
+        for m in result['mistakes']:
+            kps = m.get("knowledge_points") or []
+            if isinstance(kps, str):
+                try:
+                    kps = json.loads(kps)
+                except Exception:
+                    kps = []
+            if kps:
+                canon, unmapped = normalize_knowledge_points(kps)
+                # 一律写回 canonical（即使为空）——入库的永远是受控标签，未识别进池
+                m["knowledge_points"] = canon
+                unmapped_all.extend(unmapped)
+        if unmapped_all:
+            from db import record_unmapped_kps
+            record_unmapped_kps(list(dict.fromkeys(unmapped_all)))
         if isinstance(result.get('summary'), dict):
             summary = result['summary']
             if dropped:
@@ -779,6 +863,15 @@ def analyze_cause_chain(student: Dict, mistakes: List[Dict],
         if q and q in seen:
             continue
         seen.add(q)
+        # 知识点归一化到受控词表（本次为新标签，近期为存量自由标签，统一处理）
+        kps = m.get("knowledge_points") or []
+        if isinstance(kps, str):
+            try:
+                kps = json.loads(kps)
+            except Exception:
+                kps = []
+        canon, _ = normalize_knowledge_points(kps)
+        m["knowledge_points"] = canon
         dedup.append(m)
     if not dedup:
         return None

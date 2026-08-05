@@ -545,6 +545,14 @@ def init_db(db_path: str = DB_PATH) -> None:
             FOREIGN KEY (student_id) REFERENCES students(id)
         );
 
+        -- ── 未识别知识点池（受控词表归一化未命中，带频次统计，供定期补词）────
+        CREATE TABLE IF NOT EXISTS unmapped_kps (
+            label TEXT PRIMARY KEY,
+            count INTEGER DEFAULT 0,
+            first_seen TIMESTAMP,
+            last_seen TIMESTAMP
+        );
+
         -- ── 学习方案 ─────────────────────────────
         CREATE TABLE IF NOT EXISTS learning_plans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1096,6 +1104,35 @@ def get_cause_profile_history(student_id: int, week_start: str = None,
         except Exception:
             d[k] = {}
     return d
+
+
+def record_unmapped_kps(labels: List[str], db_path: str = DB_PATH) -> None:
+    """记录未识别知识点标签（受控词表归一化未命中），按标签累加频次。
+    用于定期查看高频未识别词，补充词表 aliases 或新增条目。"""
+    labels = [l for l in (labels or []) if isinstance(l, str) and l.strip()]
+    if not labels:
+        return
+    conn = get_connection(db_path)
+    now = _now_iso()
+    for label in labels:
+        conn.execute("""
+            INSERT INTO unmapped_kps (label, count, first_seen, last_seen)
+            VALUES (?, 1, ?, ?)
+            ON CONFLICT(label) DO UPDATE SET
+                count = count + 1, last_seen = excluded.last_seen
+        """, [label.strip(), now, now])
+    conn.commit()
+    conn.close()
+
+
+def get_unmapped_kps(top_n: int = 50, db_path: str = DB_PATH) -> List[Dict[str, Any]]:
+    """取未识别知识点池（按频次降序），供词表补充决策。"""
+    conn = get_connection(db_path)
+    rows = conn.execute(
+        "SELECT label, count, first_seen, last_seen FROM unmapped_kps"
+        " ORDER BY count DESC LIMIT ?", [top_n]).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def update_mistake(mistake_id: int, updates: Dict[str, Any], db_path: str = DB_PATH) -> bool:
