@@ -114,7 +114,7 @@
 - `parent_consents`、`deletion_requests`、`audit_logs`、`alerts`、`backups`、`llm_usage_log`
 
 **账号与设置**
-- `admin_users`（role: admin/teacher）、`sms_codes`、`settings`（KV：预算/flag/weekly_question_target）
+- `admin_users`（role: admin/teacher）、`sms_codes`、`settings`（KV：预算/feature flag 等）
 
 **B 端封存**
 - `schools`、`classes`、`teacher_profile`（feature flag 关闭时不使用）
@@ -181,7 +181,7 @@
   "exercise_file_id": 27,       // 练习卷 HTML file_id（无题为 null）
   "report_file_id": 31,         // 分析报告 HTML file_id
   "mistakes_count": 10,
-  "questions_count": 15,        // 目标 15 题（settings.weekly_question_target）
+  "questions_count": 12,        // 每错题 2 题，不设总量上限（2026-08-04 起）
   "session_id": 8,
   "mistake_ids": [201, 202],
   "stage": "exercises_ready"    // plan 起点时为 "analysis_done"
