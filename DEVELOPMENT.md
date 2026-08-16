@@ -25,9 +25,10 @@
 | 层 | 选型 | 说明 |
 |----|------|------|
 | 后端 | Python 3 + Flask | app.py 仅装配层（~240 行），路由拆分为蓝图 |
-| 数据库 | SQLite（WAL + busy_timeout=15000） | 单文件 `data.db`，35 张表，`db.py` 唯一数据源 |
+| 数据库 | SQLite（WAL + busy_timeout=15000） | 单文件 `data.db`，35 张表，`db/` 包唯一数据源 |
 | 异步任务 | `threading` + `queue.Queue` | 3 worker + 按学生串行锁 + 僵尸任务自愈 + 失败退额度 |
-| LLM | Anthropic / OpenAI 兼容 API | 当前接 Kimi/MiniMax；无 key 自动 demo 模式 |
+| LLM | Anthropic / OpenAI 兼容 API | 当前接 Kimi/MiniMax；无 key 自动 demo 模式（有告警） |
+| 日志 | 标准库 logging | stderr + `logs/app.log` 轮转（log_setup.py，LOG_LEVEL 可调） |
 | OCR | 多模态 vision LLM + Tesseract.js 降级 | 手写试卷专用 prompt；`ocr_wrapper.js` 封装 Tesseract |
 | 前端 | 原生 HTML/CSS/JS | 模板位于 `web/templates_*.py`（内联字符串），无构建步骤 |
 | 报告 | 服务端渲染 HTML | 练习卷另有 PDF 导出（report_templates.render_exercise_pdf） |
@@ -70,13 +71,26 @@
               └─────────┬───────────────────────┘
               ┌─────────▼───────────┐  ┌──────────────────┐
               │ skills_bridge.py    │  │ report_templates │
-              │ (OCR+LLM 业务封装)  │  │ (报告渲染)       │
+              │ 门面（拆分见下）     │  │ (报告渲染)       │
               └─────────┬───────────┘  └──────────────────┘
               ┌─────────▼───────────┐  ┌──────────────────┐
-              │ llm.py              │  │ db.py            │
+              │ llm.py              │  │ db/ 包（门面）    │
               │ (重试/校验/缓存/计费)│  │ (唯一数据源)     │
               └─────────────────────┘  └──────────────────┘
 ```
+
+**skills_bridge 拆分（2026-08）**：门面再导出全部符号，实现移至
+`bridge_common`（路径/惰性 client）、`llm_prompts`（prompt 常量）、
+`ocr_service`（OCR）、`knowledge_base`（知识点/错因归一）、
+`llm_analysis`（错题提取/因果链）、`question_gen`（题目生成）、
+`llm_plans`（批改/方案/月度）。
+
+**db/ 包拆分（2026-08）**：`db/__init__.py` 门面再导出全部符号（含
+`_now_iso`），实现移至 `core`（连接/schema/迁移/时间，PROJECT_ROOT）、
+`students`、`learning`、`subscriptions`、`operations`、`analytics`、
+`compliance`。依赖单向：core ← operations/subscriptions ← students ←
+learning ← analytics；operations 对 students/learning 的个别引用走
+函数内惰性导入破环。
 
 **设计要点：**
 - **Cycle 状态机**（`domain/cycle.py`）：`(student_id, week_start, kind)` 唯一；kind=diagnostic|weekly；状态线性推进、只进不退、advance 幂等。物理存储于 `weekly_records`（P1 迁移加 kind/stage 列）。
@@ -248,7 +262,7 @@
 - 模板是 `web/templates_*.py` 中的字符串常量（含 Jinja 条件），render_template_string 渲染
 
 ### 迁移
-- schema 变更走 `db.py::_migrate_db`（幂等）；建表语句在 `init_db`
+- schema 变更走 `db/core.py::_migrate_db`（幂等）；建表语句在 `init_db`
 - weekly_records 表结构变更需谨慎：它是 Cycle 状态机本体
 
 ---
