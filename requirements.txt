@@ -5,3 +5,5 @@ Pillow
 json5
 python-dotenv
 xhtml2pdf
+# 以下仅服务器部署需要（Windows 开发可不装）
+gunicorn

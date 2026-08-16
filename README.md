@@ -173,6 +173,8 @@ StepLearn/
 | `LLM_CACHE_ENABLED` | `false` | 开发缓存开关 |
 | `FLASK_SECRET_KEY` | 内置 dev key | 生产环境必须替换 |
 | `WEEKEND_ENGLISH_DB` | `data.db` | SQLite 路径（测试用于指定临时库） |
+| `HTTPS_ENABLED` | `false` | 反代终结 TLS 后置 true（启用 Secure cookie） |
+| `CONSENT_REQUIRED` | `false` | true 时无监护人同意禁止上传（商用开启） |
 
 无任何 API key 时自动进入 demo 模式（返回占位数据，可跑通全流程）。
 
@@ -180,14 +182,16 @@ StepLearn/
 
 ## 数据合规
 
-- **家长授权**：`parent_consents` 记录；未授权学生在合规页与仪表盘提醒。
-- **数据删除**：家长可通过公开页提交删除申请；管理员执行软删除。
+- **家长授权**：`parent_consents` 记录版本号，支持撤回（撤回后视为无同意）。
+- **数据删除**：家长可通过公开页提交删除申请；管理员执行级联硬删
+  （错题/任务/文件/画像等全部清除，支付记录匿名保留供对账）。
 - 所有授权/删除/敏感操作写入 `audit_logs`。
 
 ---
 
 ## 详细文档
 
+- [`DEPLOY.md`](DEPLOY.md)：生产部署（gunicorn 单进程 + systemd + Caddy HTTPS）
 - [`核心链路架构设计.md`](核心链路架构设计.md)：顶层设计、决策记录、P1-P3 实施记录
 - [`功能模块与核心流程梳理.md`](功能模块与核心流程梳理.md)：现状全景梳理
 - [`DEVELOPMENT.md`](DEVELOPMENT.md)：数据模型、API 概览、开发约定
