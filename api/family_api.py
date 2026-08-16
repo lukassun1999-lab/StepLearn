@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import *  # noqa: F401,F403
+from domain.grading import is_answer_correct
 from web.shared import (UPLOAD_DIR, _extract_options, _resolve_file_path,
                         _resolve_student_by_code, admin_required,
                         login_required)
@@ -360,26 +361,43 @@ def api_public_practice_submit(code):
         return jsonify({"error": "question not found"}), 404
 
     correct_answer = (q["correct_answer"] or "").strip()
-    is_correct = student_answer.upper() == correct_answer.upper()
+    # 题型含「多选」→ 字母集合比较（顺序无关）；否则自动识别 A-F 组合
+    multiselect = "多选" in (q["question_type"] or "")
+    is_correct = is_answer_correct(student_answer, correct_answer, multiselect)
 
     # Update mastery via record_practice — but only when the source mistake
     # actually belongs to THIS student. Bank-reused questions may carry a
     # source_mistake_id pointing at another student's mistake; recording
     # against it would corrupt that student's mastery data.
+    #
+    # 防刷（P0-4）：每题每天只计首次提交——答错后接口会返回正确答案，
+    # 若每次提交都计分，马上重交一次即可刷「连续答对」。当日后续提交
+    # 只返回反馈不改掌握度；隔天可再计分（兼容 ≥1 天的间隔复习节奏）。
     source_mistake_id = q["source_mistake_id"]
     if source_mistake_id:
         conn = get_connection()
         owner = conn.execute(
             "SELECT student_id FROM mistakes WHERE id = ?", [source_mistake_id]
         ).fetchone()
-        conn.close()
         if owner and owner["student_id"] == student_id:
-            record_practice(
-                mistake_id=source_mistake_id,
-                user_answer=student_answer,
-                is_correct=is_correct,
-                feedback=q["explanation"] or "",
-            )
+            too_soon = conn.execute("""
+                SELECT 1 FROM practice_records
+                WHERE mistake_id = ? AND created_at > datetime('now', '-30 seconds')
+                LIMIT 1
+            """, [source_mistake_id]).fetchone()
+            counted_today = conn.execute("""
+                SELECT 1 FROM practice_records
+                WHERE mistake_id = ? AND date(created_at) = date('now')
+                LIMIT 1
+            """, [source_mistake_id]).fetchone()
+            if not too_soon and not counted_today:
+                record_practice(
+                    mistake_id=source_mistake_id,
+                    user_answer=student_answer,
+                    is_correct=is_correct,
+                    feedback=q["explanation"] or "",
+                )
+        conn.close()
 
     return jsonify({
         "is_correct": is_correct,

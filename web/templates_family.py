@@ -790,8 +790,7 @@ function mistakeItemHtml(m) {
         ${m.explanation ? `<div style="background:var(--accent-light);border-radius:8px;padding:8px 12px;margin-top:6px;font-size:.85rem;line-height:1.7;">📖 ${escapeHtml(m.explanation)}</div>` : ''}
       </div>
       <div style="margin-top:8px;">
-        <button class="btn btn-green" style="font-size:.8rem;padding:6px 12px;min-height:34px;" onclick="masterMistake(${m.id})">✅ 已掌握</button>
-        <button class="btn btn-primary" style="font-size:.8rem;padding:6px 12px;min-height:34px;margin-left:6px;" onclick="goPractice()">📝 去练习</button>
+        <button class="btn btn-primary" style="font-size:.8rem;padding:6px 12px;min-height:34px;" onclick="goPractice()">📝 去练习</button>
       </div>
     </div>`;
 }
@@ -810,19 +809,6 @@ function toggleMistakeBook(bookDate, el) {
 function goPractice() {
   switchTab('practice', null);
   setTimeout(() => toast('已进入练习——做完即时反馈，连续答对 2 次即掌握'), 500);
-}
-
-async function masterMistake(id) {
-  const r = await fetch('/api/mistakes/' + id + '/master', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({access_code: CODE})
-  });
-  if (r.ok) { toast('已标记掌握'); loadData(); }
-  else {
-    const d = await r.json().catch(() => ({}));
-    toast(d.error || '操作失败');
-  }
 }
 
 async function renderTimeline() {

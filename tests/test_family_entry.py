@@ -86,7 +86,8 @@ def test_parent_diagnose_bootstrap_via_unified_service(client, demo_mode,
 
 
 def test_master_mistake_public_access(client, test_db_path, sample_student):
-    """成长记录'已掌握'：家庭端凭 access_code 公开操作（实测 401 修复）。"""
+    """「已掌握」端点：家庭端 access_code 路径已移除（P0-3 产品决策），
+    掌握度只能通过练习获得；端点现为运营端专用（staff_required）。"""
     import db
     mid = db.add_mistake(
         student_id=sample_student, source_exam="测试", question="q",
@@ -94,15 +95,15 @@ def test_master_mistake_public_access(client, test_db_path, sample_student):
         db_path=test_db_path)
     code = db.get_student(sample_student)["access_code"]
 
-    # 正确 access_code → 200
+    # 正确 access_code 也不再放行 → 401（匿名）
     r = client.post(f"/api/mistakes/{mid}/master", json={"access_code": code})
-    assert r.status_code == 200
-    # 错误 access_code → 403
+    assert r.status_code == 401
+    # 错误 access_code → 401
     r = client.post(f"/api/mistakes/{mid}/master", json={"access_code": "WRONG"})
-    assert r.status_code == 403
+    assert r.status_code == 401
     # 无 access_code 且未登录 → 401
     r = client.post(f"/api/mistakes/{mid}/master", json={})
     assert r.status_code == 401
-    # 错题不存在 → 404
-    r = client.post("/api/mistakes/999999/master", json={"access_code": code})
-    assert r.status_code == 404
+    # 掌握度未被修改
+    m = db.get_mistake(mid, db_path=test_db_path)
+    assert m["consecutive_correct"] == 0
