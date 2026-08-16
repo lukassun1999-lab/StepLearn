@@ -1,9 +1,19 @@
 import os
 import sys
+import tempfile
 
 # Make project root importable
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
+
+# 关键：必须在任何测试模块 import db 之前设置环境变量。
+# pytest 收集阶段会执行各测试文件顶部的 import db —— 那时 fixture 尚未运行，
+# 若此刻未设置 WEEKEND_ENGLISH_DB，db.DB_PATH 会绑定到真实 data.db，
+# 测试期间所有不带显式 db_path 的内部调用将读写生产库（历史踩坑：真实库
+# 曾因此混入上百条"测试学生"）。conftest 的加载先于测试模块收集，在此收口。
+_TEST_DB_PATH = os.path.join(
+    tempfile.mkdtemp(prefix="steplearn_tests_"), "test_data.db")
+os.environ["WEEKEND_ENGLISH_DB"] = _TEST_DB_PATH
 
 import pytest
 from PIL import Image, ImageDraw, ImageFont
@@ -12,11 +22,8 @@ from PIL import Image, ImageDraw, ImageFont
 @pytest.fixture(scope="session")
 def test_db_path(tmp_path_factory):
     """Create a single temporary SQLite database for the whole test session."""
-    db_dir = tmp_path_factory.mktemp("weekend_english_tests")
-    db_path = str(db_dir / "test_data.db")
-    os.environ["WEEKEND_ENGLISH_DB"] = db_path
+    db_path = os.environ["WEEKEND_ENGLISH_DB"]
 
-    # Import db AFTER setting the env var so DB_PATH points to the temp database
     import db
 
     db.init_db(db_path)

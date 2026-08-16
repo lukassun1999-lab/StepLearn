@@ -510,7 +510,7 @@ def api_subscription_get(student_id):
     return jsonify(summary)
 
 @ops_api_bp.route('/api/subscriptions', methods=['POST'])
-@login_required
+@admin_required
 def api_subscription_save():
     data = request.get_json() or {}
     student_id = data.get('student_id')
@@ -520,54 +520,63 @@ def api_subscription_save():
     # Only update plan; status is auto-managed by date
     sub = get_subscription(student_id)
     today = date.today().isoformat()
+    plan = data.get('plan', (sub or {}).get('plan', 'trial'))
+    if plan not in PRICING:
+        return jsonify({"error": f"未知套餐: {plan}"}), 400
     if sub:
-        # Preserve existing dates, update plan, price and quota
-        plan = data.get('plan', sub.get('plan', 'trial'))
-        from db import PRICING
-        price = PRICING.get(plan, {}).get('price', 0)
-        monthly_quota = PRICING.get(plan, {}).get('monthly_quota', 0)
-        reset_month = date.today().strftime("%Y-%m")
+        # Preserve existing dates and usage, update plan/quota
         conn = get_connection()
         conn.execute("""
-            UPDATE subscriptions SET plan = ?, price = ?, monthly_quota = ?, reset_month = ? WHERE student_id = ?
-        """, [plan, price, monthly_quota, reset_month, student_id])
+            UPDATE subscriptions SET plan = ?, price = ?, monthly_quota = ? WHERE student_id = ?
+        """, [plan, PRICING[plan]["price"], PRICING[plan]["monthly_quota"], student_id])
         conn.commit()
         conn.close()
     else:
-        # Create new subscription
-        plan = data.get('plan', 'trial')
-        from db import PRICING
-        price = PRICING.get(plan, {}).get('price', 0)
+        # Create new subscription；付费套餐默认给一个完整周期，trial/unlimited 不设有效期
+        end_date = data.get('end_date')
+        if not end_date:
+            if plan == "monthly":
+                from datetime import timedelta
+                end_date = (date.today() + timedelta(days=30)).isoformat()
+            elif plan == "yearly":
+                from datetime import timedelta
+                end_date = (date.today() + timedelta(days=365)).isoformat()
         save_subscription({
             "student_id": student_id,
             "plan": plan,
             "status": "active",
             "start_date": today,
-            "end_date": None,
-            "price": price,
+            "end_date": end_date,
         })
     return jsonify({"ok": True})
 
 @ops_api_bp.route('/api/payments', methods=['POST'])
-@login_required
+@admin_required
 def api_payment_create():
+    """记录一笔收款并联动套餐：monthly ¥39/月（40 次/月）、yearly ¥399/年（600 次/年）。"""
     data = request.get_json() or {}
     student_id = data.get('student_id')
+    plan = data.get('plan')
     amount = data.get('amount')
-    weeks = data.get('weeks', 1)
     note = data.get('note', '')
 
-    if not student_id or amount is None:
-        return jsonify({"error": "student_id and amount required"}), 400
+    if not student_id:
+        return jsonify({"error": "student_id required"}), 400
+    if plan not in ("monthly", "yearly"):
+        return jsonify({"error": "plan 必须是 monthly 或 yearly"}), 400
+    if amount is None or str(amount).strip() == "":
+        amount = PRICING[plan]["price"]
     try:
         amount = float(amount)
-        weeks = int(weeks)
     except (ValueError, TypeError):
-        return jsonify({"error": "amount and weeks must be numbers"}), 400
-    if amount < 0 or weeks <= 0:
-        return jsonify({"error": "amount must be >= 0 and weeks > 0"}), 400
+        return jsonify({"error": "amount must be a number"}), 400
+    if amount < 0:
+        return jsonify({"error": "amount must be >= 0"}), 400
 
-    payment_id = record_payment(student_id, amount, weeks, note)
+    try:
+        payment_id = record_payment(student_id, plan, amount, note)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     return jsonify({"payment_id": payment_id, "ok": True}), 201
 
 @ops_api_bp.route('/api/payments/<int:student_id>', methods=['GET'])

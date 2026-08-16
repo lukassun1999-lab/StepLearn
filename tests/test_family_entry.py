@@ -44,7 +44,7 @@ def test_public_upload_via_unified_service(client, sample_student, demo_mode,
     body = r.get_json()
     assert body["task_id"] and body["file_ids"]
 
-    # trial 注册即享 99 次/月，首次上传消耗 1 次
+    # trial 注册赠送 3 次一次性额度，首次上传消耗 1 次
     has_quota, remaining = db.check_quota(sample_student, test_db_path)
     assert has_quota is True
     assert remaining == db.PRICING["trial"]["monthly_quota"] - 1
@@ -81,7 +81,7 @@ def test_parent_diagnose_bootstrap_via_unified_service(client, demo_mode,
     }
     r2 = client.post("/api/parent/diagnose", data=data2,
                      content_type="multipart/form-data")
-    # trial 有 99 次/月额度，回访第二次仍成功
+    # trial 有 3 次额度，回访第二次仍成功
     assert r2.status_code == 202
 
 

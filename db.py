@@ -18,36 +18,54 @@ DB_PATH = os.environ.get("WEEKEND_ENGLISH_DB", os.path.join(os.path.dirname(__fi
 # Subscription Pricing
 # ═══════════════════════════════════════════════════
 
+# 计价体系（2026-08 定版）：
+# - trial    3 次，一次性池（不按月重置），不设有效期；
+# - monthly  ¥39/月，40 次/月，自然月重置、当月未用完清零；
+# - yearly   ¥399/年，600 次池，订阅期内有效（不按月清零），续费时换新池；
+# - unlimited 超级账号，不限次数。
+# reset_period 决定 _ensure_quota_reset 是否做月度清零：
+#   "monthly" → 每自然月清零；"none" → 一次性池，由付款/建号时给定。
 PRICING = {
     "trial": {
         "label": "体验",
         "price": 0,
-        "unit": "月",
-        "monthly_quota": 99,
-        "description": "注册即享 99 次/月分析额度",
+        "unit": "次",
+        "monthly_quota": 3,
+        "reset_period": "none",
+        "description": "注册赠送 3 次分析额度（一次性，用完即止）",
     },
-    "basic": {
-        "label": "基础版",
-        "price": 99,
+    "monthly": {
+        "label": "包月",
+        "price": 39,
         "unit": "月",
-        "monthly_quota": 8,
-        "description": "每周 1 套卷完整循环，AI 自动通过",
+        "monthly_quota": 40,
+        "reset_period": "monthly",
+        "description": "¥39/月，每月 40 次，当月未用完月底清零",
     },
-    "premium": {
-        "label": "托管版",
-        "price": 299,
-        "unit": "月",
-        "monthly_quota": 16,
-        "description": "每周 2 套卷完整循环 + AI 即时出结果 + 家长反馈",
+    "yearly": {
+        "label": "包年",
+        "price": 399,
+        "unit": "年",
+        "monthly_quota": 600,
+        "reset_period": "none",
+        "description": "¥399/年，共 600 次，订阅期内有效",
     },
     "unlimited": {
-        "label": "测试无限",
+        "label": "超级账号",
         "price": 0,
         "unit": "月",
         "monthly_quota": 999999,
+        "reset_period": "none",
         "unlimited": True,
-        "description": "测试账号，不限调用次数",
+        "description": "超级账号，不限调用次数",
     },
+}
+
+# 旧套餐名 → 现行套餐名（迁移映射）
+_LEGACY_PLAN_MAP = {
+    "standard": "monthly",
+    "basic": "monthly",
+    "premium": "yearly",
 }
 
 
@@ -95,21 +113,20 @@ def _migrate_db(conn: sqlite3.Connection) -> None:
     if "price" not in sub_col_names:
         conn.execute("ALTER TABLE subscriptions ADD COLUMN price REAL DEFAULT 0")
         conn.commit()
-    # Backfill existing subscriptions with quota and price from PRICING
+    # 套餐体系迁移（2026-08 定版）：standard/basic → monthly，premium → yearly
+    for legacy, current in _LEGACY_PLAN_MAP.items():
+        conn.execute("UPDATE subscriptions SET plan = ? WHERE plan = ?", [current, legacy])
+    # Backfill subscriptions with quota/price from PRICING（PRICING 为配额唯一真相源，
+    # 无条件回填，保证存量行与现行计价一致；used_count 不动）
     for plan, info in PRICING.items():
         conn.execute(
-            "UPDATE subscriptions SET monthly_quota = ? WHERE plan = ? AND (monthly_quota IS NULL OR monthly_quota = 0)",
+            "UPDATE subscriptions SET monthly_quota = ? WHERE plan = ?",
             [info["monthly_quota"], plan],
         )
         conn.execute(
             "UPDATE subscriptions SET price = ? WHERE plan = ? AND (price IS NULL OR price = 0)",
             [info["price"], plan],
         )
-    # Migrate deprecated 'standard' plan to 'basic'
-    conn.execute(
-        "UPDATE subscriptions SET plan = 'basic', monthly_quota = ?, price = ? WHERE plan = 'standard'",
-        [PRICING["basic"]["monthly_quota"], PRICING["basic"]["price"]],
-    )
     # Add student profile related columns to students if missing
     student_cols = conn.execute("PRAGMA table_info(students)").fetchall()
     student_col_names = [c["name"] for c in student_cols]
@@ -4693,7 +4710,7 @@ def get_all_students(db_path: str = DB_PATH) -> List[Dict[str, Any]]:
         ORDER BY s.name
     """).fetchall()
     conn.close()
-    plan_labels = {"trial": "体验", "basic": "基础版", "premium": "托管版"}
+    plan_labels = {p: info["label"] for p, info in PRICING.items()}
     results = []
     for r in rows:
         d = dict(r)
@@ -4743,41 +4760,59 @@ def create_student(data: Dict[str, Any], db_path: str = DB_PATH) -> int:
 
     # Auto-create subscription（按 PRICING 填充额度，避免运行时建号额度为 0）
     plan = data.get("plan", "trial")
-    conn.execute("""
-        INSERT OR REPLACE INTO subscriptions
-            (student_id, plan, monthly_quota, reset_month, start_date, status)
-        VALUES (?, ?, ?, ?, date('now'), 'active')
-    """, [student_id, plan, PRICING.get(plan, {}).get("monthly_quota", 0),
-          date.today().strftime("%Y-%m")])
-    conn.commit()
-    conn.close()
+    if plan not in PRICING:
+        plan = "trial"
+    plan_info = PRICING[plan]
+    # 付费套餐建号即计时；trial/unlimited 为一次性池，不设有效期
+    end_date = None
+    if plan in ("monthly", "yearly"):
+        end_date = (date.today() + timedelta(days=30 if plan == "monthly" else 365)).isoformat()
+    try:
+        conn.execute("""
+            INSERT INTO subscriptions
+                (student_id, plan, monthly_quota, reset_month, start_date, end_date, status)
+            VALUES (?, ?, ?, ?, date('now'), ?, 'active')
+        """, [student_id, plan, plan_info["monthly_quota"],
+              date.today().strftime("%Y-%m"), end_date])
+        conn.commit()
+    finally:
+        conn.close()
     return student_id
 
 
 def update_student(student_id: int, data: Dict[str, Any], db_path: str = DB_PATH) -> bool:
     conn = get_connection(db_path)
-    conn.execute("""
-        UPDATE students SET name=?, grade=?, school_type=?, english_score=?,
-            target_score=?, parent_name=?, parent_wechat=?, parent_phone=?, notes=?
-        WHERE id=?
-    """, [
-        data["name"], data.get("grade"), data.get("school_type"),
-        data.get("english_score"), data.get("target_score"),
-        data.get("parent_name"), data.get("parent_wechat"), data.get("parent_phone"),
-        data.get("notes"), student_id
-    ])
-    plan = data.get("plan")
-    if plan:
+    try:
         conn.execute("""
-            INSERT OR REPLACE INTO subscriptions
-                (student_id, plan, monthly_quota, reset_month, start_date, status)
-            VALUES (?, ?, ?, ?,
-                    COALESCE((SELECT start_date FROM subscriptions WHERE student_id=?), date('now')),
-                    'active')
-        """, [student_id, plan, PRICING.get(plan, {}).get("monthly_quota", 0),
-              date.today().strftime("%Y-%m"), student_id])
-    conn.commit()
-    conn.close()
+            UPDATE students SET name=?, grade=?, school_type=?, english_score=?,
+                target_score=?, parent_name=?, parent_wechat=?, parent_phone=?, notes=?
+            WHERE id=?
+        """, [
+            data["name"], data.get("grade"), data.get("school_type"),
+            data.get("english_score"), data.get("target_score"),
+            data.get("parent_name"), data.get("parent_wechat"), data.get("parent_phone"),
+            data.get("notes"), student_id
+        ])
+        plan = data.get("plan")
+        if plan:
+            if plan not in PRICING:
+                plan = "trial"
+            # UPSERT：只更新套餐与额度，保留 used_count/end_date/price/start_date，
+            # 避免"改套餐 = 清空当月用量/变成永久有效"的老问题
+            conn.execute("""
+                INSERT INTO subscriptions
+                    (student_id, plan, monthly_quota, reset_month, start_date, status)
+                VALUES (?, ?, ?, ?,
+                        COALESCE((SELECT start_date FROM subscriptions WHERE student_id=?), date('now')),
+                        'active')
+                ON CONFLICT(student_id) DO UPDATE SET
+                    plan = excluded.plan,
+                    monthly_quota = excluded.monthly_quota
+            """, [student_id, plan, PRICING[plan]["monthly_quota"],
+                  date.today().strftime("%Y-%m"), student_id])
+        conn.commit()
+    finally:
+        conn.close()
     return True
 
 
@@ -4911,7 +4946,7 @@ def get_dashboard_stats(db_path: str = DB_PATH) -> Dict[str, Any]:
         ORDER BY s.name
     """, [monday]).fetchall()
 
-    plan_labels = {"trial": "体验", "basic": "基础版", "premium": "托管版"}
+    plan_labels = {p: info["label"] for p, info in PRICING.items()}
     pending_this_week = 0
     pending_list = []
 
@@ -5016,78 +5051,94 @@ def get_subscription(student_id: int, db_path: str = DB_PATH) -> Optional[Dict[s
 
 def save_subscription(data: Dict[str, Any], db_path: str = DB_PATH) -> None:
     conn = get_connection(db_path)
-    plan = data["plan"]
-    price = data.get("price", PRICING.get(plan, {}).get("price", 0))
-    monthly_quota = PRICING.get(plan, {}).get("monthly_quota", 0)
-    reset_month = data.get("reset_month") or date.today().strftime("%Y-%m")
-    conn.execute("""
-        INSERT OR REPLACE INTO subscriptions
-        (student_id, plan, price, monthly_quota, reset_month, status, start_date, end_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, [data["student_id"], plan, price, monthly_quota, reset_month,
-          data["status"], data["start_date"], data.get("end_date")])
-    conn.commit()
-    conn.close()
+    try:
+        plan = data["plan"]
+        if plan not in PRICING:
+            plan = "trial"
+        price = data.get("price", PRICING[plan]["price"])
+        monthly_quota = PRICING[plan]["monthly_quota"]
+        reset_month = data.get("reset_month") or date.today().strftime("%Y-%m")
+        # UPSERT：保留 used_count / start_date / reset_month，只改套餐相关字段
+        conn.execute("""
+            INSERT INTO subscriptions
+                (student_id, plan, price, monthly_quota, reset_month, status, start_date, end_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(student_id) DO UPDATE SET
+                plan = excluded.plan,
+                price = excluded.price,
+                monthly_quota = excluded.monthly_quota,
+                status = excluded.status,
+                end_date = excluded.end_date
+        """, [data["student_id"], plan, price, monthly_quota, reset_month,
+              data["status"], data["start_date"], data.get("end_date")])
+        conn.commit()
+    finally:
+        conn.close()
 
 
-def record_payment(student_id: int, amount: float, weeks: int = 1, note: str = "",
-                   db_path: str = DB_PATH) -> int:
-    """Record an offline payment and extend subscription end_date.
+def record_payment(student_id: int, plan: str, amount: Optional[float] = None,
+                   note: str = "", db_path: str = DB_PATH) -> int:
+    """记录一笔线下收款，并联动订阅升级/续期。
 
-    Note: in the current monthly subscription model, the `weeks` parameter
-    is interpreted as "months" (30 days each) for backward compatibility
-    with the existing payments.weeks column.
+    - monthly（¥39/月，40 次/月）：有效期 +30 天；套餐变更时清零当月计数，
+      同套餐续费不动 used_count（自然月重置自会清零）；
+    - yearly（¥399/年，600 次池）：有效期 +365 天，换新 600 次池（清零计数）；
+    - payments.weeks 列按"月数"存储（monthly=1，yearly=12）以兼容展示。
 
+    amount 缺省取 PRICING 标准价；允许运营录入折后价（只入账，不影响权益）。
     Returns the payment id.
     """
+    if plan not in ("monthly", "yearly"):
+        raise ValueError(f"收款套餐必须是 monthly/yearly，收到: {plan}")
+    info = PRICING[plan]
+    if amount is None:
+        amount = float(info["price"])
+    amount = float(amount)
+    days = 30 if plan == "monthly" else 365
+    months = 1 if plan == "monthly" else 12
+
     conn = get_connection(db_path)
     try:
-        # Insert payment record
         cur = conn.execute("""
             INSERT INTO payments (student_id, amount, weeks, note)
             VALUES (?, ?, ?, ?)
-        """, [student_id, amount, weeks, note])
+        """, [student_id, amount, months, note])
         payment_id = cur.lastrowid
 
-        # Get or create subscription
         sub_row = conn.execute(
             "SELECT * FROM subscriptions WHERE student_id = ?", [student_id]
         ).fetchone()
 
         today = date.today()
-        # `weeks` is treated as months (30 days)
-        months = weeks
+        new_end = today + timedelta(days=days)
         if sub_row:
-            plan = sub_row["plan"]
-            price = PRICING.get(plan, {}).get("price", 0)
-            monthly_quota = PRICING.get(plan, {}).get("monthly_quota", 0)
+            current_plan = sub_row["plan"]
             current_end_str = sub_row["end_date"]
             if current_end_str:
                 try:
                     current_end = date.fromisoformat(current_end_str)
-                    # If already expired, extend from today
-                    start_from = max(current_end, today)
+                    # 未过期则在原有效期基础上顺延
+                    new_end = max(current_end, today) + timedelta(days=days)
                 except (ValueError, TypeError):
-                    start_from = today
-            else:
-                start_from = today
-            new_end = start_from + timedelta(days=30 * months)
-            new_status = "active" if new_end >= today else "expired"
+                    pass
+            # 换新池的条件：套餐变更，或包年续费（600 次池以付款为重置点）
+            reset_pool = (current_plan != plan) or (plan == "yearly")
             conn.execute("""
                 UPDATE subscriptions
-                SET end_date = ?, status = ?, price = ?, monthly_quota = ?
+                SET plan = ?, price = ?, monthly_quota = ?, end_date = ?, status = 'active'
+                    , used_count = CASE WHEN ? THEN 0 ELSE used_count END
+                    , reset_month = ?
                 WHERE student_id = ?
-            """, [new_end.isoformat(), new_status, price, monthly_quota, student_id])
+            """, [plan, amount, info["monthly_quota"], new_end.isoformat(),
+                  1 if reset_pool else 0, today.strftime("%Y-%m"), student_id])
         else:
-            # Create a default subscription
-            plan = "trial"
-            price = 0
-            monthly_quota = PRICING.get(plan, {}).get("monthly_quota", 0)
-            new_end = today + timedelta(days=30 * months)
             conn.execute("""
-                INSERT INTO subscriptions (student_id, plan, price, monthly_quota, status, start_date, end_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, [student_id, plan, price, monthly_quota, "active", today.isoformat(), new_end.isoformat()])
+                INSERT INTO subscriptions
+                    (student_id, plan, price, monthly_quota, used_count, reset_month,
+                     status, start_date, end_date)
+                VALUES (?, ?, ?, ?, 0, ?, 'active', ?, ?)
+            """, [student_id, plan, amount, info["monthly_quota"],
+                  today.strftime("%Y-%m"), today.isoformat(), new_end.isoformat()])
 
         conn.commit()
         return payment_id
@@ -5139,14 +5190,17 @@ def get_subscription_summary(student_id: int, db_path: str = DB_PATH) -> Dict[st
     payments = get_payments(student_id, db_path)
     total_paid = sum(p.get("amount", 0) or 0 for p in payments)
 
-    # Monthly quota info
+    # Monthly quota info（trial/yearly 为一次性池，不随自然月清零）
     monthly_quota = sub.get("monthly_quota") or plan_info.get("monthly_quota", 0)
     used_count = sub.get("used_count") or 0
     reset_month = sub.get("reset_month") or date.today().strftime("%Y-%m")
     current_month = date.today().strftime("%Y-%m")
-    if reset_month != current_month:
+    is_unlimited = bool(plan_info.get("unlimited"))
+    if (not is_unlimited
+            and plan_info.get("reset_period") == "monthly"
+            and reset_month != current_month):
         used_count = 0
-    remaining_quota = max(0, monthly_quota - used_count)
+    remaining_quota = 999999 if is_unlimited else max(0, monthly_quota - used_count)
 
     return {
         "student_id": student_id,
@@ -5168,7 +5222,12 @@ def get_subscription_summary(student_id: int, db_path: str = DB_PATH) -> Dict[st
 
 
 def _ensure_quota_reset(conn: sqlite3.Connection, sub: Dict[str, Any]) -> Dict[str, Any]:
-    """Reset used_count if we've rolled into a new month."""
+    """按套餐重置语义刷新 used_count。
+
+    - monthly（包月）：自然月切换时清零（当月未用完作废）；
+    - trial / yearly / unlimited：一次性池，不按月清零
+      （trial 3 次用完即止；yearly 600 次池在续费时由 record_payment 换新）。
+    """
     reset_month = sub.get("reset_month") or date.today().strftime("%Y-%m")
     current_month = date.today().strftime("%Y-%m")
     monthly_quota = sub.get("monthly_quota") or 0
@@ -5183,7 +5242,9 @@ def _ensure_quota_reset(conn: sqlite3.Connection, sub: Dict[str, Any]) -> Dict[s
             )
             conn.commit()
     used_count = sub.get("used_count") or 0
-    if reset_month != current_month:
+    plan = sub.get("plan", "")
+    resets_monthly = PRICING.get(plan, {}).get("reset_period") == "monthly"
+    if resets_monthly and reset_month != current_month:
         used_count = 0
         reset_month = current_month
         conn.execute(
@@ -5223,7 +5284,11 @@ def check_quota(student_id: int, db_path: str = DB_PATH) -> Tuple[bool, int]:
 
 
 def consume_quota(student_id: int, db_path: str = DB_PATH) -> bool:
-    """Consume one analysis quota. Returns True if successful."""
+    """Consume one analysis quota. Returns True if successful.
+
+    扣减用单条条件 UPDATE + rowcount 判定，保证并发下不超卖
+    （与 refund_quota 的写法对称）。
+    """
     conn = get_connection(db_path)
     try:
         row = conn.execute(
@@ -5232,18 +5297,17 @@ def consume_quota(student_id: int, db_path: str = DB_PATH) -> bool:
         if not row:
             return False
         sub = dict(row)
-        _ensure_quota_reset(conn, sub)
-        # 测试无限套餐：不计数、不限制
+        # 超级账号：不计数、不限制
         if PRICING.get(sub["plan"], {}).get("unlimited"):
             return True
-        if sub["used_count"] >= sub["monthly_quota"]:
-            return False
-        conn.execute(
-            "UPDATE subscriptions SET used_count = used_count + 1 WHERE student_id = ?",
+        _ensure_quota_reset(conn, sub)
+        cur = conn.execute(
+            "UPDATE subscriptions SET used_count = used_count + 1 "
+            "WHERE student_id = ? AND used_count < monthly_quota",
             [student_id],
         )
         conn.commit()
-        return True
+        return cur.rowcount > 0
     finally:
         conn.close()
 

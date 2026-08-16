@@ -264,7 +264,7 @@ def test_quota_gate(test_db_path):
     ok, err = quota.charge_analysis(sid_none, db_path=test_db_path)
     assert ok is False and "订阅" in err
 
-    # trial：注册即享 99 次/月额度，前 99 次成功、第 100 次拒绝
+    # trial：注册赠送 3 次一次性额度，前 3 次成功、第 4 次拒绝
     sid_trial = db.create_student({"name": "体验", "grade": "高二", "plan": "trial"})
     trial_quota = db.PRICING["trial"]["monthly_quota"]
     for _ in range(trial_quota):

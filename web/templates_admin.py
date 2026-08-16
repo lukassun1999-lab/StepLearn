@@ -48,6 +48,9 @@ td { padding:10px 14px; border-bottom:1px solid var(--border); font-size:.85rem;
 tr:last-child td { border-bottom:none; }
 .badge { display:inline-block; padding:3px 10px; border-radius:100px; font-size:.75rem; font-weight:600; }
 .badge-trial { background:var(--blue-light); color:var(--blue); }
+.badge-monthly { background:var(--green-light); color:var(--green); }
+.badge-yearly { background:var(--accent-light); color:var(--accent); }
+.badge-unlimited { background:#2a2438; color:#ffd700; }
 .badge-active { background:var(--green-light); color:var(--green); }
 .badge-expired { background:var(--red-light); color:var(--red); }
 .badge-paused { background:var(--bg-alt); color:var(--sub); }
@@ -224,9 +227,9 @@ tr:last-child td { border-bottom:none; }
   <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
     <select id="filter-plan" onchange="loadStudents()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);font-size:.85em;background:#fff;">
       <option value="">全部套餐</option>
-      <option value="trial">体验</option>
-      <option value="basic">基础版</option>
-      <option value="premium">托管版</option><option value="unlimited">测试无限</option>
+      <option value="trial">体验（3次）</option>
+      <option value="monthly">包月</option>
+      <option value="yearly">包年</option><option value="unlimited">超级账号</option>
     </select>
     <select id="filter-status" onchange="loadStudents()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);font-size:.85em;background:#fff;">
       <option value="">全部状态</option>
@@ -267,7 +270,7 @@ tr:last-child td { border-bottom:none; }
       <div class="form-group"><label>目标分数</label><input id="onb-target" type="number" step="0.5"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>套餐</label><select id="onb-plan"><option value="trial" selected>体验（免费）</option><option value="basic">基础版 ¥99/月</option><option value="premium">托管版 ¥299/月</option><option value="unlimited">测试无限</option></select></div>
+      <div class="form-group"><label>套餐</label><select id="onb-plan"><option value="trial" selected>体验（免费·3次）</option><option value="monthly">包月 ¥39/月</option><option value="yearly">包年 ¥399/年</option><option value="unlimited">超级账号（不限次）</option></select></div>
       <div class="form-group"><label>家长电话</label><input id="onb-parent-phone"></div>
     </div>
     <div class="form-group" style="display:flex;align-items:center;gap:8px;">
@@ -867,9 +870,9 @@ tr:last-child td { border-bottom:none; }
     <div class="form-row">
       <div class="form-group"><label>套餐</label>
         <select id="sub-plan" onchange="updateSubPrice()">
-          <option value="trial">体验（免费）</option>
-          <option value="basic">基础版 ¥99/月</option>
-          <option value="premium">托管版 ¥299/月</option><option value="unlimited">测试无限</option>
+          <option value="trial">体验（免费·3次）</option>
+          <option value="monthly">包月 ¥39/月（40次/月，月底清零）</option>
+          <option value="yearly">包年 ¥399/年（600次/年）</option><option value="unlimited">超级账号（不限次）</option>
         </select>
       </div>
       <div class="form-group"><label>当前状态</label><input id="sub-status" readonly style="background:#f5f2ec;"></div>
@@ -893,15 +896,20 @@ tr:last-child td { border-bottom:none; }
 
     <h4 style="margin-bottom:12px;">收款记录</h4>
     <div class="form-row">
+      <div class="form-group"><label>收款套餐</label>
+        <select id="pay-plan" onchange="updatePayAmount()">
+          <option value="monthly">包月 ¥39/月</option>
+          <option value="yearly">包年 ¥399/年</option>
+        </select>
+      </div>
       <div class="form-group"><label>收款金额（元）</label><input id="pay-amount" type="number" step="0.01" placeholder="0.00"></div>
-      <div class="form-group"><label>购买月数</label><input id="pay-weeks" type="number" min="1" value="1"></div>
     </div>
     <div class="form-group"><label>备注</label><input id="pay-note" placeholder="如：微信转账、现金"></div>
     <button class="btn btn-green" style="width:100%;" onclick="recordPayment()">💰 记录收款并续费</button>
 
     <h4 style="margin:20px 0 8px;">历史记录</h4>
     <table id="payments-table" style="font-size:.85em;">
-      <thead><tr><th>日期</th><th>金额</th><th>月数</th><th>备注</th></tr></thead>
+      <thead><tr><th>日期</th><th>金额</th><th>套餐</th><th>备注</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
@@ -975,7 +983,7 @@ tr:last-child td { border-bottom:none; }
       </div>
       <div class="form-row">
         <div class="form-group"><label>住校/走读</label><select id="f-school-type"><option selected>住校</option><option>走读</option></select></div>
-        <div class="form-group"><label>套餐</label><select id="f-plan"><option value="trial">体验</option><option value="basic">基础版</option><option value="premium">托管版</option><option value="unlimited">测试无限</option></select></div>
+        <div class="form-group"><label>套餐</label><select id="f-plan"><option value="trial">体验（3次）</option><option value="monthly">包月</option><option value="yearly">包年</option><option value="unlimited">超级账号</option></select></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>英语成绩</label><input id="f-english-score" type="number" step="0.5"></div>
@@ -2236,10 +2244,12 @@ async function manageSub(studentId, name) {
   document.getElementById('sub-status').value = data.status_label || '有效';
   document.getElementById('sub-end-date').value = data.end_date || '';
   document.getElementById('sub-total-paid').value = '¥' + (data.total_paid || 0).toFixed(2);
-  document.getElementById('sub-quota').value = (data.monthly_quota || 0) + ' 次';
-  document.getElementById('sub-used').value = (data.used_count || 0) + ' 次（剩余 ' + (data.remaining_quota || 0) + ' 次）';
+  const isUnlimited = data.plan === 'unlimited';
+  document.getElementById('sub-quota').value = isUnlimited ? '不限次数' : (data.monthly_quota || 0) + ' 次';
+  document.getElementById('sub-used').value = isUnlimited ? '超级账号'
+    : (data.used_count || 0) + ' 次（剩余 ' + (data.remaining_quota || 0) + ' 次）';
+  document.getElementById('pay-plan').value = 'monthly';
   document.getElementById('pay-amount').value = '';
-  document.getElementById('pay-weeks').value = '1';
   document.getElementById('pay-note').value = '';
 
   // Render payments
@@ -2247,10 +2257,11 @@ async function manageSub(studentId, name) {
   ptbody.innerHTML = '';
   if (data.payments && data.payments.length > 0) {
     data.payments.forEach(p => {
+      const planLabel = (p.weeks || 1) >= 12 ? '包年' : '包月';
       ptbody.innerHTML += `<tr>
         <td>${fmtDate(p.paid_at)}</td>
         <td>¥${(p.amount||0).toFixed(2)}</td>
-        <td>${(p.weeks||1)} 月</td>
+        <td>${planLabel}</td>
         <td>${p.note||'-'}</td>
       </tr>`;
     });
@@ -2262,8 +2273,12 @@ async function manageSub(studentId, name) {
 }
 function closeSubModal() { document.getElementById('sub-modal').classList.remove('show'); }
 function updateSubPrice() {
-  const prices = {trial:0, basic:99, premium:299};
-  // Reserved for future auto-fill of renewal amount
+  // Reserved for future auto-fill
+}
+function updatePayAmount() {
+  const prices = {monthly: 39, yearly: 399};
+  const plan = document.getElementById('pay-plan').value;
+  document.getElementById('pay-amount').value = prices[plan] || '';
 }
 async function saveSubPlan() {
   const studentId = document.getElementById('sub-student-id').value;
@@ -2278,18 +2293,17 @@ async function saveSubPlan() {
 }
 async function recordPayment() {
   const studentId = document.getElementById('sub-student-id').value;
+  const plan = document.getElementById('pay-plan').value;
   const amount = parseFloat(document.getElementById('pay-amount').value);
-  const weeks = parseInt(document.getElementById('pay-weeks').value);
   const note = document.getElementById('pay-note').value;
   if (!amount || amount <= 0) return toast('请输入收款金额', 'error');
-  if (!weeks || weeks <= 0) return toast('购买月数必须大于0', 'error');
 
   const r = await fetch('/api/payments', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({student_id: parseInt(studentId), amount, weeks, note})
+    body: JSON.stringify({student_id: parseInt(studentId), plan, amount, note})
   });
   if (r.ok) {
-    toast('收款已记录，有效期已延长');
+    toast(plan === 'yearly' ? '收款已记录，包年套餐已生效（600 次额度）' : '收款已记录，包月套餐已生效');
     manageSub(studentId, document.getElementById('sub-modal-title').textContent.replace(' 的订阅管理',''));
     loadStudents();
   } else {

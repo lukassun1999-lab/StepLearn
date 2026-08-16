@@ -28,9 +28,16 @@ def charge_analysis(student_id: int, is_staff: bool = False,
         return True, None
     has_quota, remaining = db.check_quota(student_id, db_path)
     if not has_quota:
-        plan_label = db.PRICING.get(sub.get("plan", "trial"), {}).get("label", "体验")
+        plan = sub.get("plan", "trial")
+        plan_label = db.PRICING.get(plan, {}).get("label", "体验")
+        if plan == "trial":
+            return False, (f"体验额度（{db.PRICING['trial']['monthly_quota']} 次）已用完，"
+                           f"升级包月/包年后继续使用")
+        if plan == "yearly":
+            return False, (f"包年额度（{db.PRICING['yearly']['monthly_quota']} 次）已用完，"
+                           f"续费后获得新的年度额度")
         return False, (f"本月 {plan_label} 额度已用完（剩余 {remaining} 次），"
-                       f"请续费或升级套餐")
+                       f"请续费后继续使用")
     if not db.consume_quota(student_id, db_path):
         return False, "额度扣减失败，请刷新后重试"
     return True, None

@@ -207,6 +207,36 @@ def _cli_clear_students():
     print("[OK] 保留: 管理员/教师账号、学校、班级数据")
 
 
+def _cli_set_super():
+    """Set a student as the unlimited super account:
+    python app.py set-super <access_code>"""
+    if len(sys.argv) < 3:
+        print("用法: python app.py set-super <access_code>")
+        return
+    init_db()
+    code = sys.argv[2]
+    conn = get_connection()
+    student = conn.execute(
+        "SELECT s.id AS id, s.name AS name, sub.plan AS plan "
+        "FROM students s LEFT JOIN subscriptions sub "
+        "ON sub.student_id = s.id WHERE s.access_code = ? OR s.parent_access_code = ?",
+        [code, code]).fetchone()
+    if not student:
+        conn.close()
+        print(f"错误: 未找到 access_code 为 '{code}' 的学生（学生码/家长码均可）")
+        return
+    conn.execute("""
+        INSERT INTO subscriptions (student_id, plan, monthly_quota, start_date, status)
+        VALUES (?, 'unlimited', 999999, date('now'), 'active')
+        ON CONFLICT(student_id) DO UPDATE SET
+            plan = 'unlimited', monthly_quota = 999999, status = 'active',
+            end_date = NULL
+    """, [student["id"]])
+    conn.commit()
+    conn.close()
+    print(f"[OK] 已将 '{student['name']}' (ID: {student['id']}) 设为超级账号（不限次数）")
+
+
 # ═══════════════════════════════════════════════════
 # Main
 # ═══════════════════════════════════════════════════
@@ -220,6 +250,9 @@ if __name__ == '__main__':
         sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == 'reset-password':
         _cli_reset_password()
+        sys.exit(0)
+    if len(sys.argv) > 1 and sys.argv[1] == 'set-super':
+        _cli_set_super()
         sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == 'clear-students':
         _cli_clear_students()
