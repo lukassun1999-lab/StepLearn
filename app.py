@@ -35,6 +35,14 @@ from b_end.routes import b_end_bp  # P3-15：B 端封存层（feature flag 守�
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key-change-in-prod")
+# 会话 cookie 加固 + 上传总量限制（单文件限制见 web.shared._validate_upload）
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    MAX_CONTENT_LENGTH=200 * 1024 * 1024,  # 15 张 × ~13MB 余量
+)
+if os.environ.get("HTTPS_ENABLED") == "true":
+    app.config["SESSION_COOKIE_SECURE"] = True
 
 # 注册蓝图（路由路径与拆分前完全一致）
 app.register_blueprint(pages_bp)

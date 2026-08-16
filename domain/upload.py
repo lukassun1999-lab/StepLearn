@@ -33,23 +33,35 @@ class UploadError(Exception):
 def save_files(student_id, files, file_type: str = "test_paper",
                uploader_role: str = "parent", week_start: str = None,
                db_path: str = None):
-    """保存上传文件集并登记 files 表。返回 file_ids（跳过空文件）。"""
+    """保存上传文件集并登记 files 表。返回 file_ids（跳过空文件）。
+
+    安全校验：扩展名白名单 + 单文件 20MB 上限（试卷照片/答题卡）。
+    """
+    from web.shared import _sanitize_file_type, _validate_upload
     db_path = db_path or db.DB_PATH
     week_start = week_start or db.get_week_start()
+    file_type = _sanitize_file_type(file_type)
     file_ids = []
     for f in files:
         if not f or not getattr(f, "filename", None):
             continue
+        err = _validate_upload(f)
+        if err:
+            raise UploadError(err, 400)
         ext = os.path.splitext(f.filename)[1].lower() or ".jpg"
         filename = f"{uuid.uuid4().hex}{ext}"
         save_dir = os.path.join(UPLOAD_DIR, str(student_id), file_type)
         os.makedirs(save_dir, exist_ok=True)
-        f.save(os.path.join(save_dir, filename))
+        filepath = os.path.join(save_dir, filename)
+        f.save(filepath)
+        if os.path.getsize(filepath) > 20 * 1024 * 1024:
+            os.remove(filepath)
+            raise UploadError("文件超过 20MB 限制", 400)
         fid = db.add_file(
             student_id=student_id, uploader_role=uploader_role,
             file_type=file_type, filename=filename,
             original_filename=f.filename, week_start=week_start,
-            file_size=os.path.getsize(os.path.join(save_dir, filename)),
+            file_size=os.path.getsize(filepath),
             mime_type=getattr(f, "content_type", None) or "image/jpeg",
             db_path=db_path,
         )

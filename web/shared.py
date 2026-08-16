@@ -5,6 +5,7 @@
 import functools
 import os
 import uuid
+from typing import Optional
 
 from flask import jsonify, redirect, request, session
 
@@ -35,6 +36,25 @@ def login_required(f):
             if request.path.startswith("/api/"):
                 return jsonify({"error": "unauthorized", "login_url": "/login"}), 401
             return redirect("/login")
+        return f(*args, **kwargs)
+    return wrapper
+
+def staff_required(f):
+    """Decorator: require an ops account (admin or teacher).
+
+    学生登录态同样持有 session['user_id']，login_required 拦不住；
+    运营端接口一律用本装饰器（或更严格的 admin_required）。
+    """
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        if "user_id" not in session:
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "unauthorized", "login_url": "/login"}), 401
+            return redirect("/login")
+        if session.get("user_role") not in ("admin", "teacher"):
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "forbidden", "message": "需要运营账号权限"}), 403
+            return "<h2>需要运营账号权限</h2>", 403
         return f(*args, **kwargs)
     return wrapper
 
@@ -100,14 +120,51 @@ def _resolve_file_path(f):
             return p
     return None
 
+# 上传白名单：扩展名（试卷照片/答题卡，OCR 流水线按图片处理）
+ALLOWED_UPLOAD_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.heic', '.bmp', '.gif', '.pdf'}
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 单文件 20MB
+# file_type 兼作目录名，只允许小写字母/下划线（防路径穿越）
+_ALLOWED_FILE_TYPES = {'test_paper', 'answer_sheet', 'exercise', 'report',
+                       'poster', 'other'}
+
+
+def _sanitize_file_type(file_type: str) -> str:
+    ft = (file_type or 'other').strip().lower()
+    if ft in _ALLOWED_FILE_TYPES:
+        return ft
+    import re
+    if re.fullmatch(r'[a-z_]{1,32}', ft):
+        return ft
+    return 'other'
+
+
+def _validate_upload(file) -> Optional[str]:
+    """返回错误信息（str）或 None（通过）。"""
+    if not file or not file.filename:
+        return "缺少文件"
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext and ext not in ALLOWED_UPLOAD_EXTS:
+        return f"不支持的文件类型: {ext}（仅支持图片/PDF）"
+    # 读取前先看 content_length（若提供）；否则读流校验大小
+    if file.content_length and file.content_length > MAX_UPLOAD_BYTES:
+        return "文件超过 20MB 限制"
+    return None
+
+
 def _save_uploaded_file(file, student_id: int, file_type: str, uploader_role: str) -> int:
     """Save a single uploaded file and return its file_id."""
-    ext = os.path.splitext(file.filename)[1] or '.jpg'
+    err = _validate_upload(file)
+    if err:
+        raise ValueError(err)
+    ext = os.path.splitext(file.filename)[1].lower() or '.jpg'
     stored_name = f"{uuid.uuid4().hex}{ext}"
-    student_dir = os.path.join(UPLOAD_DIR, str(student_id), file_type)
+    student_dir = os.path.join(UPLOAD_DIR, str(student_id), _sanitize_file_type(file_type))
     os.makedirs(student_dir, exist_ok=True)
     filepath = os.path.join(student_dir, stored_name)
     file.save(filepath)
+    if os.path.getsize(filepath) > MAX_UPLOAD_BYTES:
+        os.remove(filepath)
+        raise ValueError("文件超过 20MB 限制")
     return add_file(
         student_id=student_id, uploader_role=uploader_role,
         file_type=file_type, filename=stored_name,

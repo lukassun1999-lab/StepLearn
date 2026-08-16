@@ -225,6 +225,13 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 </div>
 
 <script>
+// XSS 转义：LLM/OCR 生成内容与用户输入入 innerHTML 前必须转义（块2 已有同名定义，此处兜底）
+function escapeHtml(s) {
+  s = (s === null || s === undefined) ? '' : String(s);
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
 const CODE = '{{code}}';
 let STUDENT_ID = null;
 
@@ -370,7 +377,7 @@ async function generatePoster() {
   if (!r.ok) { toast('海报生成失败'); return; }
   const d = await r.json();
   // 内嵌预览（srcdoc 直接渲染海报 HTML，无需登录态/下载头）
-  document.getElementById('poster-frame').srcdoc = d.html || '';
+  const pf = document.getElementById('poster-frame'); pf.setAttribute('sandbox','allow-same-origin'); pf.srcdoc = d.html || '';
   document.getElementById('poster-link').innerHTML = `
     <a href="/api/public/${CODE}/files/${d.file_id}/download" target="_blank" class="btn btn-outline" style="text-decoration:none;">↗ 打开完整海报</a>
   `;
@@ -469,12 +476,12 @@ function renderPracticeQuestion() {
     return;
   }
   const q = practiceQuestions[practiceIndex];
-  const kpTag = (q.knowledge_points||[]).map(k=>`<span class="badge badge-blue" style="margin-right:4px;">${k}</span>`).join('');
+  const kpTag = (q.knowledge_points||[]).map(k=>`<span class="badge badge-blue" style="margin-right:4px;">${escapeHtml(k)}</span>`).join('');
   // 阅读类：随题展示短文原文（学生可依据短文答题）
   const passageHtml = q.passage ? `
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px;white-space:pre-wrap;line-height:1.9;font-size:.95rem;">
       <div style="font-size:.75rem;color:var(--sub);margin-bottom:6px;font-weight:600;">📄 阅读短文</div>
-      ${q.passage}
+      ${escapeHtml(q.passage)}
     </div>` : '';
   const OPTION_TYPES = ['单项选择','多项选择','选择题','完形填空'];
   const isOptionType = OPTION_TYPES.includes(q.question_type);
@@ -488,7 +495,7 @@ function renderPracticeQuestion() {
   } else if (isOptionType) {
     optionsHtml = opts.map(o=>`
       <label class="practice-opt" data-key="${o.key}" onclick="selectOption(this,'${o.key}')" style="display:block;padding:14px 18px;margin:8px 0;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;transition:all .15s;font-size:1rem;line-height:1.6;">
-        <strong>${o.key}.</strong> ${o.text}
+        <strong>${escapeHtml(o.key)}.</strong> ${escapeHtml(o.text)}
       </label>`).join('');
   } else {
     optionsHtml = `<input type="text" id="practice-text-answer" placeholder="输入你的答案" oninput="document.getElementById('practice-submit-btn').disabled = this.value.trim()===''" style="width:100%;padding:12px 16px;border:1.5px solid var(--border);border-radius:10px;font-size:1rem;margin:10px 0;">`;
@@ -498,11 +505,11 @@ function renderPracticeQuestion() {
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
         <span class="badge badge-green">第 ${practiceIndex+1}/${practiceQuestions.length} 题</span>
-        <span style="font-size:.85em;color:var(--sub);">${q.question_type}</span>
+        <span style="font-size:.85em;color:var(--sub);">${escapeHtml(q.question_type)}</span>
       </div>
       <div style="margin-bottom:10px;">${kpTag}</div>
       ${passageHtml}
-      <div style="font-weight:600;margin-bottom:16px;line-height:1.8;font-size:1.02rem;white-space:pre-wrap;">${q.question_text.replace(/[A-D]\.\s*.+?(?=\s*[A-D]\.|$)/g,'').trim()}</div>
+      <div style="font-weight:600;margin-bottom:16px;line-height:1.8;font-size:1.02rem;white-space:pre-wrap;">${escapeHtml(q.question_text.replace(/[A-D]\.\s*.+?(?=\s*[A-D]\.|$)/g,'').trim())}</div>
       <div id="practice-options">${optionsHtml}</div>
       <button class="btn btn-primary" style="width:100%;margin-top:16px;" id="practice-submit-btn" onclick="${submitAction}" ${isOptionType && opts.length === 0 ? '' : 'disabled'}>${submitLabel}</button>
       <div id="practice-feedback" style="display:none;margin-top:16px;"></div>
@@ -548,7 +555,7 @@ async function submitPracticeAnswer() {
       practiceCorrect++;
       fbDiv.innerHTML = `<div style="padding:16px;background:var(--green-light);border-radius:10px;border-left:4px solid var(--green);">
         <div style="font-weight:700;color:var(--green);margin-bottom:6px;font-size:1.05rem;">✅ 正确！</div>
-        <div style="font-size:.95rem;color:var(--sub);line-height:1.7;">${fb.explanation||''}</div>
+        <div style="font-size:.95rem;color:var(--sub);line-height:1.7;">${escapeHtml(fb.explanation||'')}</div>
       </div>`;
       // Highlight correct option
       document.querySelectorAll('.practice-opt').forEach(o=>{
@@ -557,8 +564,8 @@ async function submitPracticeAnswer() {
     } else {
       fbDiv.innerHTML = `<div style="padding:16px;background:var(--red-light);border-radius:10px;border-left:4px solid var(--red);">
         <div style="font-weight:700;color:var(--red);margin-bottom:6px;font-size:1.05rem;">❌ 不对哦</div>
-        <div style="font-size:.95rem;margin-bottom:6px;"><strong>正确答案：${fb.correct_answer}</strong></div>
-        <div style="font-size:.95rem;color:var(--sub);line-height:1.7;">${fb.explanation||''}</div>
+        <div style="font-size:.95rem;margin-bottom:6px;"><strong>正确答案：${escapeHtml(fb.correct_answer)}</strong></div>
+        <div style="font-size:.95rem;color:var(--sub);line-height:1.7;">${escapeHtml(fb.explanation||'')}</div>
       </div>`;
       document.querySelectorAll('.practice-opt').forEach(o=>{
         if(o.dataset.key===answer){o.style.borderColor='var(--red)';o.style.background='var(--red-light)';}
@@ -762,7 +769,7 @@ function renderMistakes(d) {
 // 单个错题卡片：题目 + 学生作答 + 正确答案 + 解析（原封不动展示）
 function mistakeItemHtml(m) {
   const st = mistakeStatus(m);
-  const qtype = m.question_type ? `<span class="badge" style="background:var(--bg);color:var(--sub);">${m.question_type}</span>` : '';
+  const qtype = m.question_type ? `<span class="badge" style="background:var(--bg);color:var(--sub);">${escapeHtml(m.question_type)}</span>` : '';
   return `
     <div class="mistake-item" style="border-left:3px solid ${st.color};padding-left:12px;margin:12px 0;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
@@ -770,17 +777,17 @@ function mistakeItemHtml(m) {
         <span class="badge" style="background:${st.bg};color:${st.color};">${st.label}</span>
         ${qtype}
       </div>
-      <div style="font-weight:600;line-height:1.7;white-space:pre-wrap;">${m.question || '（题目未记录）'}</div>
+      <div style="font-weight:600;line-height:1.7;white-space:pre-wrap;">${escapeHtml(m.question || '（题目未记录）')}</div>
       <div style="margin-top:8px;">
         <div style="background:var(--red-light);border-radius:8px;padding:8px 12px;margin-bottom:6px;">
           <span style="font-size:.72rem;color:var(--red);font-weight:600;">✗ 你的作答：</span>
-          <span style="font-size:.9rem;">${m.user_answer || '（未作答）'}</span>
+          <span style="font-size:.9rem;">${escapeHtml(m.user_answer || '（未作答）')}</span>
         </div>
         <div style="background:var(--green-light);border-radius:8px;padding:8px 12px;">
           <span style="font-size:.72rem;color:var(--green);font-weight:600;">✓ 正确答案：</span>
-          <span style="font-size:.9rem;font-weight:600;">${m.correct_answer || '-'}</span>
+          <span style="font-size:.9rem;font-weight:600;">${escapeHtml(m.correct_answer || '-')}</span>
         </div>
-        ${m.explanation ? `<div style="background:var(--accent-light);border-radius:8px;padding:8px 12px;margin-top:6px;font-size:.85rem;line-height:1.7;">📖 ${m.explanation}</div>` : ''}
+        ${m.explanation ? `<div style="background:var(--accent-light);border-radius:8px;padding:8px 12px;margin-top:6px;font-size:.85rem;line-height:1.7;">📖 ${escapeHtml(m.explanation)}</div>` : ''}
       </div>
       <div style="margin-top:8px;">
         <button class="btn btn-green" style="font-size:.8rem;padding:6px 12px;min-height:34px;" onclick="masterMistake(${m.id})">✅ 已掌握</button>
@@ -834,9 +841,9 @@ async function renderTimeline() {
     for (const m of milestones) {
       html += `<div class="tl-item">
         <div class="tl-dot">${m.icon}</div>
-        <div class="tl-date">${m.date}</div>
-        <div class="tl-title">${m.icon} ${m.title}</div>
-        <div class="tl-desc">${m.description}</div>
+        <div class="tl-date">${escapeHtml(m.date)}</div>
+        <div class="tl-title">${escapeHtml(m.icon)} ${escapeHtml(m.title)}</div>
+        <div class="tl-desc">${escapeHtml(m.description)}</div>
       </div>`;
     }
     html += '</div></div>';
@@ -1614,7 +1621,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     for (let i = 0; i < 120; i++) {
       await sleep(1500);
       let res;
-      try { res = await fetch('/api/parent/task/' + taskId); } catch(e) { continue; }
+      try { res = await fetch('/api/parent/task/' + taskId + '?code=' + encodeURIComponent(savedCode)); } catch(e) { continue; }
       if (!res.ok) break;
       const data = await res.json();
 

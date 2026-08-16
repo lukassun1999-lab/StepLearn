@@ -13,7 +13,7 @@ from db import *  # noqa: F401,F403
 from pipeline_worker import enqueue_task
 from web.shared import (UPLOAD_DIR, _enqueue_correction_rerun, _resolve_file_path,
                         _save_uploaded_file, admin_required,
-                        login_required)
+                        staff_required)
 
 ops_api_bp = Blueprint("ops_api", __name__)
 
@@ -43,7 +43,7 @@ def api_auth_me():
 
 
 @ops_api_bp.route('/api/dashboard')
-@login_required
+@staff_required
 def api_dashboard():
     stats = get_dashboard_stats()
     if session.get('user_role') != 'admin':
@@ -57,7 +57,7 @@ def api_dashboard():
     return jsonify(stats)
 
 @ops_api_bp.route('/api/cost')
-@login_required
+@staff_required
 def api_cost():
     budgets = get_budgets()
     total_month = get_llm_cost_this_month()
@@ -73,7 +73,7 @@ def api_cost():
     })
 
 @ops_api_bp.route('/api/status')
-@login_required
+@staff_required
 def api_status():
     from llm import BACKEND, HAS_API_KEY, DEFAULT_MODEL, ANTHROPIC_BASE_URL, OCR_BACKEND, VISION_MODEL
     return jsonify({
@@ -87,7 +87,7 @@ def api_status():
     })
 
 @ops_api_bp.route('/api/students', methods=['GET'])
-@login_required
+@staff_required
 def api_students_list():
     if session.get('user_role') == 'admin':
         students = get_all_students()
@@ -98,7 +98,7 @@ def api_students_list():
     return jsonify(students)
 
 @ops_api_bp.route('/api/students/<int:id>', methods=['GET'])
-@login_required
+@staff_required
 def api_student_get(id):
     row = get_student(id)
     if not row:
@@ -107,7 +107,7 @@ def api_student_get(id):
     return jsonify(row)
 
 @ops_api_bp.route('/api/students', methods=['POST'])
-@login_required
+@staff_required
 def api_student_create():
     data = request.get_json()
     if not data.get('name'):
@@ -143,7 +143,7 @@ def api_student_create():
     return jsonify({"id": sid}), 201
 
 @ops_api_bp.route('/api/students/<int:id>', methods=['PUT'])
-@login_required
+@staff_required
 def api_student_update(id):
     data = request.get_json()
     if not data.get('name'):
@@ -173,7 +173,7 @@ def api_student_update(id):
     return jsonify({"ok": True})
 
 @ops_api_bp.route('/api/students/<int:student_id>/profile', methods=['GET'])
-@login_required
+@staff_required
 def api_student_profile_get(student_id):
     """Get student profile (chat.md dimensions)."""
     profile = get_student_profile(student_id)
@@ -182,7 +182,7 @@ def api_student_profile_get(student_id):
     return jsonify(profile)
 
 @ops_api_bp.route('/api/students/<int:student_id>/profile', methods=['PUT'])
-@login_required
+@staff_required
 def api_student_profile_update(student_id):
     """Create or update student profile."""
     data = request.get_json() or {}
@@ -209,7 +209,7 @@ def api_student_profile_update(student_id):
     return jsonify({"ok": True})
 
 @ops_api_bp.route('/api/students/<int:student_id>/profile/parent-tasks', methods=['PUT'])
-@login_required
+@staff_required
 def api_student_parent_tasks_update(student_id):
     """Update parent growth task completion progress."""
     data = request.get_json() or {}
@@ -236,7 +236,7 @@ def api_student_parent_tasks_update(student_id):
     return jsonify({"ok": True})
 
 @ops_api_bp.route('/api/students/<int:student_id>/mistakes', methods=['GET'])
-@login_required
+@staff_required
 def api_student_mistakes(student_id):
     """Get mistake book for a student (backend view)."""
     mastered = request.args.get('mastered', 'false').lower() == 'true'
@@ -269,7 +269,7 @@ def api_mark_mistake_mastered(mistake_id):
     return jsonify({"ok": True})
 
 @ops_api_bp.route('/api/students/<int:student_id>/due-reviews', methods=['GET'])
-@login_required
+@staff_required
 def api_student_due_reviews(student_id):
     """Get mistakes due for spaced repetition review."""
     from db import get_due_reviews, get_review_stats
@@ -279,14 +279,14 @@ def api_student_due_reviews(student_id):
     })
 
 @ops_api_bp.route('/api/students/<int:student_id>/achievements', methods=['GET'])
-@login_required
+@staff_required
 def api_student_achievements(student_id):
     """Get achievement wall for a student (teacher view)."""
     from db import get_student_achievements
     return jsonify(get_student_achievements(student_id))
 
 @ops_api_bp.route('/api/students/<int:student_id>/reviews', methods=['GET'])
-@login_required
+@staff_required
 def api_student_reviews(student_id):
     """Teacher: get all metacognitive reviews for a student."""
     from db import get_metacognitive_reviews, get_or_create_metacognitive_review
@@ -295,7 +295,7 @@ def api_student_reviews(student_id):
     return jsonify({"current": current, "history": history})
 
 @ops_api_bp.route('/api/students/<int:student_id>/timeline', methods=['GET'])
-@login_required
+@staff_required
 def api_student_timeline(student_id):
     """Get learning path timeline for a student (teacher view)."""
     from db import get_student_timeline
@@ -303,8 +303,22 @@ def api_student_timeline(student_id):
 
 @ops_api_bp.route('/api/mistakes/<int:mistake_id>/similar', methods=['GET'])
 def api_get_similar_questions(mistake_id):
-    """Get existing similar questions for a mistake."""
+    """Get existing similar questions for a mistake (requires access_code)."""
+    from db import get_mistake, get_connection
     from skills_bridge import get_similar_questions_for_mistake
+    mistake = get_mistake(mistake_id)
+    if not mistake:
+        return jsonify({"error": "错题不存在"}), 404
+    code = (request.args.get("access_code") or "").strip()
+    if not code:
+        return jsonify({"error": "缺少 access_code"}), 401
+    conn = get_connection()
+    student = conn.execute(
+        "SELECT id FROM students WHERE access_code = ? AND status = 'active' AND id = ?",
+        [code, mistake["student_id"]]).fetchone()
+    conn.close()
+    if not student:
+        return jsonify({"error": "无权限"}), 403
     return jsonify({"questions": get_similar_questions_for_mistake(mistake_id)})
 
 @ops_api_bp.route('/api/mistakes/<int:mistake_id>/similar', methods=['POST'])
@@ -316,19 +330,20 @@ def api_generate_similar_questions(mistake_id):
     mistake = get_mistake(mistake_id)
     if not mistake:
         return jsonify({"error": "错题不存在"}), 404
-    # Validate access code
+    # Validate access code（必填：原"if code:"写法不传码即放行，属反向鉴权漏洞）
     data = request.get_json() or {}
-    code = data.get("access_code", "")
-    if code:
-        conn = get_connection()
-        student = conn.execute(
-            "SELECT id FROM students WHERE access_code = ? AND status = 'active' AND id = ?",
-            [code, mistake["student_id"]],
-        ).fetchone()
-        conn.close()
-        if not student:
-            return jsonify({"error": "无权限"}), 403
-    count = int(data.get("count", 2))
+    code = (data.get("access_code") or "").strip()
+    if not code:
+        return jsonify({"error": "缺少 access_code"}), 401
+    conn = get_connection()
+    student = conn.execute(
+        "SELECT id FROM students WHERE access_code = ? AND status = 'active' AND id = ?",
+        [code, mistake["student_id"]],
+    ).fetchone()
+    conn.close()
+    if not student:
+        return jsonify({"error": "无权限"}), 403
+    count = min(int(data.get("count", 2)), 5)
     saved = gen_similar(mistake, count=count)
     return jsonify({"questions": saved})
 
@@ -339,17 +354,18 @@ def api_batch_generate_similar(student_id):
     from skills_bridge import (generate_similar_questions as gen_similar,
                                get_similar_questions_for_mistake)
     data = request.get_json() or {}
-    # Validate access code
-    code = data.get("access_code", "")
-    if code:
-        conn = get_connection()
-        student = conn.execute(
-            "SELECT id FROM students WHERE access_code = ? AND status = 'active' AND id = ?",
-            [code, student_id],
-        ).fetchone()
-        conn.close()
-        if not student:
-            return jsonify({"error": "无权限"}), 403
+    # Validate access code（必填，防匿名触发 LLM 批量生成）
+    code = (data.get("access_code") or "").strip()
+    if not code:
+        return jsonify({"error": "缺少 access_code"}), 401
+    conn = get_connection()
+    student = conn.execute(
+        "SELECT id FROM students WHERE access_code = ? AND status = 'active' AND id = ?",
+        [code, student_id],
+    ).fetchone()
+    conn.close()
+    if not student:
+        return jsonify({"error": "无权限"}), 403
     mistakes = get_student_mistake_book(student_id, mastered=False)
     limit = min(int(data.get("limit", 10)), 10)
     count_per = int(data.get("count_per", 2))
@@ -365,7 +381,7 @@ def api_batch_generate_similar(student_id):
     return jsonify({"results": results})
 
 @ops_api_bp.route('/api/students/<int:student_id>/checkins', methods=['GET'])
-@login_required
+@staff_required
 def api_student_checkins(student_id):
     """Get check-in history for a student."""
     return jsonify(get_check_ins(student_id))
@@ -396,7 +412,7 @@ def api_check_in():
     return jsonify({"ok": True}), 201
 
 @ops_api_bp.route('/api/questions', methods=['GET'])
-@login_required
+@staff_required
 def api_questions_list():
     kp = request.args.get('knowledge_point')
     qtype = request.args.get('question_type')
@@ -410,13 +426,13 @@ def api_questions_list():
     ))
 
 @ops_api_bp.route('/api/questions/<int:question_id>', methods=['GET'])
-@login_required
+@staff_required
 def api_question_get(question_id):
     q = get_question(question_id)
     return jsonify(q) if q else ('', 404)
 
 @ops_api_bp.route('/api/questions/<int:question_id>', methods=['PUT'])
-@login_required
+@staff_required
 def api_question_update(question_id):
     data = request.get_json() or {}
     success = update_question(question_id, data)
@@ -425,7 +441,7 @@ def api_question_update(question_id):
     return jsonify({"ok": True})
 
 @ops_api_bp.route('/api/questions/<int:question_id>/toggle', methods=['POST'])
-@login_required
+@staff_required
 def api_question_toggle(question_id):
     q = get_question(question_id)
     if not q:
@@ -434,17 +450,17 @@ def api_question_toggle(question_id):
     return jsonify({"ok": True, "enabled": not q.get("enabled")})
 
 @ops_api_bp.route('/api/questions/stats', methods=['GET'])
-@login_required
+@staff_required
 def api_question_stats():
     return jsonify(get_question_bank_stats())
 
 @ops_api_bp.route('/api/learning/class', methods=['GET'])
-@login_required
+@staff_required
 def api_learning_class():
     return jsonify(get_class_learning_stats())
 
 @ops_api_bp.route('/api/learning/student/<int:student_id>', methods=['GET'])
-@login_required
+@staff_required
 def api_learning_student(student_id):
     stats = get_student_learning_stats(student_id)
     profile = get_student_profile(student_id)
@@ -459,7 +475,7 @@ def api_learning_student(student_id):
     return jsonify(stats)
 
 @ops_api_bp.route('/api/learning/score', methods=['POST'])
-@login_required
+@staff_required
 def api_learning_record_score():
     data = request.get_json() or {}
     student_id = data.get('student_id')
@@ -480,7 +496,7 @@ def api_learning_record_score():
     return jsonify({"ok": True}), 201
 
 @ops_api_bp.route('/api/budget', methods=['GET'])
-@login_required
+@staff_required
 def api_budget_get():
     return jsonify(get_budgets())
 
@@ -504,7 +520,7 @@ def api_budget_set():
     return jsonify(get_budgets())
 
 @ops_api_bp.route('/api/subscriptions/<int:student_id>', methods=['GET'])
-@login_required
+@staff_required
 def api_subscription_get(student_id):
     summary = get_subscription_summary(student_id)
     return jsonify(summary)
@@ -580,12 +596,12 @@ def api_payment_create():
     return jsonify({"payment_id": payment_id, "ok": True}), 201
 
 @ops_api_bp.route('/api/payments/<int:student_id>', methods=['GET'])
-@login_required
+@staff_required
 def api_payments_list(student_id):
     return jsonify(get_payments(student_id))
 
 @ops_api_bp.route('/api/upload', methods=['POST'])
-@login_required
+@staff_required
 def api_upload():
     student_id = request.form.get('student_id', type=int)
     file_type = request.form.get('file_type', 'test_paper')
@@ -608,7 +624,7 @@ def api_upload():
     return jsonify({"file_ids": file_ids}), 201
 
 @ops_api_bp.route('/api/files/<int:file_id>/download')
-@login_required
+@staff_required
 def api_file_download(file_id):
     f = get_file(file_id)
     if not f:
@@ -616,13 +632,13 @@ def api_file_download(file_id):
     filepath = _resolve_file_path(f)
     if not filepath:
         return ('', 404)
-    return send_file(filepath, download_name=f['original_filename'])
+    return send_file(filepath, download_name=f['original_filename'], as_attachment=True)
 
 
 
 
 @ops_api_bp.route('/api/pipeline/run', methods=['POST'])
-@login_required
+@staff_required
 def api_pipeline_run():
     data = request.get_json()
     student_id = data['student_id']
@@ -688,7 +704,7 @@ def api_pipeline_run():
     return jsonify({"task_id": task_id}), 202
 
 @ops_api_bp.route('/api/tasks/<int:task_id>')
-@login_required
+@staff_required
 def api_task_status(task_id):
     task = get_task(task_id)
     if not task:
@@ -709,7 +725,7 @@ def api_task_status(task_id):
 # 质量控制由抽检（safety-checks）与纠错（corrections）回路承担。
 
 @ops_api_bp.route('/api/tasks', methods=['GET'])
-@login_required
+@staff_required
 def api_tasks_list():
     conn = get_connection()
     rows = conn.execute("""
@@ -721,7 +737,7 @@ def api_tasks_list():
     return jsonify([dict(r) for r in rows])
 
 @ops_api_bp.route('/api/tasks/<int:task_id>/correctables', methods=['GET'])
-@login_required
+@staff_required
 def api_task_correctables(task_id):
     """Return correctable items for a task: mistakes for onboarding/stage A,
     practice records for stage B grading.
@@ -820,7 +836,7 @@ def api_task_correctables(task_id):
     return jsonify(result)
 
 @ops_api_bp.route('/api/tasks/<int:task_id>/corrections', methods=['GET'])
-@login_required
+@staff_required
 def api_task_corrections_list(task_id):
     """List all corrections for a task."""
     task = get_task(task_id)
@@ -829,7 +845,7 @@ def api_task_corrections_list(task_id):
     return jsonify(get_task_corrections(task_id))
 
 @ops_api_bp.route('/api/tasks/<int:task_id>/corrections', methods=['POST'])
-@login_required
+@staff_required
 def api_task_corrections_create(task_id):
     """Create one or more corrections for a task and apply them to target records."""
     task = get_task(task_id)
@@ -901,7 +917,7 @@ def api_task_corrections_create(task_id):
     return jsonify(response), 201
 
 @ops_api_bp.route('/api/corrections/<int:correction_id>/revert', methods=['POST'])
-@login_required
+@staff_required
 def api_correction_revert(correction_id):
     """Revert an applied correction."""
     ok = revert_correction(correction_id)
@@ -918,26 +934,26 @@ def api_correction_revert(correction_id):
     return jsonify({"ok": True})
 
 @ops_api_bp.route('/api/corrections/stats', methods=['GET'])
-@login_required
+@staff_required
 def api_corrections_stats():
     """Return correction statistics for dashboard."""
     days = request.args.get('days', 7, type=int)
     return jsonify(get_correction_stats(days=days))
 
 @ops_api_bp.route('/api/safety-checks/pending', methods=['GET'])
-@login_required
+@staff_required
 def api_safety_checks_pending():
     """List pending AIGC safety checks."""
     return jsonify(get_pending_safety_checks())
 
 @ops_api_bp.route('/api/safety-checks/stats', methods=['GET'])
-@login_required
+@staff_required
 def api_safety_checks_stats():
     """Return AIGC safety check statistics."""
     return jsonify(get_safety_check_stats())
 
 @ops_api_bp.route('/api/safety-checks/<int:check_id>/review', methods=['POST'])
-@login_required
+@staff_required
 def api_safety_check_review(check_id):
     """Review a safety check: mark clean or flagged with issue flags."""
     data = request.get_json() or {}
@@ -970,27 +986,27 @@ def api_safety_check_review(check_id):
     return jsonify({"ok": True})
 
 @ops_api_bp.route('/api/tasks/failure-stats', methods=['GET'])
-@login_required
+@staff_required
 def api_task_failure_stats():
     """Return task failure/rejection statistics."""
     days = request.args.get('days', 7, type=int)
     return jsonify(get_task_failure_stats(days=days))
 
 @ops_api_bp.route('/api/tasks/recent-failures', methods=['GET'])
-@login_required
+@staff_required
 def api_recent_failed_tasks():
     """Return recent failed/rejected tasks with error messages."""
     limit = request.args.get('limit', 20, type=int)
     return jsonify(get_recent_failed_tasks(limit=limit))
 
 @ops_api_bp.route('/api/alerts', methods=['GET'])
-@login_required
+@staff_required
 def api_active_alerts():
     """Return active (non-dismissed) alerts."""
     return jsonify(get_active_alerts())
 
 @ops_api_bp.route('/api/alerts/<int:alert_id>/dismiss', methods=['POST'])
-@login_required
+@staff_required
 def api_dismiss_alert(alert_id):
     """Dismiss an active alert."""
     ok = dismiss_alert(alert_id)
@@ -1006,7 +1022,7 @@ def api_dismiss_alert(alert_id):
     return jsonify({"ok": True})
 
 @ops_api_bp.route('/api/cost/alerts', methods=['GET'])
-@login_required
+@staff_required
 def api_cost_alerts():
     """Return cost alert status."""
     return jsonify(get_cost_alert_status())
@@ -1031,7 +1047,7 @@ def api_alert_settings():
     return jsonify({"ok": True})
 
 @ops_api_bp.route('/api/audit-logs', methods=['GET'])
-@login_required
+@staff_required
 def api_audit_logs():
     """Return audit logs with optional filters."""
     limit = request.args.get('limit', 100, type=int)
@@ -1047,7 +1063,7 @@ def api_audit_logs():
     ))
 
 @ops_api_bp.route('/api/audit-logs/actions', methods=['GET'])
-@login_required
+@staff_required
 def api_audit_log_actions():
     """Return distinct audit log actions for filter dropdown."""
     return jsonify(get_audit_log_actions())
@@ -1086,7 +1102,7 @@ def api_backup_download(backup_id):
                      download_name=os.path.basename(path))
 
 @ops_api_bp.route('/api/weekly', methods=['GET'])
-@login_required
+@staff_required
 def api_weekly_list():
     week = request.args.get('week', get_week_start())
     if session.get('user_role') == 'admin':
@@ -1119,12 +1135,12 @@ def api_weekly_list():
     return jsonify(result)
 
 @ops_api_bp.route('/api/compliance/students-without-consent', methods=['GET'])
-@login_required
+@staff_required
 def api_students_without_consent():
     return jsonify(get_students_without_consent())
 
 @ops_api_bp.route('/api/compliance/consents', methods=['POST'])
-@login_required
+@staff_required
 def api_record_parent_consent():
     data = request.get_json() or {}
     student_id = data.get('student_id')
@@ -1158,12 +1174,12 @@ def api_record_parent_consent():
     return jsonify({"id": consent_id, "success": True})
 
 @ops_api_bp.route('/api/compliance/deletion-requests', methods=['GET'])
-@login_required
+@staff_required
 def api_deletion_requests():
     return jsonify(get_pending_deletion_requests())
 
 @ops_api_bp.route('/api/compliance/deletion-requests', methods=['POST'])
-@login_required
+@staff_required
 def api_create_deletion_request():
     data = request.get_json() or {}
     student_id = data.get('student_id')

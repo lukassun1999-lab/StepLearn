@@ -147,7 +147,10 @@ def api_sms_send_code():
         if not admin and not student:
             return jsonify({"error": "该手机号未注册"}), 404
 
-    code = send_verification_code(phone, purpose)
+    try:
+        send_verification_code(phone, purpose)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 429
     return jsonify({"ok": True, "message": "验证码已发送"})
 
 @family_api_bp.route('/api/sms/login', methods=['POST'])
@@ -690,10 +693,21 @@ def api_parent_diagnose():
 
 @family_api_bp.route('/api/parent/task/<int:task_id>')
 def api_parent_task(task_id):
-    """Poll task status for parent diagnosis."""
+    """Poll task status for parent diagnosis.
+
+    凭自增 task_id 即可读任意学生诊断结果的 IDOR 已修：必须携带
+    ?code=<access_code> 且与任务归属学生匹配。
+    """
     task = get_task(task_id)
     if not task:
         return jsonify({"error": "task not found"}), 404
+
+    code = (request.args.get("code") or "").strip()
+    if not code:
+        return jsonify({"error": "missing code"}), 401
+    student_id, err = _resolve_student_by_code(code)
+    if err or student_id != task.get("student_id"):
+        return jsonify({"error": "forbidden"}), 403
 
     result = {
         "status": task["status"],

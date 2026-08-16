@@ -1284,12 +1284,15 @@ def render_share_poster(student: dict, stats: dict) -> str:
         score_sub = (f"<div style='font-size:.75em;color:var(--sub);margin-top:6px;'>"
                      f"共 {mastered + mistakes} 道错题 · 稳住 {mastered} 道，错题本越读越薄</div>")
 
+    import xml.sax.saxutils as _su
+    _safe_name = _su.escape(str(name or ""))
+    _safe_grade = _su.escape(str(grade or ""))
     body = f"""
 <div style="background:linear-gradient(135deg, #e8813b 0%, #f5a56a 100%); min-height:100vh; padding:32px 20px; text-align:center; color:#fff; font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;">
   <div style="max-width:380px; margin:0 auto; background:rgba(255,255,255,.12); border-radius:20px; padding:32px 24px; backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,.3);">
     <div style="font-size:.9em; opacity:.9; margin-bottom:8px;">拾阶而上</div>
-    <h1 style="font-size:1.6em; margin-bottom:8px;">{name} 的学习海报</h1>
-    <div style="font-size:.85em; opacity:.85; margin-bottom:28px;">{grade} · AI 个性化英语学习</div>
+    <h1 style="font-size:1.6em; margin-bottom:8px;">{_safe_name} 的学习海报</h1>
+    <div style="font-size:.85em; opacity:.85; margin-bottom:28px;">{_safe_grade} · AI 个性化英语学习</div>
 
     <div style="background:#fff; border-radius:16px; padding:24px; color:var(--text); margin-bottom:20px;">
       <div style="font-size:.85em; color:var(--sub); margin-bottom:8px;">{score_label}</div>

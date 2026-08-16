@@ -3040,10 +3040,16 @@ def mark_mistake_mastered(mistake_id: int, db_path: str = DB_PATH) -> bool:
 
 
 def get_student_public_summary(code: str, db_path: str = DB_PATH) -> Optional[Dict[str, Any]]:
-    """Get public summary for student page by access_code."""
+    """Get public summary for student page by access_code.
+
+    字段白名单：公开页严禁返回整行 students（曾 SELECT * 泄漏
+    phone/password_hash/家长微信等，安全审查 P0）。
+    """
     conn = get_connection(db_path)
     student = conn.execute(
-        "SELECT * FROM students WHERE access_code = ? AND status = 'active'", [code]
+        "SELECT id, name, grade, school_type, english_score, target_score, "
+        "gender, textbook_version, semester, status, created_at "
+        "FROM students WHERE access_code = ? AND status = 'active'", [code]
     ).fetchone()
     if not student:
         conn.close()
@@ -4817,16 +4823,21 @@ def update_student(student_id: int, data: Dict[str, Any], db_path: str = DB_PATH
 
 
 def _generate_access_code(conn: sqlite3.Connection, table: str, column: str) -> str:
-    """Generate a unique 6-digit access code."""
-    import random
+    """Generate a unique access code.
+
+    加密随机 token_urlsafe(8)（约 11 位）：6 位数字仅 90 万空间且非加密随机，
+    公开接口凭码即可读学生数据，可被暴力枚举（安全审查 P0）。存量 6 位码
+    继续有效（仅影响新生成）。
+    """
+    import secrets
     for _ in range(100):
-        code = str(random.randint(100000, 999999))
+        code = secrets.token_urlsafe(8)
         existing = conn.execute(
             f"SELECT id FROM {table} WHERE {column} = ?", [code]
         ).fetchone()
         if not existing:
             return code
-    return str(random.randint(100000, 999999))
+    raise RuntimeError("无法生成唯一 access_code")
 
 
 # ═══════════════════════════════════════════════════
