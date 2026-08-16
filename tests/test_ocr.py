@@ -5,11 +5,9 @@ def test_run_ocr_vision_demo_returns_vision_backend(
     monkeypatch, test_image, test_db_path, demo_mode
 ):
     """Vision backend in demo mode should return placeholder text."""
-    import skills_bridge as sb
-    import llm
+    import ocr_service as sb
 
     monkeypatch.setattr(sb, "OCR_BACKEND", "vision")
-    monkeypatch.setattr(llm, "VISION_MODEL", "kimi-k2.6")
 
     result = sb.run_ocr(test_image)
 
@@ -22,7 +20,7 @@ def test_run_ocr_auto_prefers_vision_when_available(
     monkeypatch, test_image, test_db_path, demo_mode
 ):
     """Auto backend should use vision when it returns sufficient text."""
-    import skills_bridge as sb
+    import ocr_service as sb
 
     monkeypatch.setattr(sb, "OCR_BACKEND", "auto")
 
@@ -36,7 +34,7 @@ def test_run_ocr_auto_falls_back_to_tesseract_on_insufficient_vision_text(
     monkeypatch, test_image, test_db_path
 ):
     """Auto backend should fall back to Tesseract if vision returns too little text."""
-    import skills_bridge as sb
+    import ocr_service as sb
 
     monkeypatch.setattr(sb, "OCR_BACKEND", "auto")
     monkeypatch.setattr(
@@ -70,7 +68,7 @@ def test_run_ocr_tesseract_forced_uses_tesseract(
     monkeypatch, test_image, test_db_path
 ):
     """Forcing tesseract backend should skip vision entirely."""
-    import skills_bridge as sb
+    import ocr_service as sb
 
     monkeypatch.setattr(sb, "OCR_BACKEND", "tesseract")
     monkeypatch.setattr(
@@ -93,7 +91,7 @@ def test_run_ocr_vision_demo_logs_usage_to_database(
     monkeypatch, test_image, test_db_path, demo_mode
 ):
     """Demo-mode OCR usage should be written to llm_usage_log."""
-    import skills_bridge as sb
+    import ocr_service as sb
     import db
 
     monkeypatch.setattr(sb, "OCR_BACKEND", "vision")

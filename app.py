@@ -105,10 +105,14 @@ def _should_run_backup(now, last_daily_at, last_weekly_at):
       本身保证每周一次；原先 weekly 分支被 daily 分支遮蔽，属死代码）
     时间参数为 UTC datetime（backups.created_at 为 CURRENT_TIMESTAMP）。
     """
-    from datetime import timedelta
+    from datetime import timedelta, timezone
 
     def _fresh(ts, window):
-        return ts is not None and (now - ts) < window
+        if ts is None:
+            return False
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)  # DB 读出为 naive，按 UTC 解释
+        return (now - ts) < window
 
     after_3am = now.hour >= 3
     run_daily = after_3am and not _fresh(last_daily_at, timedelta(hours=24))
