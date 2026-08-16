@@ -77,3 +77,61 @@ def test_family_min_font_sizes():
     src = _page_src("family")
     assert "font-size:.5rem" not in src   # 原 8px
     assert "font-size:.65em" not in src
+
+
+# ═══ 提交 2：微信场景优化回归 ═══
+
+def test_student_upload_uses_xhr():
+    """学生页上传使用 XHR（upload.onprogress）获取真字节进度，而非 fetch 假进度。"""
+    src = _page_src("family")
+    assert "XMLHttpRequest" in src
+    assert "upload.onprogress" in src or "xhr.upload" in src
+    # 不应再用 fetch 上传（上传函数内）
+    lines = src.split('\n')
+    in_upload_fn = False
+    for line in lines:
+        if 'async function handleParentUpload' in line:
+            in_upload_fn = True
+        if in_upload_fn and 'async function ' in line and 'handleParentUpload' not in line:
+            break
+        if in_upload_fn and "'/api/public/" in line and 'fetch(' in line:
+            assert False, "学生页上传函数内仍用 fetch 上传，应改 XHR"
+
+
+def test_student_upload_has_compressImage():
+    """学生页含 compressImage 工具函数（客户端压缩后再上传）。"""
+    src = _page_src("family")
+    assert "function compressImage" in src
+    # 压缩逻辑：canvas 长边缩放 + JPEG q0.8
+    assert "maxEdge" in src or "max_edge" in src
+    assert "image/jpeg" in src
+
+
+def test_parent_has_multi_photo_ui():
+    """家长页含多图预览 UI（previewList）和年级选择器（gradePick）。"""
+    src = _page_src("parent")
+    assert "id=\"previewList\"" in src or "id='previewList'" in src
+    assert "pickedFiles" in src
+    assert "pickedGrade" in src
+
+
+def test_parent_page_og_meta():
+    """家长页与学情主页均有 og:title/og:description 用于微信分享卡片。"""
+    for page in ("family", "parent"):
+        src = _page_src(page)
+        assert "og:title" in src, f"{page} 缺 og:title"
+        assert "og:description" in src, f"{page} 缺 og:description"
+
+
+def test_student_wechat_poster_fix():
+    """学情主页海报保存针对微信内置浏览器 UA 做了适配。"""
+    src = _page_src("family")
+    assert "MicroMessenger" in src
+    assert "showPosterSaveOverlay" in src
+
+
+def test_public_upload_accepts_multi():
+    """公开上传端点使用 getlist('file') 接受多文件。"""
+    import api.family_api as fa
+    src = open(fa.__file__, encoding='utf-8').read()
+    assert "getlist('file')" in src

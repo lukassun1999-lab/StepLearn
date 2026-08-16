@@ -6,7 +6,11 @@ STUDENT_PAGE = r'''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>学生学习中心</title>
+<title>孩子的英语学情主页 · 拾阶而上</title>
+<meta name="theme-color" content="#e07b4b">
+<meta property="og:title" content="孩子的英语学情主页">
+<meta property="og:description" content="AI 分析试卷错题，生成专属练习与成长报告，进步看得见。">
+<meta name="description" content="AI 分析试卷错题，生成专属练习与成长报告。">
 <link rel="icon" href="data:,">
 <style>
 :root {
@@ -413,11 +417,18 @@ async function savePosterImage() {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
-      const a = document.createElement('a');
-      a.href = canvas.toDataURL('image/png');
-      a.download = '学习海报.png';
-      a.click();
-      toast('海报已保存');
+      const dataUrl = canvas.toDataURL('image/png');
+      // 微信内置浏览器忽略 <a download>——弹层展示图片引导长按保存；
+      // 其他浏览器保留直接下载。
+      if (/MicroMessenger/i.test(navigator.userAgent)) {
+        showPosterSaveOverlay(dataUrl);
+      } else {
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = '学习海报.png';
+        a.click();
+        toast('海报已保存');
+      }
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -427,6 +438,24 @@ async function savePosterImage() {
   } catch(e) {
     toast('图片生成失败，可点「打开完整海报」查看');
   }
+}
+
+// 微信内保存引导：大图弹层 + 长按提示（微信相册保存唯一可靠路径）
+function showPosterSaveOverlay(dataUrl) {
+  let ov = document.getElementById('poster-save-overlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'poster-save-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;';
+    ov.innerHTML = `
+      <div style="color:#fff;font-size:.95rem;font-weight:600;margin-bottom:6px;">👇 长按下方图片，保存到相册</div>
+      <img style="max-width:100%;max-height:70vh;border-radius:10px;background:#fff;" alt="学习海报">
+      <button type="button" style="margin-top:16px;min-height:44px;padding:10px 32px;border:none;border-radius:22px;background:rgba(255,255,255,.18);color:#fff;font-size:.9rem;cursor:pointer;">完成</button>`;
+    ov.querySelector('button').onclick = () => ov.remove();
+    document.body.appendChild(ov);
+  }
+  ov.querySelector('img').src = dataUrl;
+  ov.style.display = 'flex';
 }
 
 // ═══ Interactive Practice (P0) ═══
@@ -584,6 +613,34 @@ async function submitPracticeAnswer() {
 }
 
 // ═══ Parent Upload (P0) ═══
+// 手机照片压缩：长边 ≤1600px、JPEG q0.8（原片 3-8MB → 数百 KB）
+function compressImage(file, maxEdge = 1600, quality = 0.8) {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith('image/') || file.type === 'image/gif' || file.size < 300 * 1024) {
+      resolve(file); return;
+    }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      try {
+        const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (blob && blob.size < file.size) {
+            resolve(new File([blob], 'paper.jpg', { type: 'image/jpeg' }));
+          } else { resolve(file); }
+        }, 'image/jpeg', quality);
+      } catch (err) { resolve(file); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 async function handleParentUpload(input) {
   const files = input.files;
   if (!files || files.length === 0) return;
@@ -594,28 +651,53 @@ async function handleParentUpload(input) {
   const statusText = document.getElementById('upload-status');
   progressDiv.style.display = 'block';
   resultDiv.style.display = 'none';
-  fillBar.style.width = '30%';
+  fillBar.style.width = '5%';
+  statusText.textContent = '压缩图片中...';
+
+  const compressed = [];
+  for (const f of files) compressed.push(await compressImage(f));
+
+  fillBar.style.width = '10%';
   statusText.textContent = '上传中...';
 
   const formData = new FormData();
-  for (let i = 0; i < files.length; i++) formData.append('file', files[i]);
+  for (const f of compressed) formData.append('file', f);
 
-  try {
-    const r = await fetch('/api/public/' + CODE + '/upload', {method:'POST', body:formData});
-    const data = await r.json();
-    if (!r.ok) {
-      statusText.textContent = data.error || '上传失败';
+  await new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/public/' + CODE + '/upload');
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round(e.loaded / e.total * 100);
+        fillBar.style.width = Math.max(10, Math.min(pct, 50)) + '%';
+        statusText.textContent = '上传中 ' + pct + '%';
+      }
+    });
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 400) {
+          statusText.textContent = (data && data.error) || '上传失败';
+          fillBar.style.width = '0%';
+          fillBar.style.background = 'var(--red)';
+        } else {
+          fillBar.style.width = '55%';
+          statusText.textContent = 'AI正在分析错题...';
+          pollTaskProgress(data.task_id);
+        }
+      } catch(e) {
+        statusText.textContent = '服务器响应异常';
+        fillBar.style.width = '0%';
+      }
+      resolve();
+    };
+    xhr.onerror = () => {
+      statusText.textContent = '网络错误，请重试';
       fillBar.style.width = '0%';
-      fillBar.style.background = 'var(--red)';
-      return;
-    }
-    fillBar.style.width = '60%';
-    statusText.textContent = 'AI正在分析错题...';
-    pollTaskProgress(data.task_id);
-  } catch(e) {
-    statusText.textContent = '网络错误，请重试';
-    fillBar.style.width = '0%';
-  }
+      resolve();
+    };
+    xhr.send(formData);
+  });
   input.value = '';
 }
 
@@ -1281,7 +1363,11 @@ PARENT_PAGE = r'''<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI 学情体检</title>
+<title>AI 英语学情体检 · 拍张试卷看看</title>
+<meta name="theme-color" content="#e07b4b">
+<meta property="og:title" content="AI 英语学情体检">
+<meta property="og:description" content="拍一张试卷照片，5 分钟看懂孩子的英语薄弱点，附专属提升方案。">
+<meta name="description" content="拍一张试卷照片，AI 看懂孩子的英语薄弱点。">
 <link rel="icon" href="data:,">
 <style>
   :root {
@@ -1326,15 +1412,25 @@ PARENT_PAGE = r'''<!DOCTYPE html>
   .step.done .num { background:var(--green); color:#fff; }
 
   /* Upload Zone */
-  .upload-zone {
-    background:var(--card); border:2px dashed var(--border); border-radius:16px;
+  .upload-zone { background:var(--card); border:2px dashed var(--border); border-radius:16px;
     padding:40px 20px; text-align:center; cursor:pointer; transition:all .2s;
-    margin-bottom:16px;
-  }
+    margin-bottom:16px; }
   .upload-zone:hover, .upload-zone.dragover { border-color:var(--accent); background:var(--accent-light); }
   .upload-zone .icon { font-size:56px; display:block; margin-bottom:12px; }
   .upload-zone .title { font-size:1rem; font-weight:600; margin-bottom:4px; }
   .upload-zone .hint { font-size:.75rem; color:var(--mute); }
+  /* 年级选择 + 多图预览（首访体检） */
+  .grade-pick { background:var(--card); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .grade-opts { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .grade-opts button { min-height:44px; border:1.5px solid var(--border); border-radius:10px;
+    background:var(--bg); font-size:.9rem; font-weight:600; color:var(--sub); cursor:pointer; }
+  .grade-opts button.active { border-color:var(--accent); color:var(--accent); background:var(--accent-light); }
+  .preview-list { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .preview-item { position:relative; border-radius:10px; overflow:hidden; background:var(--bg); }
+  .preview-item img { width:100%; height:88px; object-fit:cover; display:block; }
+  .preview-item .rm { position:absolute; top:4px; right:4px; width:26px; height:26px;
+    border-radius:50%; border:none; background:rgba(0,0,0,.55); color:#fff; font-size:.9rem;
+    cursor:pointer; display:flex; align-items:center; justify-content:center; }
   .upload-zone .preview { max-width:100%; max-height:240px; border-radius:8px; display:none; margin:0 auto; }
 
   /* File input hidden */
@@ -1457,13 +1553,26 @@ PARENT_PAGE = r'''<!DOCTYPE html>
 
   <!-- Upload Zone (wrapped) -->
   <div id="uploadSection">
+    <div class="grade-pick" id="gradePick">
+      <div style="font-size:.85rem;font-weight:600;margin-bottom:8px;">🎓 孩子现在读几年级？</div>
+      <div class="grade-opts" id="gradeOpts">
+        <button type="button" data-g="初一">初一</button>
+        <button type="button" data-g="初二">初二</button>
+        <button type="button" data-g="初三">初三</button>
+        <button type="button" data-g="高一">高一</button>
+        <button type="button" data-g="高二" class="active">高二</button>
+        <button type="button" data-g="高三">高三</button>
+      </div>
+    </div>
     <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
       <span class="icon">📸</span>
       <div class="title">点击拍照或选择试卷照片</div>
-      <div class="hint">支持 JPG/PNG，建议拍清晰</div>
+      <div class="hint">多页试卷可以拍多张，拍得清楚 AI 看得更准</div>
       <img class="preview" id="previewImg" />
     </div>
-    <input type="file" id="fileInput" accept="image/*" capture="environment" />
+    <input type="file" id="fileInput" accept="image/*" capture="environment" multiple />
+    <div class="preview-list" id="previewList"></div>
+    <button class="btn btn-primary" id="startBtn" style="display:none;width:100%;margin-top:12px;">🚀 开始分析（<span id="photoCount">0</span> 张）</button>
   </div>
 
   <!-- Result (one-time diagnosis) -->
@@ -1507,19 +1616,77 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     showUploadMode();
   })();
 
+  // ── 多图选择 + 压缩 + 确认上传（微信手机场景优化）──
+  let pickedFiles = [];   // [{file, url}]
+  let pickedGrade = '高二';
+
+  document.getElementById('gradeOpts').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-g]');
+    if (!btn) return;
+    pickedGrade = btn.dataset.g;
+    document.querySelectorAll('#gradeOpts button').forEach(b => b.classList.toggle('active', b === btn));
+  });
+
   fileInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      previewImg.src = ev.target.result;
-      previewImg.style.display = 'block';
-      uploadZone.querySelector('.icon').style.display = 'none';
-      uploadZone.querySelector('.title').textContent = '选好了，点这里重新拍';
-      uploadZone.querySelector('.hint').textContent = file.name;
-    };
-    reader.readAsDataURL(file);
-    await diagnose(file);
+    const list = Array.from(e.target.files || []);
+    if (!list.length) return;
+    for (const f of list) pickedFiles.push({ file: f, url: URL.createObjectURL(f) });
+    fileInput.value = '';  // 允许再次追加拍摄
+    renderPreviews();
+  });
+
+  function renderPreviews() {
+    const box = document.getElementById('previewList');
+    const btn = document.getElementById('startBtn');
+    box.innerHTML = pickedFiles.map((p, i) => `
+      <div class="preview-item">
+        <img src="${p.url}" alt="试卷照片 ${i+1}">
+        <button type="button" class="rm" onclick="removePhoto(${i})">✕</button>
+      </div>`).join('');
+    document.getElementById('photoCount').textContent = pickedFiles.length;
+    btn.style.display = pickedFiles.length ? 'block' : 'none';
+  }
+
+  function removePhoto(i) {
+    URL.revokeObjectURL(pickedFiles[i].url);
+    pickedFiles.splice(i, 1);
+    renderPreviews();
+  }
+
+  // 手机照片压缩：长边 ≤1600px、JPEG q0.8（原片 3-8MB → 数百 KB，
+  // 蜂窝上传提速且 OCR 精度不受影响）。非图片或压缩失败回退原文件。
+  function compressImage(file, maxEdge = 1600, quality = 0.8) {
+    return new Promise((resolve) => {
+      if (!file.type.startsWith('image/') || file.type === 'image/gif' || file.size < 300 * 1024) {
+        resolve(file); return;
+      }
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        try {
+          const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob((blob) => {
+            if (blob && blob.size < file.size) {
+              resolve(new File([blob], 'paper.jpg', { type: 'image/jpeg' }));
+            } else { resolve(file); }
+          }, 'image/jpeg', quality);
+        } catch (err) { resolve(file); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
+
+  document.getElementById('startBtn').addEventListener('click', async () => {
+    if (!pickedFiles.length) return;
+    const compressed = [];
+    for (const p of pickedFiles) compressed.push(await compressImage(p.file));
+    diagnose(compressed, pickedGrade);
   });
 
   function showUploadMode() {
@@ -1534,10 +1701,11 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     uploadSection.style.display = 'block';
     resultCard.style.display = 'none';
     progressCard.style.display = 'none';
-    previewImg.style.display = 'none';
-    uploadZone.querySelector('.icon').style.display = 'block';
-    uploadZone.querySelector('.title').textContent = '点这里，拍一张孩子的英语试卷';
-    uploadZone.querySelector('.hint').textContent = '拍得清楚一点，AI 看得更准哦';
+    pickedFiles.forEach(p => URL.revokeObjectURL(p.url));
+    pickedFiles = [];
+    renderPreviews();
+    document.getElementById('startBtn').style.display = 'none';
+    document.getElementById('steps').style.display = 'flex';
     setStep(1);
     window.scrollTo({top:0, behavior:'smooth'});
   }
@@ -1550,7 +1718,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     showUploadMode();
   }
 
-  async function diagnose(file) {
+  async function diagnose(files, grade) {
     uploadSection.style.display = 'none';
     dashboard.style.display = 'none';
     progressCard.style.display = 'block';
@@ -1558,27 +1726,42 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     setStep(2);
 
     const formData = new FormData();
-    formData.append('file', file);
+    files.forEach(f => formData.append('file', f));
+    formData.append('grade', grade || '高二');
     if (savedCode) formData.append('access_code', savedCode);
 
-    progressStatus.textContent = '正在上传，稍等一下...';
+    progressStatus.textContent = '正在上传照片...';
     progressStep.textContent = '';
 
+    // XHR：fetch 无上传进度事件，改用 upload.onprogress 显示真实字节进度
     let res;
     try {
-      res = await fetch('/api/parent/diagnose', { method:'POST', body:formData });
+      res = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/parent/diagnose');
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) {
+            const pct = Math.round(ev.loaded / ev.total * 100);
+            progressStatus.textContent = `正在上传照片 ${pct}%（${files.length} 张）`;
+          }
+        };
+        xhr.onload = () => resolve(xhr);
+        xhr.onerror = () => reject(new Error('network'));
+        xhr.send(formData);
+      });
     } catch(e) {
       showError('网络不太稳定，请再试一次');
       return;
     }
 
-    if (!res.ok) {
-      const err = await res.json().catch(()=>({error:'出了点小问题'}));
+    if (res.status >= 400) {
+      let err = {};
+      try { err = JSON.parse(res.responseText); } catch(e) {}
       showError(err.error || '上传没成功，再试一次吧');
       return;
     }
 
-    const { task_id, access_code } = await res.json();
+    const { task_id, access_code } = JSON.parse(res.responseText);
 
     // Remember code for returning
     if (access_code) {
@@ -1590,14 +1773,19 @@ PARENT_PAGE = r'''<!DOCTYPE html>
   }
 
   async function pollTask(taskId) {
+    // 后端真实步骤名（ctx.progress 写入 current_step），此前键名对不上恒显示"正在处理"
     const stepTexts = {
-      'ocr': '正在读取试卷上的每一行字...',
-      'analysis': '正在分析每道题错在哪里...',
-      'plan': '正在为你定制下周的学习重点...',
-      'report': '正在整理结果，马上就好...',
+      'OCR识别试卷': '正在读取试卷上的每一行字...',
+      'AI分析错题': '正在分析每道题错在哪里...',
+      '批改作文': '正在批改作文...',
+      'AI生成学习方案': '正在为你定制学习重点...',
+      '生成薄弱点矩阵': '正在梳理薄弱知识点...',
+      '生成诊断报告': '正在整理结果，马上就好...',
+      '生成分析报告': '正在整理结果，马上就好...',
     };
 
-    for (let i = 0; i < 120; i++) {
+    // 10 分钟预算（分析实际需 5-10 分钟；原 3 分钟会误报失败）
+    for (let i = 0; i < 400; i++) {
       await sleep(1500);
       let res;
       try { res = await fetch('/api/parent/task/' + taskId + '?code=' + encodeURIComponent(savedCode)); } catch(e) { continue; }
@@ -1608,7 +1796,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
         showError(data.error_message || '分析没成功，再试一次吧');
         return;
       }
-      progressStatus.textContent = stepTexts[data.current_step] || '正在处理...';
+      progressStatus.textContent = stepTexts[data.current_step] || 'AI 正在分析，请稍等...';
       progressStep.textContent = data.progress ? '进度 ' + data.progress + '%' : '';
       if (data.status === 'done') {
         setStep(3);
@@ -1622,7 +1810,18 @@ PARENT_PAGE = r'''<!DOCTYPE html>
         return;
       }
     }
-    showError('正在努力分析中，请稍后再看');
+    // 超时不再死错误：给出学习中心链接，分析结果出来后可回看
+    progressCard.style.display = 'none';
+    resultCard.style.display = 'block';
+    resultCard.innerHTML = `
+      <div style="text-align:center;padding:8px 0;">
+        <div style="font-size:2rem;">⏳</div>
+        <div style="font-weight:700;font-size:1.05rem;margin:8px 0 4px;">分析还在进行中</div>
+        <p style="font-size:.85rem;color:var(--sub);line-height:1.7;margin:0 0 14px;">
+          复杂试卷需要多分析一会儿，通常 5-10 分钟内完成。<br>不用一直等，稍后从下面链接进入就能看到结果。
+        </p>
+        ${savedCode ? `<a href="/s/${savedCode}" style="display:block;padding:14px;background:var(--accent);color:#fff;border-radius:12px;font-weight:600;font-size:.95rem;text-decoration:none;text-align:center;">📋 进入孩子的学情主页</a>` : ''}
+      </div>`;
   }
 
   // ── Progress / Dashboard ──

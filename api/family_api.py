@@ -658,11 +658,12 @@ def api_parent_diagnose():
     if 'file' not in request.files:
         return jsonify({"error": "请选择试卷照片"}), 400
 
-    file = request.files['file']
-    if not file.filename:
+    # 多页试卷支持：接收多张照片（多图时第一张必须有文件名）
+    files = [f for f in request.files.getlist('file') if f and f.filename]
+    if not files:
         return jsonify({"error": "请选择试卷照片"}), 400
 
-    grade = request.form.get('grade', '高中')
+    grade = (request.form.get('grade') or '').strip() or '高二'
     existing_code = (request.form.get('access_code') or '').strip()
 
     conn = get_connection()
@@ -697,7 +698,7 @@ def api_parent_diagnose():
     task_type = "weekly" if existing_code else "onboarding"
     try:
         task_id, _file_ids = upload_mod.family_upload(
-            sid, [file], uploader_role="parent",
+            sid, files, uploader_role="parent",
             task_type=task_type, stage="full",
             extra_input={"grade": grade, "subject": "英语"})
     except upload_mod.UploadError as e:
