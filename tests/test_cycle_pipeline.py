@@ -156,6 +156,109 @@ def test_start_node_mapping_and_resume_table():
 
 
 # ═══════════════════════════════════════════════════
+# 2.5 analyze 幂等：同任务重放不翻倍（2026-08 第 2 周提交 3）
+# ═══════════════════════════════════════════════════
+
+def test_analyze_replay_same_task_no_duplicates(env):
+    """崩溃窗口 [错题已入库, advance_cycle('graded') 未落] 内僵尸复活：
+    同一任务重放 analyze，先清理上次残留再重建——错题数不变。"""
+    db, sid, file_id, week_start = _make_student_and_file(env)
+    from domain import cycle as cycle_mod
+    from pipeline import cycle_pipeline
+
+    t1 = db.create_task(sid, "weekly", {"file_ids": [file_id], "stage": "grade_only"})
+    task = db.get_task(t1, db.DB_PATH)
+    cycle_pipeline.run_weekly(task, db.DB_PATH)
+
+    # 模拟崩溃：回退 Cycle 状态到 ocr_done（analyze 完成但 graded 未落），
+    # 任务回到 pending 后由恢复逻辑重跑（_ocr_text 已持久化，免重识别）
+    conn = db.get_connection(db.DB_PATH)
+    conn.execute("UPDATE weekly_records SET stage='ocr_done' WHERE student_id=? AND week_start=?",
+                 [sid, week_start])
+    conn.close()
+    db.update_task(t1, {"status": "pending"}, db.DB_PATH)
+
+    output = cycle_pipeline.run_weekly(db.get_task(t1, db.DB_PATH), db.DB_PATH)
+
+    # 错题不翻倍：仍是 demo 的 5 道（同任务重放已清理重建）
+    conn = db.get_connection(db.DB_PATH)
+    n = conn.execute("SELECT COUNT(*) FROM mistakes WHERE student_id=?", [sid]).fetchone()[0]
+    sessions = conn.execute(
+        "SELECT COUNT(*) FROM practice_sessions WHERE student_id=?", [sid]).fetchone()[0]
+    conn.close()
+    assert n == 5
+    assert sessions == 1
+    assert output["mistakes_count"] == 5
+
+
+def test_purge_task_mistakes_cleans_children(test_db_path, sample_student):
+    """purge_task_mistakes：删错题连带练习记录、置空题库引用、删场次。"""
+    import db
+    sid = sample_student
+    p = dict(db_path=db.DB_PATH)
+
+    tid = db.create_task(sid, "weekly", {"stage": "grade_only"})
+    mid = db.add_mistake(sid, question="q", correct_answer="A",
+                         source_task_id=tid, **p)
+    conn = db.get_connection(db.DB_PATH)
+    conn.execute("INSERT INTO practice_records (mistake_id, user_answer, is_correct) "
+                 "VALUES (?, 'A', 1)", [mid])
+    conn.execute("INSERT INTO questions (question_text, correct_answer, enabled, source_mistake_id) "
+                 "VALUES ('q', 'A', 1, ?)", [mid])
+    qid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.execute("INSERT INTO practice_sessions (student_id, exam_name, source_task_id) "
+                 "VALUES (?, 'e', ?)", [sid, tid])
+    conn.commit()
+    conn.close()
+
+    deleted = db.purge_task_mistakes(tid, db_path=db.DB_PATH)
+    assert deleted == 1
+
+    conn = db.get_connection(db.DB_PATH)
+    assert conn.execute("SELECT COUNT(*) FROM mistakes WHERE id=?", [mid]).fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM practice_records WHERE mistake_id=?",
+                        [mid]).fetchone()[0] == 0
+    # 题库题保留但引用置空
+    assert conn.execute("SELECT COUNT(*) FROM questions WHERE id=? AND source_mistake_id IS NULL",
+                        [qid]).fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM practice_sessions WHERE source_task_id=?",
+                        [tid]).fetchone()[0] == 0
+    conn.close()
+
+
+def test_analyze_failure_purges_partial_inserts(env, monkeypatch):
+    """插入中途异常：不留半成品错题（清理后重抛，任务标记失败）。"""
+    db, sid, file_id, week_start = _make_student_and_file(env)
+    from pipeline import cycle_pipeline
+
+    t1 = db.create_task(sid, "weekly", {"file_ids": [file_id], "stage": "grade_only"})
+
+    real_add = db.add_mistake
+    calls = {"n": 0}
+
+    def flaky_add(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 3:  # 第 3 条插入时崩溃
+            raise sqlite3.OperationalError("disk I/O error (simulated)")
+        return real_add(*args, **kwargs)
+
+    import sqlite3
+    monkeypatch.setattr(db, "add_mistake", flaky_add)
+
+    import pytest
+    with pytest.raises(sqlite3.OperationalError):
+        cycle_pipeline.run_weekly(db.get_task(t1, db.DB_PATH), db.DB_PATH)
+
+    # 半成品已清理：0 条错题、0 个场次
+    conn = db.get_connection(db.DB_PATH)
+    n = conn.execute("SELECT COUNT(*) FROM mistakes WHERE student_id=?", [sid]).fetchone()[0]
+    s = conn.execute("SELECT COUNT(*) FROM practice_sessions WHERE student_id=?", [sid]).fetchone()[0]
+    conn.close()
+    assert n == 0
+    assert s == 0
+
+
+# ═══════════════════════════════════════════════════
 # 3. 周报独立节点 + 周六条件式触发（D3 / P1-7）
 # ═══════════════════════════════════════════════════
 

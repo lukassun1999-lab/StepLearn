@@ -183,6 +183,10 @@ def node_ocr(ctx: Ctx):
 def node_analyze(ctx: Ctx):
     from domain import cycle as cycle_mod
     ctx.progress("AI分析错题", 35)
+    # 幂等清理：僵尸任务断点续跑重放本节点时，先删掉本任务上一次尝试
+    # 写入的错题/场次（崩溃窗口 [错题入库, advance_cycle 未落] 内复活，
+    # 不清理会造成错题翻倍）。清掉后按本次分析结果重建。
+    db.purge_task_mistakes(ctx.task_id, db_path=ctx.db_path)
     ocr_text = ctx.ocr_text
     teacher_notes = ctx.input_data.get("teacher_notes", "")
     if teacher_notes:
@@ -194,26 +198,33 @@ def node_analyze(ctx: Ctx):
         exam_name = f"{ctx.student['name']}首次诊断"
     else:
         exam_name = f"{ctx.student['name']}周测-{ctx.week_start}"
-    ctx.session_id = db.create_session(
-        ctx.student_id, exam_name=exam_name, db_path=ctx.db_path)
-    for m in mistakes:
-        mid = db.add_mistake(
-            student_id=ctx.student_id,
-            source_exam=exam_name,
-            question=m.get("question_text", ""),
-            question_type=m.get("question_type", ""),
-            correct_answer=m.get("correct_answer", ""),
-            user_answer=m.get("user_answer", ""),
-            explanation=m.get("explanation", "")[:500],
-            knowledge_points=m.get("knowledge_points", []),
-            difficulty=m.get("difficulty", 2),
-            error_cause=m.get("error_cause", ""),
-            cause_evidence=m.get("cause_evidence", ""),
-            passage=m.get("passage", ""),
-            db_path=ctx.db_path,
-        )
-        ctx.saved_mistake_ids.append(mid)
-        db.add_mistake_to_session(ctx.session_id, mid, db_path=ctx.db_path)
+    try:
+        ctx.session_id = db.create_session(
+            ctx.student_id, exam_name=exam_name,
+            source_task_id=ctx.task_id, db_path=ctx.db_path)
+        for m in mistakes:
+            mid = db.add_mistake(
+                student_id=ctx.student_id,
+                source_exam=exam_name,
+                question=m.get("question_text", ""),
+                question_type=m.get("question_type", ""),
+                correct_answer=m.get("correct_answer", ""),
+                user_answer=m.get("user_answer", ""),
+                explanation=m.get("explanation", "")[:500],
+                knowledge_points=m.get("knowledge_points", []),
+                difficulty=m.get("difficulty", 2),
+                error_cause=m.get("error_cause", ""),
+                cause_evidence=m.get("cause_evidence", ""),
+                passage=m.get("passage", ""),
+                source_task_id=ctx.task_id,
+                db_path=ctx.db_path,
+            )
+            ctx.saved_mistake_ids.append(mid)
+            db.add_mistake_to_session(ctx.session_id, mid, db_path=ctx.db_path)
+    except Exception:
+        # 插入中途失败：清掉本任务半成品，不留孤儿错题（下次重跑重建）
+        db.purge_task_mistakes(ctx.task_id, db_path=ctx.db_path)
+        raise
 
     db.update_weekly_record(ctx.student_id, ctx.week_start, kind=ctx.kind,
                             paper_submitted=1, paper_analyzed=1,

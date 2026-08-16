@@ -1010,27 +1010,60 @@ def add_mistake(
     error_cause: str = "",
     cause_evidence: str = "",
     passage: str = "",
+    source_task_id: int = None,
     db_path: str = DB_PATH,
 ) -> int:
-    """Add a new mistake. Returns the integer mistake ID."""
+    """Add a new mistake. Returns the integer mistake ID.
+
+    source_task_id：由流水线 analyze 节点写入，断点续跑重放时用于
+    定位并清理本任务上一次尝试的残留（幂等）。
+    """
     conn = get_connection(db_path)
     now = _now_iso()
     cur = conn.execute("""
         INSERT INTO mistakes (student_id, source_exam, question, question_type,
             correct_answer, user_answer, explanation, knowledge_points, difficulty,
-            error_cause, cause_evidence, passage,
+            error_cause, cause_evidence, passage, source_task_id,
             next_review_at, review_interval_hours, review_stage, last_reviewed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, [
         student_id, source_exam, question, question_type,
         correct_answer, user_answer, explanation,
         json.dumps(knowledge_points or [], ensure_ascii=False), difficulty,
-        error_cause, cause_evidence, passage,
+        error_cause, cause_evidence, passage, source_task_id,
         now, 1.0, 0, now
     ])
     conn.commit()
     conn.close()
     return cur.lastrowid
+
+
+def purge_task_mistakes(task_id: int, db_path: str = DB_PATH) -> int:
+    """删除某次任务写入的全部错题及其从属数据（练习记录/题库引用/场次）。
+
+    analyze 节点重放（僵尸任务断点续跑）前调用，保证幂等：
+    崩溃窗口 [错题已入库, advance_cycle 未落] 内复活不会造成错题翻倍。
+    返回删除的错题数。
+    """
+    conn = get_connection(db_path)
+    try:
+        conn.execute("""
+            UPDATE questions SET source_mistake_id = NULL
+            WHERE source_mistake_id IN (
+                SELECT id FROM mistakes WHERE source_task_id = ?)
+        """, [task_id])
+        conn.execute("""
+            DELETE FROM practice_records WHERE mistake_id IN (
+                SELECT id FROM mistakes WHERE source_task_id = ?)
+        """, [task_id])
+        cur = conn.execute(
+            "DELETE FROM mistakes WHERE source_task_id = ?", [task_id])
+        conn.execute(
+            "DELETE FROM practice_sessions WHERE source_task_id = ?", [task_id])
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
 
 
 def get_mistake(mistake_id: int, db_path: str = DB_PATH) -> Optional[Dict[str, Any]]:
@@ -1400,12 +1433,13 @@ def get_weak_knowledge_points(student_id: int = None, top_n: int = 5,
 # ═══════════════════════════════════════════════════
 
 def create_session(student_id: int, exam_name: str = "",
+                   source_task_id: int = None,
                    db_path: str = DB_PATH) -> int:
     conn = get_connection(db_path)
     cur = conn.execute("""
-        INSERT INTO practice_sessions (student_id, exam_name, status)
-        VALUES (?, ?, 'analyzing')
-    """, [student_id, exam_name])
+        INSERT INTO practice_sessions (student_id, exam_name, status, source_task_id)
+        VALUES (?, ?, 'analyzing', ?)
+    """, [student_id, exam_name, source_task_id])
     conn.commit()
     conn.close()
     return cur.lastrowid
