@@ -54,6 +54,9 @@ VISION_MODEL=kimi-k2.6
 # HTTPS（经反向代理终结 TLS 后置 true，启用 Secure cookie）
 HTTPS_ENABLED=true
 
+# 日志级别（默认 INFO；排障时可 DEBUG）
+# LOG_LEVEL=INFO
+
 # 商用收学生后开启（无监护人同意禁止上传）
 # CONSENT_REQUIRED=true
 ```
@@ -112,8 +115,9 @@ sudo systemctl reload caddy
 ## 6. 日常运维
 
 ```bash
-# 日志
+# 日志：stderr 进 journald；同时落 logs/app.log（1MB×5 自动轮转）
 sudo journalctl -u steplearn -f
+tail -f /opt/steplearn/logs/app.log
 
 # 数据库备份（backups/ 目录，调度器每日 03:00 后自动跑 + 保留策略）
 # 手动备份：

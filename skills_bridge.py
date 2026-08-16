@@ -7,6 +7,7 @@ Pipeline 代码只调这个模块，不直接操作 subprocess/LLM。
 """
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -14,6 +15,8 @@ import sys
 from typing import Any, Dict, List, Optional
 
 from llm import OCR_BACKEND, VISION_MODEL, LLMClient
+
+log = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════
 # Business Constants
@@ -1223,7 +1226,7 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
                     "source_mistake_id": source_mistake_id,
                 })
             except Exception:
-                pass
+                log.warning("题目入库失败（来源 llm）", exc_info=True)
 
     # Mark bank questions as used
     if used_ids:
@@ -1415,7 +1418,7 @@ def generate_similar_questions(mistake: Dict, count: int = 2,
         conn.close()
         existing_texts = [r[0] for r in rows if r[0]]
     except Exception:
-        pass
+        log.warning("题库已有题目查询失败", exc_info=True)
 
     original_text = mistake.get("question", "")
     original_text_clean = _re.sub(r'[A-D]\.\s*\S+', '', original_text).strip()
@@ -1473,7 +1476,7 @@ def generate_similar_questions(mistake: Dict, count: int = 2,
             saved.append(get_question(qid))
             seen_texts.append(q_text)
         except Exception:
-            pass
+            log.warning("相似题入库失败（来源 similar）", exc_info=True)
 
     return saved
 

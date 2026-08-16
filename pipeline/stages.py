@@ -11,9 +11,12 @@ ai_tasks.input_data._ocr_text，僵尸任务复活时免重识别。
 """
 
 import json
+import logging
 import os
 import uuid
 from datetime import date, timedelta
+
+log = logging.getLogger(__name__)
 
 import db
 from skills_bridge import (
@@ -133,7 +136,7 @@ def ocr_to_text(file_ids, student_id, task_id, db_path):
         try:
             jobs.append((idx, get_image_path(student_id, fid, db_path)))
         except Exception:
-            pass
+            log.warning("试卷图片缺失跳过 file_id=%s", fid, exc_info=True)
     results = run_ocr_parallel([p for _, p in jobs], task_id=task_id)
     parts = [None] * len(file_ids)
     conf_sum, conf_n = 0.0, 0
@@ -639,4 +642,4 @@ def node_weekly_report(ctx: Ctx):
                            duration_minutes=5, source="auto",
                            db_path=ctx.db_path)
     except Exception:
-        pass
+        log.warning("周报打卡记录失败 student=%s", ctx.student_id, exc_info=True)

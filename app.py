@@ -18,8 +18,15 @@ import threading
 from dotenv import load_dotenv
 load_dotenv()
 
+from log_setup import setup_logging
+setup_logging()
+
+import logging
+
 from flask import Flask
 from werkzeug.security import generate_password_hash
+
+log = logging.getLogger(__name__)
 
 from db import (
     DB_PATH, init_db, get_connection,
@@ -122,7 +129,7 @@ def _backup_scheduler_loop():
                     backup_module.run_backup('weekly')
                 backup_module.auto_cleanup()
         except Exception:
-            pass
+            log.exception("备份调度循环异常")
         time.sleep(_BACKUP_CHECK_SECS)
 
 
@@ -303,12 +310,11 @@ if __name__ == '__main__':
 
     init_db()
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    print('=' * 50)
-    print('  拾阶而上 · 管理系统')
-    print(f'  版本: {VERSION}')
-    print('  http://localhost:5000')
-    print(f'  数据库: {DB_PATH}')
-    print(f'  上传目录: {UPLOAD_DIR}')
-    print(f'  LLM 缓存: {"开启" if os.environ.get("LLM_CACHE_ENABLED") == "true" else "关闭"}')
-    print('=' * 50)
+    log.info('=' * 50)
+    log.info('拾阶而上 · 管理系统 v%s', VERSION)
+    log.info('http://localhost:5000')
+    log.info('数据库: %s', DB_PATH)
+    log.info('上传目录: %s', UPLOAD_DIR)
+    log.info('LLM 缓存: %s', '开启' if os.environ.get('LLM_CACHE_ENABLED') == 'true' else '关闭')
+    log.info('=' * 50)
     app.run(host='127.0.0.1', port=5000, debug=False)

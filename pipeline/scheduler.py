@@ -10,10 +10,13 @@
   与手动补发共用同一节点，DB 级窗口去重（本周六起）防双发。
 """
 
+import logging
 import sys
 import threading
 import time
 from datetime import datetime
+
+log = logging.getLogger(__name__)
 
 _scheduler_thread = None
 _last_scheduler_run = None  # date string to prevent duplicate runs
@@ -106,11 +109,9 @@ def _trigger_batch_tasks(stage: str, db_path: str):
             count += 1
         conn.close()
         if count:
-            print(f"  [scheduler] 已为 {count} 个学生创建 {stage} 任务",
-                  file=sys.stderr)
+            log.info("已为 %d 个学生创建 %s 任务", count, stage)
     except Exception:
-        import traceback
-        traceback.print_exc()
+        log.exception("调度器批量任务触发失败: %s", stage)
 
 
 def _trigger_weekly_reports(db_path: str):
@@ -146,11 +147,9 @@ def _trigger_weekly_reports(db_path: str):
             count += 1
         conn.close()
         if count:
-            print(f"  [scheduler] 已为 {count} 个学生创建本周周报任务",
-                  file=sys.stderr)
+            log.info("已为 %d 个学生创建本周周报任务", count)
     except Exception:
-        import traceback
-        traceback.print_exc()
+        log.exception("调度器周报触发失败")
 
 
 def _scheduler_loop():
@@ -177,6 +176,6 @@ def _scheduler_loop():
                 if now.weekday() >= 5:
                     _trigger_weekly_reports(default_db)
         except Exception:
-            pass
+            log.exception("调度循环异常")
 
         time.sleep(3600)

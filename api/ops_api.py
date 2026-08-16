@@ -3,8 +3,11 @@
 """运营端 API 蓝图：管理后台全部管理与运维接口（P2-12 自 app.py 拆出）。"""
 
 import json
+import logging
 import os
 from datetime import date
+
+log = logging.getLogger(__name__)
 
 from flask import Blueprint, jsonify, request, send_file, session
 from werkzeug.security import generate_password_hash
@@ -899,7 +902,7 @@ def api_task_corrections_create(task_id):
         try:
             rerun_task_id = _enqueue_correction_rerun(task, valid_items)
         except Exception:
-            pass
+            log.warning("纠错重跑入队失败 task=%s", task.get("id"), exc_info=True)
 
     response = {"created": len(created_ids), "correction_ids": created_ids}
     if rerun_task_id:

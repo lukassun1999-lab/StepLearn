@@ -6,12 +6,15 @@ Python threading + queue.Queue — 无外部依赖。
 """
 
 import json
+import logging
 import os
 import queue
 import random
 import threading
 import traceback
 import weakref
+
+log = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════
 # Task Queue & Worker Threads
@@ -101,7 +104,7 @@ def _create_sampling_checks(task_id: int, output_data: dict, db_path: str) -> No
         try:
             create_safety_check(task_id, content_type, snapshot, db_path=db_path)
         except Exception:
-            pass
+            log.warning("安全抽检记录失败 task=%s", task_id, exc_info=True)
 
 
 def _process_task(task, db_path):
@@ -125,10 +128,12 @@ def _process_task(task, db_path):
         # grade_only 现在是一次任务跑完分析主链（engine 声明式链）。
     except Exception as e:
         error_msg = f"{type(e).__name__}: {e}\n{traceback.format_exc(limit=5)}"
+        log.error("任务失败 task=%s student=%s: %s", task_id,
+                  task.get("student_id"), error_msg.splitlines()[0])
         try:
             mark_task_failed(task_id, error_msg, db_path)
         except Exception:
-            pass  # don't let logging failure crash the worker
+            log.error("任务失败状态落库也失败 task=%s", task_id, exc_info=True)
         # Refund the quota consumed at upload time so the parent can retry for free
         try:
             input_data = task.get("input_data") or {}
@@ -138,7 +143,9 @@ def _process_task(task, db_path):
                 from db import refund_quota
                 refund_quota(task["student_id"], db_path)
         except Exception:
-            pass
+            # 退还失败=家长为失败任务白付一次额度，必须可见
+            log.error("额度退还失败 student=%s task=%s", task.get("student_id"), task_id,
+                      exc_info=True)
 
 
 def _worker_loop():
@@ -164,7 +171,7 @@ def _worker_loop():
                 _task_queue.task_done()
         except Exception:
             # Never let an unexpected queue-level error kill the worker thread.
-            traceback.print_exc()
+            log.exception("worker 队列级异常")
 
 
 ZOMBIE_RESUME_MAX_AGE_H = 24  # zombies younger than this get auto-resumed
@@ -200,7 +207,7 @@ def _recover_tasks():
         try:
             input_data = json.loads(row["input_data"] or "{}")
         except Exception:
-            pass
+            log.warning("恢复任务 %s 的 input_data 解析失败", row["id"], exc_info=True)
 
         if row["status"] == "pending":
             _task_queue.put((row["id"], default_db))
@@ -226,7 +233,7 @@ def _recover_tasks():
                 _task_queue.put((row["id"], default_db))
                 resumed += 1
             except Exception:
-                pass
+                log.warning("僵尸任务 %s 重新入队失败", row["id"], exc_info=True)
         else:
             try:
                 mark_task_failed(
@@ -238,11 +245,10 @@ def _recover_tasks():
                     refund_quota(row["student_id"], default_db)
                 reaped += 1
             except Exception:
-                pass
+                log.warning("僵尸任务 %s 收尸失败", row["id"], exc_info=True)
 
     if resumed or reaped:
-        print(f"  [worker] 恢复 {resumed} 个中断任务，收尸 {reaped} 个僵尸任务",
-              file=sys.stderr)
+        log.info("恢复 %d 个中断任务，收尸 %d 个僵尸任务", resumed, reaped)
 
 
 def start_worker():
