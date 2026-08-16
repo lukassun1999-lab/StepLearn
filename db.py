@@ -8,6 +8,7 @@
 import sqlite3
 import json
 import os
+import shutil
 import uuid
 from datetime import datetime, date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -301,6 +302,25 @@ def _migrate_db(conn: sqlite3.Connection) -> None:
         """)
         conn.commit()
 
+    # 监护人同意版本化/撤回（PIPL 合规）：版本号 + 撤回时间
+    consent_cols = [c["name"] for c in conn.execute("PRAGMA table_info(parent_consents)").fetchall()]
+    if consent_cols:
+        if "consent_version" not in consent_cols:
+            conn.execute("ALTER TABLE parent_consents ADD COLUMN consent_version TEXT DEFAULT 'v1'")
+            conn.commit()
+        if "withdrawn_at" not in consent_cols:
+            conn.execute("ALTER TABLE parent_consents ADD COLUMN withdrawn_at TIMESTAMP")
+            conn.commit()
+
+    # 流水线 analyze 幂等：错题/练习场次关联任务 ID（断点续跑防重复插入）
+    if mistake_col_names and "source_task_id" not in mistake_col_names:
+        conn.execute("ALTER TABLE mistakes ADD COLUMN source_task_id INTEGER")
+        conn.commit()
+    session_cols = [c["name"] for c in conn.execute("PRAGMA table_info(practice_sessions)").fetchall()]
+    if session_cols and "source_task_id" not in session_cols:
+        conn.execute("ALTER TABLE practice_sessions ADD COLUMN source_task_id INTEGER")
+        conn.commit()
+
     conn.commit()
 
 
@@ -513,6 +533,7 @@ def init_db(db_path: str = DB_PATH) -> None:
             next_review_at TIMESTAMP,
             review_interval_hours REAL DEFAULT 0,
             review_stage INTEGER DEFAULT 0,
+            source_task_id INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (student_id) REFERENCES students(id)
         );
@@ -534,6 +555,7 @@ def init_db(db_path: str = DB_PATH) -> None:
             status TEXT DEFAULT 'analyzing',
             current_question_index INTEGER DEFAULT 0,
             mistake_ids TEXT DEFAULT '[]',
+            source_task_id INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (student_id) REFERENCES students(id)
@@ -659,6 +681,8 @@ def init_db(db_path: str = DB_PATH) -> None:
             contact TEXT,
             ip_address TEXT,
             notes TEXT,
+            consent_version TEXT DEFAULT 'v1',
+            withdrawn_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (student_id) REFERENCES students(id)
         );
@@ -3262,27 +3286,38 @@ def lookup_referrer_by_code(invite_code: str, db_path: str = DB_PATH) -> Optiona
 
 def record_parent_consent(student_id: int, consented_by: str, contact: str = "",
                             ip_address: str = "", notes: str = "",
+                            consent_version: str = "v1",
                             db_path: str = DB_PATH) -> int:
-    """Record parent consent for student data processing."""
+    """Record parent consent for student data processing.
+
+    consent_version：同意书版本号，政策变更后新记录携带新版本，
+    便于审计「该学生同意的是哪一版条款」。
+    """
     conn = get_connection(db_path)
-    cur = conn.execute("""
-        INSERT INTO parent_consents (student_id, consented_by, contact, ip_address, notes)
-        VALUES (?, ?, ?, ?, ?)
-    """, [student_id, consented_by, contact, ip_address, notes])
-    conn.commit()
-    conn.close()
-    return cur.lastrowid
+    try:
+        cur = conn.execute("""
+            INSERT INTO parent_consents
+                (student_id, consented_by, contact, ip_address, notes, consent_version)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, [student_id, consented_by, contact, ip_address, notes, consent_version])
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
 
 
 def has_parent_consent(student_id: int, db_path: str = DB_PATH) -> bool:
-    """Check if parent consent exists for a student."""
+    """Check if parent consent exists for a student（已撤回的同意不算数）。"""
     conn = get_connection(db_path)
-    row = conn.execute(
-        "SELECT id FROM parent_consents WHERE student_id = ? LIMIT 1",
-        [student_id]
-    ).fetchone()
-    conn.close()
-    return row is not None
+    try:
+        row = conn.execute(
+            "SELECT id FROM parent_consents "
+            "WHERE student_id = ? AND withdrawn_at IS NULL LIMIT 1",
+            [student_id]
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
 
 
 def get_students_without_consent(db_path: str = DB_PATH) -> List[Dict[str, Any]]:
@@ -3314,30 +3349,118 @@ def request_data_deletion(student_id: int, requested_by: str, reason: str = "",
 
 
 def process_data_deletion(request_id: int, db_path: str = DB_PATH) -> bool:
-    """Process a deletion request by soft-deleting the student and related data."""
+    """处理删除请求：硬删全部个人数据（PIPL），仅保留两类记录。
+
+    保留：
+    - payments：金额/日期/套餐留档（财务/税务要求），经匿名学生存根关联
+    - deletion_requests：本行标记 completed 作审计轨迹
+    其余从属数据（错题/任务/文件/画像/订阅等）连同磁盘上传目录一并删除；
+    students 行保留无 PII 的匿名存根（status='deleted'）供对账外键不悬空。
+    """
     conn = get_connection(db_path)
-    row = conn.execute(
-        "SELECT student_id FROM deletion_requests WHERE id = ?", [request_id]
-    ).fetchone()
-    if not row:
+    try:
+        row = conn.execute(
+            "SELECT student_id FROM deletion_requests WHERE id = ?", [request_id]
+        ).fetchone()
+        if not row:
+            return False
+        student_id = row["student_id"]
+
+        # 匿名化前先取手机号（sms_codes 按手机号关联，学生行稍后清空 PII）
+        stu = conn.execute(
+            "SELECT phone, parent_phone FROM students WHERE id = ?",
+            [student_id]).fetchone()
+        phones = {stu["phone"], stu["parent_phone"]} - {None, ""} if stu else set()
+
+        # 题库题保留（可跨学生复用），仅切断对已删错题的引用
+        conn.execute("""
+            UPDATE questions SET source_mistake_id = NULL
+            WHERE source_mistake_id IN (SELECT id FROM mistakes WHERE student_id = ?)
+        """, [student_id])
+        # 练习记录挂在错题下，先删
+        conn.execute("""
+            DELETE FROM practice_records WHERE mistake_id IN (
+                SELECT id FROM mistakes WHERE student_id = ?)
+        """, [student_id])
+        # 任务从属表键在 task_id，先于 ai_tasks 删除（子查询依赖其行存在）
+        conn.execute("""
+            DELETE FROM llm_usage_log WHERE task_id IN (
+                SELECT id FROM ai_tasks WHERE student_id = ?)
+        """, [student_id])
+        conn.execute("""
+            DELETE FROM aigc_safety_checks WHERE task_id IN (
+                SELECT id FROM ai_tasks WHERE student_id = ?)
+        """, [student_id])
+        # 其余按 FK 依赖顺序硬删（键均为 student_id）
+        for table in (
+            "mistakes", "practice_sessions",
+            "ai_corrections", "ai_tasks",
+            "files", "learning_plans", "plan_updates", "weekly_records",
+            "score_history", "check_ins", "achievements",
+            "metacognitive_reviews", "parent_consents",
+            "subscriptions", "student_profiles",
+            "cause_profiles", "cause_profile_history",
+        ):
+            conn.execute(f"DELETE FROM {table} WHERE student_id = ?", [student_id])
+        # referrals 键为 referrer/referred 双向；sms_codes 按手机号关联
+        conn.execute(
+            "DELETE FROM referrals WHERE referrer_student_id = ? OR referred_student_id = ?",
+            [student_id, student_id])
+        for ph in phones:
+            conn.execute("DELETE FROM sms_codes WHERE phone = ?", [ph])
+        # 审计日志无 student_id 列：按 actor/target 关联清除含该学生的行
+        conn.execute(
+            "DELETE FROM audit_logs WHERE actor_id = ? OR target_id = ?",
+            [str(student_id), str(student_id)])
+
+        # 学生行 → 无 PII 匿名存根（保留 id 供 payments 外键与对账）
+        conn.execute("""
+            UPDATE students SET
+                name = '已注销学生', grade = '', school_type = '',
+                english_score = NULL, target_score = NULL,
+                parent_name = NULL, parent_wechat = NULL, parent_phone = NULL,
+                notes = NULL, phone = NULL, password_hash = NULL,
+                gender = NULL, textbook_version = NULL, semester = NULL,
+                school_id = NULL, class_id = NULL,
+                status = 'deleted', access_code = NULL, parent_access_code = NULL
+            WHERE id = ?
+        """, [student_id])
+
+        conn.execute(
+            "UPDATE deletion_requests SET status = 'completed', processed_at = ? WHERE id = ?",
+            [_now_iso(), request_id],
+        )
+        conn.commit()
+    finally:
         conn.close()
-        return False
 
-    student_id = row["student_id"]
-
-    # Soft delete student
-    conn.execute(
-        "UPDATE students SET status = 'deleted', access_code = NULL, parent_access_code = NULL WHERE id = ?",
-        [student_id],
-    )
-    # Mark deletion request as completed
-    conn.execute(
-        "UPDATE deletion_requests SET status = 'completed', processed_at = ? WHERE id = ?",
-        [_now_iso(), request_id],
-    )
-    conn.commit()
-    conn.close()
+    # 磁盘上传目录在 DB 提交后删除（尽力而为，失败不回滚）。
+    # 与 web.shared.UPLOAD_DIR 同源：项目根/uploads（按 db.py 自身位置定位，
+    # 不依赖 db_path —— 测试库在临时目录时路径仍指向真实 uploads）。
+    upload_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "uploads", str(student_id))
+    shutil.rmtree(upload_dir, ignore_errors=True)
     return True
+
+
+def withdraw_parent_consent(student_id: int, withdrawn_by: str, reason: str = "",
+                            db_path: str = DB_PATH) -> bool:
+    """撤回监护人同意：所有有效同意记录标记 withdrawn_at（保留历史轨迹）。"""
+    conn = get_connection(db_path)
+    try:
+        cur = conn.execute("""
+            UPDATE parent_consents SET withdrawn_at = ?
+            WHERE student_id = ? AND withdrawn_at IS NULL
+        """, [_now_iso(), student_id])
+        if reason:
+            conn.execute("""
+                UPDATE parent_consents SET notes = COALESCE(notes, '') || ?
+                WHERE student_id = ? AND withdrawn_at IS NOT NULL
+            """, [f"\n[撤回] {withdrawn_by}: {reason}", student_id])
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
 
 
 def get_pending_deletion_requests(db_path: str = DB_PATH) -> List[Dict[str, Any]]:

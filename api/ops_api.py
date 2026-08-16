@@ -1137,6 +1137,7 @@ def api_record_parent_consent():
     consented_by = (data.get('consented_by') or '').strip()
     contact = (data.get('contact') or '').strip()
     notes = (data.get('notes') or '').strip()
+    consent_version = (data.get('consent_version') or 'v1').strip()
 
     if not student_id or not consented_by:
         return jsonify({"error": "student_id and consented_by are required"}), 400
@@ -1151,6 +1152,7 @@ def api_record_parent_consent():
         contact=contact,
         ip_address=request.remote_addr or '',
         notes=notes,
+        consent_version=consent_version,
     )
     log_audit(
         actor_type="teacher",
@@ -1158,10 +1160,40 @@ def api_record_parent_consent():
         action="record_parent_consent",
         target_type="student",
         target_id=student_id,
-        details={"consent_id": consent_id, "consented_by": consented_by},
+        details={"consent_id": consent_id, "consented_by": consented_by,
+                 "consent_version": consent_version},
         ip_address=request.remote_addr or '',
     )
     return jsonify({"id": consent_id, "success": True})
+
+@ops_api_bp.route('/api/compliance/consents/withdraw', methods=['POST'])
+@staff_required
+def api_withdraw_parent_consent():
+    """撤回监护人同意（PIPL 赋予的撤回权）：撤回后视为无同意。"""
+    data = request.get_json() or {}
+    student_id = data.get('student_id')
+    reason = (data.get('reason') or '').strip()
+    withdrawn_by = session.get("user_name") or str(session.get("user_id") or "staff")
+
+    if not student_id:
+        return jsonify({"error": "student_id is required"}), 400
+
+    student = get_student(student_id)
+    if not student:
+        return jsonify({"error": "student not found"}), 404
+
+    withdrawn = withdraw_parent_consent(
+        student_id=student_id, withdrawn_by=withdrawn_by, reason=reason)
+    log_audit(
+        actor_type="teacher",
+        actor_id=session.get("user_id"),
+        action="withdraw_parent_consent",
+        target_type="student",
+        target_id=student_id,
+        details={"reason": reason, "had_active_consent": withdrawn},
+        ip_address=request.remote_addr or '',
+    )
+    return jsonify({"success": True, "had_active_consent": withdrawn})
 
 @ops_api_bp.route('/api/compliance/deletion-requests', methods=['GET'])
 @staff_required

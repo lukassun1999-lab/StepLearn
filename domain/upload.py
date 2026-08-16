@@ -81,6 +81,13 @@ def family_upload(student_id, files, *, uploader_role: str = "parent",
         UploadError: 无有效文件(400) / 额度或订阅问题(429)
     """
     db_path = db_path or db.DB_PATH
+
+    # PIPL 门禁：CONSENT_REQUIRED=true 时，无有效监护人同意不得处理学生数据。
+    # 默认关闭（个人使用不打断）；商用上线置 true 强制合规。
+    if (os.environ.get("CONSENT_REQUIRED") == "true"
+            and not db.has_parent_consent(student_id, db_path=db_path)):
+        raise UploadError("尚未获得监护人数据处理同意，请联系老师完成同意登记后再上传", 403)
+
     file_ids = save_files(student_id, files, uploader_role=uploader_role,
                           db_path=db_path)
     if not file_ids:
