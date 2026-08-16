@@ -60,35 +60,70 @@ start_worker()
 # ═══════════════════════════════════════════════════
 
 _backup_scheduler_started = False
-_BACKUP_INTERVAL_SECS = 3600  # check every hour
+_BACKUP_CHECK_SECS = 1800  # check every 30 min
+
+
+def _should_run_backup(now, last_daily_at, last_weekly_at):
+    """备份决策（纯函数，便于单测）：
+
+    - daily：每天 03:00 后，且近 24h 内无 daily 备份 → 执行（全天补跑，
+      不再限定 03:00-03:10 窗口——错过窗口即永久跳过是原实现的缺陷）
+    - weekly：03:00 后且近 7 天无 weekly 备份 → 执行（7 天新鲜度窗口
+      本身保证每周一次；原先 weekly 分支被 daily 分支遮蔽，属死代码）
+    时间参数为 UTC datetime（backups.created_at 为 CURRENT_TIMESTAMP）。
+    """
+    from datetime import timedelta
+
+    def _fresh(ts, window):
+        return ts is not None and (now - ts) < window
+
+    after_3am = now.hour >= 3
+    run_daily = after_3am and not _fresh(last_daily_at, timedelta(hours=24))
+    run_weekly = after_3am and not _fresh(last_weekly_at, timedelta(days=7))
+    return run_daily, run_weekly
+
+
+def _latest_backup_times(db_path=None):
+    """从 backups 表读最近一次 daily / weekly 备份时间（UTC）。"""
+    from datetime import datetime
+    from db import get_connection, DB_PATH
+
+    conn = get_connection(db_path or DB_PATH)
+    rows = conn.execute(
+        "SELECT backup_type, MAX(created_at) AS last_at FROM backups "
+        "GROUP BY backup_type").fetchall()
+    conn.close()
+    result = {}
+    for r in rows:
+        try:
+            result[r["backup_type"]] = datetime.fromisoformat(
+                str(r["last_at"]).replace(" ", "T")[:19])
+        except Exception:
+            result[r["backup_type"]] = None
+    return result.get("daily"), result.get("weekly")
 
 
 def _backup_scheduler_loop():
-    """Background scheduler: run daily/weekly backups at ~03:00."""
+    """Background scheduler: daily/weekly backups with DB-level dedup + catch-up."""
     import time
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     while True:
         try:
-            now = datetime.now()
-            # Daily backup around 03:00
-            if now.hour == 3 and now.minute < 10:
+            # backups.created_at 为 UTC；统一用 UTC 判断，避免本地时区偏差
+            last_daily, last_weekly = _latest_backup_times()
+            run_daily, run_weekly = _should_run_backup(
+                datetime.now(timezone.utc), last_daily, last_weekly)
+            if run_daily or run_weekly:
                 import backup as backup_module
-                backup_module.run_backup('daily')
+                if run_daily:
+                    backup_module.run_backup('daily')
+                if run_weekly:
+                    backup_module.run_backup('weekly')
                 backup_module.auto_cleanup()
-                # Sleep long enough to avoid duplicate run in the same window
-                time.sleep(12 * 3600)
-                continue
-            # Weekly backup on Monday around 03:00
-            if now.weekday() == 0 and now.hour == 3 and now.minute < 10:
-                import backup as backup_module
-                backup_module.run_backup('weekly')
-                backup_module.auto_cleanup()
-                time.sleep(12 * 3600)
-                continue
         except Exception:
             pass
-        time.sleep(_BACKUP_INTERVAL_SECS)
+        time.sleep(_BACKUP_CHECK_SECS)
 
 
 def start_backup_scheduler():
