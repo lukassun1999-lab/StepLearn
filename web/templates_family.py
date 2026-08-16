@@ -27,7 +27,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .header { text-align:center; padding:28px 0 18px; border-bottom:2px solid var(--accent); margin-bottom:18px; }
 .header h1 { font-size:1.55rem; color:var(--accent); font-weight:800; letter-spacing:.01em; }
 .header .sub { color:var(--sub); font-size:.95rem; margin-top:6px; }
-.summary { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:18px; }
+.summary { display:grid; grid-template-columns:repeat(auto-fit, minmax(96px, 1fr)); gap:12px; margin-bottom:18px; }
 .sum-item { background:var(--card); border:none; border-radius:12px; padding:16px 12px; text-align:center; box-shadow:var(--shadow); }
 .sum-item .num { font-size:1.65rem; font-weight:800; color:var(--accent); }
 .sum-item .label { font-size:.8rem; color:var(--sub); margin-top:2px; }
@@ -60,7 +60,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .cal-dow { text-align:center; font-size:.75rem; color:var(--mute); font-weight:600; padding:2px 0 4px; }
 .cal-dow.sun, .cal-dow.sat { color:var(--red); }
 .cal-nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
-.cal-nav-btn { background:var(--card); border:1px solid var(--border); border-radius:8px; width:32px; height:32px; font-size:1rem; cursor:pointer; color:var(--sub); display:flex; align-items:center; justify-content:center; transition:all .2s; }
+.cal-nav-btn { background:var(--card); border:1px solid var(--border); border-radius:8px; width:44px; height:44px; font-size:1rem; cursor:pointer; color:var(--sub); display:flex; align-items:center; justify-content:center; transition:all .2s; }
 .cal-nav-btn:hover { border-color:var(--accent); color:var(--accent); }
 .cal-nav-title { font-size:1.05rem; font-weight:700; }
 .cal-day { position:relative; aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:8px; font-size:.85rem; background:var(--card); border:none; box-shadow:var(--shadow-sm); color:var(--sub); cursor:default; }
@@ -70,7 +70,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .cal-day.checked::after { content:''; position:absolute; bottom:3px; width:5px; height:5px; border-radius:50%; background:var(--green); }
 .cal-day.today { box-shadow:0 0 0 2px var(--accent); }
 .cal-day.other { opacity:.25; }
-.cal-day .hol-name { position:absolute; bottom:1px; left:0; right:0; font-size:.5rem; color:var(--red); font-weight:600; line-height:1; white-space:nowrap; overflow:hidden; }
+.cal-day .hol-name { position:absolute; bottom:1px; left:0; right:0; font-size:.7rem; color:var(--red); font-weight:600; line-height:1; white-space:nowrap; overflow:hidden; }
 .week-row { display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); font-size:.92rem; }
 .week-row:last-child { border-bottom:none; }
 .footer { text-align:center; color:var(--mute); font-size:.85rem; margin-top:36px; padding-top:18px; border-top:1px solid var(--border); }
@@ -96,7 +96,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .ach-date { font-size:.7em; color:var(--accent); margin-top:4px; }
 .ach-progress { width:100%; height:5px; background:var(--border); border-radius:3px; overflow:hidden; margin-top:6px; }
 .ach-progress-bar { height:100%; background:linear-gradient(90deg,var(--accent),var(--green)); border-radius:3px; transition:width .5s; }
-.ach-progress-text { font-size:.65em; color:var(--sub); margin-top:2px; }
+.ach-progress-text { font-size:.75em; color:var(--sub); margin-top:2px; }
 /* Learning Path Timeline */
 .timeline { position:relative; padding-left:28px; }
 .timeline::before { content:''; position:absolute; left:8px; top:0; bottom:0; width:3px; background:linear-gradient(to bottom, var(--accent), var(--green), var(--border)); border-radius:2px; }
@@ -111,7 +111,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 /* Metacognitive Review Form */
 .review-input { width:100%; border:1px solid var(--border); border-radius:6px; padding:8px 10px; font-size:.85em; font-family:inherit; resize:vertical; box-sizing:border-box; }
 .review-input:focus { outline:none; border-color:var(--accent); }
-.mood-btn { width:40px; height:40px; border:1.5px solid var(--border); border-radius:50%; background:var(--card); font-size:1.1em; cursor:pointer; transition:all .2s; display:flex; align-items:center; justify-content:center; }
+.mood-btn { width:44px; height:44px; border:1.5px solid var(--border); border-radius:50%; background:var(--card); font-size:1.1em; cursor:pointer; transition:all .2s; display:flex; align-items:center; justify-content:center; }
 .mood-btn:hover { border-color:var(--accent); background:var(--accent-light); }
 .mood-active { border-color:var(--accent); background:var(--accent); color:#fff; font-weight:700; }
 </style>
@@ -790,7 +790,7 @@ function mistakeItemHtml(m) {
         ${m.explanation ? `<div style="background:var(--accent-light);border-radius:8px;padding:8px 12px;margin-top:6px;font-size:.85rem;line-height:1.7;">📖 ${escapeHtml(m.explanation)}</div>` : ''}
       </div>
       <div style="margin-top:8px;">
-        <button class="btn btn-primary" style="font-size:.8rem;padding:6px 12px;min-height:34px;" onclick="goPractice()">📝 去练习</button>
+        <button class="btn btn-primary" style="font-size:.8rem;padding:8px 14px;min-height:44px;" onclick="goPractice()">📝 去练习</button>
       </div>
     </div>`;
 }
@@ -1280,7 +1280,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AI 学情体检</title>
 <link rel="icon" href="data:,">
 <style>
@@ -1464,13 +1464,6 @@ PARENT_PAGE = r'''<!DOCTYPE html>
       <img class="preview" id="previewImg" />
     </div>
     <input type="file" id="fileInput" accept="image/*" capture="environment" />
-  </div>
-
-  <!-- Progress -->
-  <div class="progress-card" id="progressCard">
-    <div class="spinner"></div>
-    <div class="status" id="progressStatus">正在识别试卷文字...</div>
-    <div class="step-name" id="progressStep"></div>
   </div>
 
   <!-- Result (one-time diagnosis) -->
@@ -1671,7 +1664,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     diagnoses.forEach((diag, idx) => {
       const icon = idx === 0 ? '🆕' : '📄';
       const reportLink = diag.report_file_id
-        ? `<a href="/api/public/${CODE}/files/${diag.report_file_id}/download" target="_blank" rel="noopener" style="font-size:.7rem;color:var(--accent);text-decoration:none;white-space:nowrap;">查看报告 →</a>`
+        ? `<a href="/api/public/${savedCode}/files/${diag.report_file_id}/download" target="_blank" rel="noopener" style="font-size:.7rem;color:var(--accent);text-decoration:none;white-space:nowrap;">查看报告 →</a>`
         : '';
       tlHtml += `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
         <span style="font-size:1.2rem;">${icon}</span>
@@ -1790,7 +1783,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     // Action buttons
     let reportBtn = '';
     if (data.report_file_id) {
-      reportBtn = `<a href="/api/public/${CODE}/files/${data.report_file_id}/download" target="_blank" rel="noopener" style="display:block;padding:14px;background:var(--accent);color:#fff;border-radius:12px;font-weight:600;font-size:.95rem;text-decoration:none;text-align:center;margin-bottom:10px;">📄 查看详细分析报告</a>`;
+      reportBtn = `<a href="/api/public/${savedCode}/files/${data.report_file_id}/download" target="_blank" rel="noopener" style="display:block;padding:14px;background:var(--accent);color:#fff;border-radius:12px;font-weight:600;font-size:.95rem;text-decoration:none;text-align:center;margin-bottom:10px;">📄 查看详细分析报告</a>`;
     }
     resultCard.innerHTML += `
       <div style="margin-top:20px;">

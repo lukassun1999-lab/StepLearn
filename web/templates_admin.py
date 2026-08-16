@@ -55,6 +55,12 @@ tr:last-child td { border-bottom:none; }
 .badge-expired { background:var(--red-light); color:var(--red); }
 .badge-paused { background:var(--bg-alt); color:var(--sub); }
 .badge-expiring { background:var(--accent-light); color:var(--accent); }
+/* 任务状态（历史表 badge-${t.status} 此前无定义，渲染为无边框裸文本） */
+.badge-pending { background:var(--bg-alt); color:var(--sub); }
+.badge-processing { background:var(--blue-light); color:var(--blue); }
+.badge-done { background:var(--green-light); color:var(--green); }
+.badge-failed { background:var(--red-light); color:var(--red); }
+.badge-cancelled { background:var(--bg-alt); color:var(--sub); }
 .form-group { margin-bottom:16px; }
 .form-group label { display:block; font-size:.8rem; color:var(--sub); margin-bottom:4px; font-weight:600; }
 .form-group input, .form-group select, .form-group textarea {
@@ -164,10 +170,10 @@ tr:last-child td { border-bottom:none; }
   <div class="stats" id="teacher-workload" style="margin-bottom:16px;"></div>
 
   <h3 style="font-size:1em;margin:16px 0 8px;">⏳ 待上传试卷学生</h3>
-  <table id="pending-paper-table" style="margin-bottom:24px;">
+  <div class="table-wrap"><table id="pending-paper-table" style="margin-bottom:24px;">
     <thead><tr><th>学生</th><th>年级</th><th>操作</th></tr></thead>
     <tbody></tbody>
-  </table>
+  </table></div>
   {% endif %}
 
   <h2>🧠 AI 纠错趋势（近7天）</h2>
@@ -243,12 +249,12 @@ tr:last-child td { border-bottom:none; }
       <option value="plan">按套餐排序</option>
     </select>
   </div>
-  <table id="students-table">
+  <div class="table-wrap"><table id="students-table">
     <thead><tr>
       <th>姓名</th><th>年级</th><th>类型</th><th>英语分</th><th>目标分</th><th>套餐</th><th>有效期</th><th>状态</th><th>授权</th><th>本月AI成本</th><th>操作</th>
     </tr></thead>
     <tbody></tbody>
-  </table>
+  </table></div>
 </div>
 
 <!-- ══════ ONBOARDING ══════ -->
@@ -1550,7 +1556,7 @@ async function loadDashboard() {
   if (tw.pending_paper_uploads && tw.pending_paper_uploads.length > 0) {
     tw.pending_paper_uploads.forEach(s => {
       pptbody.innerHTML += `<tr>
-        <td><strong>${s.name}</strong></td>
+        <td><strong>${escapeHtml(s.name)}</strong></td>
         <td>${s.grade || ''}</td>
         <td><button class="btn btn-sm btn-primary" onclick="runWeeklyForStudent(${s.id})">去上传</button></td>
       </tr>`;
@@ -1585,12 +1591,12 @@ async function loadDashboard() {
       const daysText = days === null ? '-' : (days < 0 ? `已过期 ${-days} 天` : (days === 0 ? '今天到期' : `剩余 ${days} 天`));
       const daysClass = days === null ? '' : (days < 3 ? 'color:var(--red);font-weight:600;' : (days < 7 ? 'color:var(--accent);' : 'color:var(--sub);'));
       etbody.innerHTML += `<tr>
-        <td><strong>${s.name}</strong></td>
+        <td><strong>${escapeHtml(s.name)}</strong></td>
         <td>${s.grade||''}</td>
         <td><span class="badge badge-${s.plan||'trial'}">${s.plan_label||'试用'}</span></td>
         <td>${s.end_date||'-'}</td>
         <td style="${daysClass}">${daysText}</td>
-        <td><button class="btn btn-sm btn-primary" onclick="manageSub(${s.id},'${s.name}')">续费</button></td>
+        <td><button class="btn btn-sm btn-primary" data-name="${escapeHtml(s.name)}" onclick="manageSub(${s.id}, this.dataset.name)">续费</button></td>
       </tr>`;
     });
   } else {
@@ -1606,7 +1612,7 @@ async function loadDashboard() {
       ? `<span class="badge" style="background:var(--red-light);color:var(--red);" title="中间态停留超过48小时，请检查任务或重新触发">⚠ ${s.stage_label}·卡住</span>`
       : `<span class="badge" style="background:var(--blue-light);color:var(--blue);">${s.stage_label}</span>`;
     tbody.innerHTML += `<tr>
-      <td><strong>${s.name}</strong></td><td>${s.grade}</td>
+      <td><strong>${escapeHtml(s.name)}</strong></td><td>${s.grade}</td>
       <td><span class="badge badge-${s.plan||'trial'}">${s.plan_label||'试用'}</span></td>
       <td>${icon(s.paper_submitted)}</td><td>${icon(s.paper_analyzed)}</td>
       <td>${icon(s.exercises_sent)}</td><td>${icon(s.exercises_graded)}</td>
@@ -1765,7 +1771,7 @@ async function loadStudents() {
       ? ''
       : `<button class="btn btn-sm btn-outline" onclick="recordConsentFromStudent(${s.id}, '${escapeHtml(s.name)}')" style="margin-top:4px;">补授权</button>`;
     tbody.innerHTML += `<tr style="${rowStyle}">
-      <td><strong>${s.name}</strong>${viewUrl ? `<br><a href="${viewUrl}" target="_blank" style="font-size:.75em;color:var(--blue);">📎 学生页</a>` : ''}</td>
+      <td><strong>${escapeHtml(s.name)}</strong>${viewUrl ? `<br><a href="${viewUrl}" target="_blank" style="font-size:.75em;color:var(--blue);">📎 学生页</a>` : ''}</td>
       <td>${s.grade}</td><td>${s.school_type}</td>
       <td>${s.english_score||'-'}</td><td>${s.target_score||'-'}</td>
       <td><span class="badge badge-${s.plan||'trial'}">${s.plan_label||'试用'}</span></td>
@@ -1778,7 +1784,7 @@ async function loadStudents() {
       <td style="font-size:.85em;color:var(--sub);">${costText}</td>
       <td>
         <button class="btn btn-sm btn-outline" onclick="editStudent(${s.id})">编辑</button>
-        <button class="btn btn-sm btn-outline" onclick="manageSub(${s.id},'${s.name}')">订阅</button>
+        <button class="btn btn-sm btn-outline" data-name="${escapeHtml(s.name)}" onclick="manageSub(${s.id}, this.dataset.name)">订阅</button>
         <button class="btn btn-sm btn-outline" onclick="requestDeletion(${s.id}, '${escapeHtml(s.name)}')" style="color:var(--red);">删除申请</button>
       </td>
     </tr>`;
@@ -2414,7 +2420,7 @@ async function startOnboarding() {
 // ── Weekly Pipeline ──
 async function loadWeeklyPage() {
   const students = await (await fetch('/api/students')).json();
-  const opts = students.map(s => `<option value="${s.id}">${s.name} (${s.grade})</option>`).join('');
+  const opts = students.map(s => `<option value="${s.id}">${escapeHtml(s.name)} (${escapeHtml(s.grade)})</option>`).join('');
   document.getElementById('wk-student').innerHTML = opts;
   // Load history
   const tr = await fetch('/api/tasks');
@@ -2548,26 +2554,41 @@ function pollTask(taskId, prefix) {
   const bar = document.getElementById(prefix+'-bar');
   const steps = document.getElementById(prefix+'-steps');
   const result = document.getElementById(prefix+'-result');
-  const stepNames = STEPS_MAP[prefix] || [];
+  // 步骤列表按任务自身类型解析（原实现用 DOM 前缀 'onb'/'wk' 查表，
+  // 与 STEPS_MAP 键 'onboarding'/'weekly' 永不匹配 → 列表从未渲染）
+  let stepNames = [];
 
   const timer = setInterval(async () => {
     try {
       const r = await fetch('/api/tasks/'+taskId);
       const t = await r.json();
 
+      if (!stepNames.length) stepNames = STEPS_MAP[t.task_type] || [];
       const pct = t.progress || 0;
       bar.style.width = pct+'%';
 
+      // 优先用后端 current_step 真实步骤名定位（API 已返回，此前被忽略）
+      const curIdx = t.current_step
+        ? stepNames.findIndex(n => n === t.current_step
+            || n.includes(t.current_step) || t.current_step.includes(n))
+        : -1;
+      const stepPct = stepNames.length ? Math.round(100 / stepNames.length) : 100;
       steps.innerHTML = stepNames.map((name, i) => {
-        const stepPct = Math.round(100 / stepNames.length);
         let cls = 'pending';
-        if (pct >= (i+1)*stepPct) cls = 'done';
-        else if (pct >= i*stepPct) cls = 'current';
+        if (curIdx >= 0) {
+          if (i < curIdx) cls = 'done';
+          else if (i === curIdx) cls = 'current';
+          else if (pct >= (i+1)*stepPct) cls = 'done';
+        } else {
+          if (pct >= (i+1)*stepPct) cls = 'done';
+          else if (pct >= i*stepPct) cls = 'current';
+        }
         return `<div class="step-item ${cls}">
           ${cls==='current'?'<span class="spinner"></span>':(cls==='done'?'✅':'○')}
           ${name}
         </div>`;
-      }).join('');
+      }).join('') + (t.current_step && t.status === 'processing'
+        ? `<div style="font-size:.75rem;color:var(--sub);margin-top:6px;">当前：${t.current_step}</div>` : '');
 
       if (t.status === 'done') {
         clearInterval(timer);
@@ -2658,7 +2679,7 @@ async function openClassDetail(classId) {
     : '<div style="color:var(--mute);font-size:.85em;padding:12px 0;">暂无数据</div>';
   const tbody = document.querySelector('#class-students-table tbody');
   tbody.innerHTML = students.map(s => `<tr>
-    <td><strong>${s.name}</strong></td>
+    <td><strong>${escapeHtml(s.name)}</strong></td>
     <td>${s.grade||'-'}</td>
     <td>${s.phone||'-'}</td>
     <td><button class="btn btn-sm btn-outline" onclick="switchPage('students')">查看学情</button></td>
@@ -3358,7 +3379,7 @@ async function loadAnalyticsPage() {
   await loadClassAnalytics();
   // Load student selector
   const students = await (await fetch('/api/students')).json();
-  const opts = students.map(s => `<option value="${s.id}">${s.name} (${s.grade})</option>`).join('');
+  const opts = students.map(s => `<option value="${s.id}">${escapeHtml(s.name)} (${escapeHtml(s.grade)})</option>`).join('');
   sel.innerHTML = opts;
   if (students.length > 0) {
     await loadStudentAnalytics(students[0].id);
