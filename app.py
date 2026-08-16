@@ -62,6 +62,32 @@ cycle_pipeline.register()
 start_worker()
 
 
+def _warn_demo_backend() -> None:
+    """LLM 无 API key（demo 模式）时写运营告警 + 启动日志。
+
+    静默降级曾导致：无 key 部署后所有 AI 产出均为占位数据而运营无感知。
+    create_alert 自带等价活跃告警去重（重启不重复造）。
+    """
+    try:
+        import llm
+        if llm.BACKEND != "demo":
+            return
+        log.warning("LLM 后端为 demo 模式：未配置 API key，所有 AI 产出均为占位数据")
+        from db import create_alert
+        create_alert(
+            alert_type="demo_mode", level="warning",
+            message="LLM 未配置 API key，当前为演示模式：所有 AI 产出"
+                    "（错题分析/练习/周报）均为占位数据，请在 .env 配置 "
+                    "ANTHROPIC_API_KEY 或 LLM_API_KEY 后重启",
+            related_id="total",
+        )
+    except Exception:
+        log.warning("demo 模式告警写入失败", exc_info=True)
+
+
+_warn_demo_backend()
+
+
 # ═══════════════════════════════════════════════════
 # Backup Scheduler
 # ═══════════════════════════════════════════════════
@@ -310,11 +336,14 @@ if __name__ == '__main__':
 
     init_db()
     os.makedirs(UPLOAD_DIR, exist_ok=True)
+    import llm as _llm
     log.info('=' * 50)
     log.info('拾阶而上 · 管理系统 v%s', VERSION)
     log.info('http://localhost:5000')
     log.info('数据库: %s', DB_PATH)
     log.info('上传目录: %s', UPLOAD_DIR)
     log.info('LLM 缓存: %s', '开启' if os.environ.get('LLM_CACHE_ENABLED') == 'true' else '关闭')
+    if _llm.BACKEND == 'demo':
+        log.warning('⚠️  LLM: DEMO 模式 — 未配置 API key，所有 AI 产出均为占位数据')
     log.info('=' * 50)
     app.run(host='127.0.0.1', port=5000, debug=False)

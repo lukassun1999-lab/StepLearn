@@ -32,6 +32,7 @@ LLM 调用抽象层
 """
 
 import json
+import logging
 import os
 import time
 import hashlib
@@ -39,8 +40,23 @@ import base64
 import threading
 from datetime import datetime
 
+log = logging.getLogger(__name__)
+
 # Lock for atomic cache writes across worker threads
 _cache_lock = threading.Lock()
+
+# demo 降级告警：进程内只记一次，避免每次调用刷屏
+_demo_warned = False
+
+
+def _warn_demo_once(call_type: str) -> None:
+    """无 API key 走 demo 占位数据时告警（静默降级曾导致运营无感知）。"""
+    global _demo_warned
+    if not _demo_warned:
+        _demo_warned = True
+        log.warning("LLM 处于 DEMO 模式（未配置 API key），%s 调用返回占位数据——"
+                    "全部 AI 产出均为演示内容，配置 ANTHROPIC_API_KEY 或 "
+                    "LLM_API_KEY 后重启生效", call_type)
 
 # ═══════════════════════════════════════════════════
 # Configuration
@@ -392,6 +408,7 @@ class LLMClient:
 
         # Demo mode: return demo data when no API key is configured
         if not HAS_API_KEY:
+            _warn_demo_once(call_type)
             demo = self.DEMO_DATA.get(call_type)
             if demo:
                 self._log_usage(task_id, call_type, 0, 0, 0, 0, 0, cached=True)
@@ -457,6 +474,7 @@ class LLMClient:
 
         # Demo mode
         if not HAS_API_KEY:
+            _warn_demo_once(f"vision/{call_type}")
             demo_text = "[DEMO] 图片内容模拟识别：这是一张用于演示的图片，系统未配置真实 API key，因此返回占位文本供流程测试使用。"
             self._log_usage(task_id, call_type, 0, 0, 0, 0, 0, cached=True, model=model)
             return {"_raw_text": demo_text, "confidence": 0.95}
