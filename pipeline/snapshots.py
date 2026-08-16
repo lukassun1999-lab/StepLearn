@@ -173,7 +173,7 @@ def run_weekly_mistake_book(task: dict, db_path: str) -> dict:
         SELECT question, question_type, correct_answer, user_answer,
                explanation, knowledge_points, difficulty, consecutive_correct
         FROM mistakes WHERE student_id = ?
-          AND date(created_at) BETWEEN ? AND ?
+          AND date(created_at, 'localtime') BETWEEN ? AND ?
         ORDER BY created_at
     """, [student_id, prev_week_start, prev_week_end]).fetchall()
     mastered_cnt = conn.execute("""
@@ -261,7 +261,7 @@ def run_monthly_summary(task: dict, db_path: str) -> dict:
         SELECT question, question_type, correct_answer, user_answer,
                explanation, knowledge_points, difficulty, consecutive_correct
         FROM mistakes WHERE student_id = ?
-          AND date(created_at) BETWEEN ? AND ?
+          AND date(created_at, 'localtime') BETWEEN ? AND ?
         ORDER BY created_at
     """, [student_id, month_start.isoformat(), month_end.isoformat()]).fetchall()
 
@@ -274,7 +274,7 @@ def run_monthly_summary(task: dict, db_path: str) -> dict:
         SELECT COUNT(*) FROM practice_records pr
         JOIN mistakes m ON m.id = pr.mistake_id
         WHERE m.student_id = ?
-          AND date(pr.created_at) BETWEEN ? AND ?
+          AND date(pr.created_at, 'localtime') BETWEEN ? AND ?
     """, [student_id, month_start.isoformat(), month_end.isoformat()]).fetchone()[0]
 
     avg_row = conn.execute("""
@@ -282,12 +282,12 @@ def run_monthly_summary(task: dict, db_path: str) -> dict:
         FROM practice_records pr
         JOIN mistakes m ON m.id = pr.mistake_id
         WHERE m.student_id = ?
-          AND date(pr.created_at) BETWEEN ? AND ?
+          AND date(pr.created_at, 'localtime') BETWEEN ? AND ?
     """, [student_id, month_start.isoformat(), month_end.isoformat()]).fetchone()
 
     score_rows = conn.execute("""
         SELECT score, score_type, created_at FROM score_history
-        WHERE student_id = ? AND date(created_at) BETWEEN ? AND ?
+        WHERE student_id = ? AND date(created_at, 'localtime') BETWEEN ? AND ?
         ORDER BY created_at
     """, [student_id, month_start.isoformat(), month_end.isoformat()]).fetchall()
     conn.close()

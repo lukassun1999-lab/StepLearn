@@ -387,7 +387,7 @@ def api_public_practice_submit(code):
             """, [source_mistake_id]).fetchone()
             counted_today = conn.execute("""
                 SELECT 1 FROM practice_records
-                WHERE mistake_id = ? AND date(created_at) = date('now')
+                WHERE mistake_id = ? AND date(created_at, 'localtime') = date('now', 'localtime')
                 LIMIT 1
             """, [source_mistake_id]).fetchone()
             if not too_soon and not counted_today:

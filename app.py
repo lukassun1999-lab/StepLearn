@@ -270,7 +270,7 @@ def _cli_set_super():
         return
     conn.execute("""
         INSERT INTO subscriptions (student_id, plan, monthly_quota, start_date, status)
-        VALUES (?, 'unlimited', 999999, date('now'), 'active')
+        VALUES (?, 'unlimited', 999999, date('now', 'localtime'), 'active')
         ON CONFLICT(student_id) DO UPDATE SET
             plan = 'unlimited', monthly_quota = 999999, status = 'active',
             end_date = NULL

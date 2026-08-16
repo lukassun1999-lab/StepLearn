@@ -22,6 +22,12 @@ source venv/bin/activate
 pip install -r requirements.txt gunicorn
 ```
 
+**服务器时区必须是 Asia/Shanghai**（业务周/月边界按本地时间统计）：
+
+```bash
+sudo timedatectl set-timezone Asia/Shanghai
+```
+
 ## 2. 数据迁移清单
 
 从开发机搬到服务器，共 4 项：

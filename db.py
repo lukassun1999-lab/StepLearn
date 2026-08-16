@@ -989,6 +989,18 @@ def delete_admin_user(user_id: int, db_path: str = DB_PATH) -> bool:
 # Flask g-based helpers (兼容原 app.py 模式)
 # ═══════════════════════════════════════════════════
 
+# ── 时区约定（2026-08 统一，勿破坏）─────────────────
+# 1. SQL DEFAULT CURRENT_TIMESTAMP 列（各表 created_at 等）存 UTC。
+# 2. _now_iso() 写入的列（last_reviewed_at / next_reviewed_at /
+#    withdrawn_at 等）存本地时间。
+# 3. 业务日/周/月边界（错题归周、月度归集、"今天"成本、防刷每日闸门）
+#    一律按本地时间比较：UTC 列必须加 'localtime' 修饰符，如
+#    date(created_at, 'localtime') = date('now', 'localtime')；
+#    本地列（_now_iso 写入）不得再加，否则双重偏移。
+# 4. 调度器/备份新鲜度窗口为 UTC 自洽（datetime.now(timezone.utc) 对
+#    backups/ai_tasks.created_at），按第 3 条无关的独立体系。
+# 服务器须设 Asia/Shanghai 时区（DEPLOY.md）。
+
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -1555,10 +1567,12 @@ def get_weekly_stats(student_id: int, week_start: str, week_end: str = None,
 
     new_mistakes = conn.execute("""
         SELECT COUNT(*) FROM mistakes
-        WHERE student_id = ? AND date(created_at) BETWEEN ? AND ?
+        WHERE student_id = ? AND date(created_at, 'localtime') BETWEEN ? AND ?
     """, [student_id, week_start, week_end]).fetchone()[0]
 
-    # 统计本周掌握的错题（last_reviewed_at 在本周且已达到 mastery）
+    # 统计本周掌握的错题（last_reviewed_at 在本周且已达到 mastery）。
+    # 注意时区不对称：created_at 为 UTC 默认值需 'localtime'；
+    # last_reviewed_at 由 _now_iso() 写入已是本地时间，不得再加修饰符。
     mastered = conn.execute("""
         SELECT COUNT(*) FROM mistakes
         WHERE student_id = ? AND consecutive_correct >= 2
@@ -2739,10 +2753,7 @@ def get_student_timeline(student_id: int, db_path: str = DB_PATH) -> List[Dict[s
 # Metacognitive Review — 元认知复盘表
 # ═══════════════════════════════════════════════════
 
-def get_week_start(d: date = None) -> str:
-    """Get ISO week start (Monday) for a given date."""
-    d = d or date.today()
-    return (d - timedelta(days=d.weekday())).isoformat()
+# （get_week_start 曾在此重复定义并遮蔽前一份，2026-08 删除）
 
 
 def get_or_create_metacognitive_review(student_id: int, week_start: str = None,
@@ -4702,7 +4713,7 @@ def get_llm_cost_today(db_path: str = DB_PATH) -> float:
     conn = get_connection(db_path)
     row = conn.execute("""
         SELECT COALESCE(SUM(estimated_cost), 0) FROM llm_usage_log
-        WHERE date(created_at) = date('now') AND cached = 0
+        WHERE date(created_at, 'localtime') = date('now', 'localtime') AND cached = 0
     """).fetchone()
     conn.close()
     return row[0]
@@ -4712,7 +4723,7 @@ def get_llm_cost_this_month(db_path: str = DB_PATH) -> float:
     conn = get_connection(db_path)
     row = conn.execute("""
         SELECT COALESCE(SUM(estimated_cost), 0) FROM llm_usage_log
-        WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now') AND cached = 0
+        WHERE strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime') AND cached = 0
     """).fetchone()
     conn.close()
     return row[0]
@@ -4774,14 +4785,14 @@ def get_student_llm_cost(student_id: int, period: str = "month", db_path: str = 
             SELECT COALESCE(SUM(l.estimated_cost), 0)
             FROM llm_usage_log l
             JOIN ai_tasks t ON t.id = l.task_id
-            WHERE t.student_id = ? AND date(l.created_at) = date('now') AND l.cached = 0
+            WHERE t.student_id = ? AND date(l.created_at, 'localtime') = date('now', 'localtime') AND l.cached = 0
         """, [student_id]).fetchone()
     elif period == "month":
         row = conn.execute("""
             SELECT COALESCE(SUM(l.estimated_cost), 0)
             FROM llm_usage_log l
             JOIN ai_tasks t ON t.id = l.task_id
-            WHERE t.student_id = ? AND strftime('%Y-%m', l.created_at) = strftime('%Y-%m', 'now') AND l.cached = 0
+            WHERE t.student_id = ? AND strftime('%Y-%m', l.created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime') AND l.cached = 0
         """, [student_id]).fetchone()
     else:  # total
         row = conn.execute("""
@@ -4798,9 +4809,9 @@ def get_llm_cost_breakdown(period: str = "month", db_path: str = DB_PATH) -> Lis
     """Get cost grouped by student."""
     conn = get_connection(db_path)
     if period == "today":
-        date_filter = "date(l.created_at) = date('now')"
+        date_filter = "date(l.created_at, 'localtime') = date('now', 'localtime')"
     elif period == "month":
-        date_filter = "strftime('%Y-%m', l.created_at) = strftime('%Y-%m', 'now')"
+        date_filter = "strftime('%Y-%m', l.created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime')"
     else:
         date_filter = "1=1"
 
@@ -4934,7 +4945,7 @@ def create_student(data: Dict[str, Any], db_path: str = DB_PATH) -> int:
         conn.execute("""
             INSERT INTO subscriptions
                 (student_id, plan, monthly_quota, reset_month, start_date, end_date, status)
-            VALUES (?, ?, ?, ?, date('now'), ?, 'active')
+            VALUES (?, ?, ?, ?, date('now', 'localtime'), ?, 'active')
         """, [student_id, plan, plan_info["monthly_quota"],
               date.today().strftime("%Y-%m"), end_date])
         conn.commit()
@@ -4966,7 +4977,7 @@ def update_student(student_id: int, data: Dict[str, Any], db_path: str = DB_PATH
                 INSERT INTO subscriptions
                     (student_id, plan, monthly_quota, reset_month, start_date, status)
                 VALUES (?, ?, ?, ?,
-                        COALESCE((SELECT start_date FROM subscriptions WHERE student_id=?), date('now')),
+                        COALESCE((SELECT start_date FROM subscriptions WHERE student_id=?), date('now', 'localtime')),
                         'active')
                 ON CONFLICT(student_id) DO UPDATE SET
                     plan = excluded.plan,
@@ -5810,7 +5821,7 @@ def get_class_stats(class_id: int, db_path: str = DB_PATH) -> Dict[str, Any]:
         FROM students s
         JOIN ai_tasks t ON t.student_id = s.id
         WHERE s.class_id = ? AND s.status = 'active'
-          AND t.created_at >= ?
+          AND date(t.created_at, 'localtime') >= ?
     """, [class_id, week_start]).fetchone()["cnt"]
 
     mastery_rows = conn.execute("""
