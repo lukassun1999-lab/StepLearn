@@ -254,3 +254,13 @@ def test_reports_api_filters_empty_shells(client, sample_student, test_db_path):
     titles = [x["title"] for x in reports]
     assert "学情分析报告" in titles, f"有数据的报告应保留: {titles}"
     assert "周错题本" not in titles, f"0 错题空壳应被过滤: {titles}"
+
+
+def test_practice_options_data_driven():
+    """交互答题按数据渲染选项（不依赖题型白名单），阅读选择/阅读补全短文也有选项。"""
+    src = _page_src("family")
+    # 选项渲染改为数据驱动：有选项就显示
+    assert "opts.length > 0" in src
+    # 阅读类题型补进白名单（选项缺失时走跳过分支而非填空输入框）
+    assert "阅读选择" in src and "阅读补全短文" in src
+    assert "escapeHtml(o.text)" in src

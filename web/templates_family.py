@@ -547,20 +547,21 @@ function renderPracticeQuestion() {
       <div style="font-size:.75rem;color:var(--sub);margin-bottom:6px;font-weight:600;">📄 阅读短文</div>
       ${escapeHtml(q.passage)}
     </div>` : '';
-  const OPTION_TYPES = ['单项选择','多项选择','选择题','完形填空'];
+  const OPTION_TYPES = ['单项选择','多项选择','选择题','完形填空','阅读选择','阅读补全短文'];
   const isOptionType = OPTION_TYPES.includes(q.question_type);
   const opts = q.options || [];
   let optionsHtml, submitLabel = '提交答案', submitAction = 'submitPracticeAnswer()';
-  if (isOptionType && opts.length === 0) {
-    // 有选项题型但选项缺失：提示 + 跳过，避免误渲染成填空输入框
-    optionsHtml = `<div style="padding:14px 16px;margin:10px 0;background:var(--red-light);border-radius:10px;color:var(--red);font-size:.9rem;text-align:center;">⚠️ 本题选项加载失败，先跳过，继续练习</div>`;
-    submitLabel = '跳过这道 →';
-    submitAction = 'skipPracticeQuestion()';
-  } else if (isOptionType) {
+  if (opts.length > 0) {
+    // 数据里有选项就渲染选项（题型标签可能不在白名单，如 阅读选择/阅读补全短文）
     optionsHtml = opts.map(o=>`
       <label class="practice-opt" data-key="${o.key}" onclick="selectOption(this,'${o.key}')" style="display:block;padding:14px 18px;margin:8px 0;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;transition:all .15s;font-size:1rem;line-height:1.6;">
         <strong>${escapeHtml(o.key)}.</strong> ${escapeHtml(o.text)}
       </label>`).join('');
+  } else if (isOptionType) {
+    // 有选项题型但选项缺失：提示 + 跳过，避免误渲染成填空输入框
+    optionsHtml = `<div style="padding:14px 16px;margin:10px 0;background:var(--red-light);border-radius:10px;color:var(--red);font-size:.9rem;text-align:center;">⚠️ 本题选项加载失败，先跳过，继续练习</div>`;
+    submitLabel = '跳过这道 →';
+    submitAction = 'skipPracticeQuestion()';
   } else {
     optionsHtml = `<input type="text" id="practice-text-answer" placeholder="输入你的答案" oninput="document.getElementById('practice-submit-btn').disabled = this.value.trim()===''" style="width:100%;padding:12px 16px;border:1.5px solid var(--border);border-radius:10px;font-size:1rem;margin:10px 0;">`;
   }

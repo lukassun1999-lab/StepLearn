@@ -7,9 +7,21 @@
 """
 
 import os
+import re
 from datetime import date
 
 from db import get_teacher_profile
+
+
+# ═══════════════════════════════════════════════════
+# 题干内嵌选项判断（与 question_gen._options_embedded 同规则，避免跨模块耦合）
+# ═══════════════════════════════════════════════════
+_OPTION_INLINE_RE = re.compile(r"[A-Da-d][.、)）:：]\s*\S")
+
+
+def _text_has_inline_options(text: str) -> bool:
+    """题干是否已内嵌 ≥2 个 A-D 选项（要求 ≥2 处匹配，避免 'tired.' 之类误报）。"""
+    return len(_OPTION_INLINE_RE.findall(text or "")) >= 2
 
 
 # ═══════════════════════════════════════════════════
@@ -534,8 +546,20 @@ def render_exercise_sheet(student_name: str, questions: list, week_start: str = 
     q_blocks = ""
     for i, q in enumerate(questions):
         opts_html = ""
-        for opt in (q.get("options") or []):
-            opts_html += f"<div style='padding:6px 12px; margin:4px 0; background:var(--bg); border-radius:6px;'>{opt}</div>"
+        # P3 质量硬化后题干已内嵌选项（A. xx B. xx ...）→ 不再重复渲染选项区，
+        # 否则选项出现两次。仅当题干未内嵌且 options 有实质内容时才补渲染；
+        # 裸字母（A/B/C/D 无文本）是 LLM 脏数据，直接跳过。
+        if not _text_has_inline_options(str(q.get("question_text") or "")):
+            for opt in (q.get("options") or []):
+                if isinstance(opt, dict):
+                    label = str(opt.get("key") or "").strip()
+                    text = str(opt.get("text") or "").strip()
+                else:
+                    label, text = "", str(opt).strip()
+                if not text or re.fullmatch(r"[A-Da-d]", text):
+                    continue
+                shown = f"{label}. {text}" if label else text
+                opts_html += f"<div style='padding:6px 12px; margin:4px 0; background:var(--bg); border-radius:6px;'>{shown}</div>"
 
         kps = ", ".join(q.get("knowledge_points") or [])
         passage_html = ""

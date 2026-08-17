@@ -251,6 +251,38 @@ def test_exercise_sheet_renders_passage():
     assert "Trees are important" in html
 
 
+def test_exercise_sheet_no_duplicated_options():
+    """练习卷选项不重复：题干已内嵌选项时不再渲染选项区（含 LLM 裸字母脏数据）。"""
+    from report_templates import render_exercise_sheet
+    html = render_exercise_sheet("小明", [{
+        "question_text": "What is the passage about?\n   A. Trees help the soil.\n"
+                        "   B. Water is important.\n   C. Birds need trees.\n"
+                        "   D. Forests are large.",
+        "question_type": "阅读选择", "correct_answer": "A",
+        "knowledge_points": ["主旨大意"], "difficulty": 2,
+        "options": ["A", "B", "C", "D"],   # LLM 可能返回裸字母选项
+        "passage": "Trees are important.",
+    }])
+    # 选项全文只出现一次（内嵌在题干里），不重复渲染
+    assert html.count("Trees help the soil.") == 1
+    assert html.count("Water is important.") == 1
+    # 裸字母选项块被丢弃，不出现 ">A</div>" 之类的空壳
+    assert ">A</div>" not in html and ">B</div>" not in html
+
+
+def test_exercise_sheet_renders_options_when_not_embedded():
+    """题干未内嵌选项时，选项区正常渲染（dict 形状）。"""
+    from report_templates import render_exercise_sheet
+    html = render_exercise_sheet("小明", [{
+        "question_text": "Choose the best word.",
+        "question_type": "选择题", "correct_answer": "A",
+        "knowledge_points": [], "difficulty": 2,
+        "options": [{"key": "A", "text": "trees"}, {"key": "B", "text": "water"},
+                    {"key": "C", "text": "soil"}, {"key": "D", "text": "forest"}],
+    }])
+    assert "A. trees" in html and "D. forest" in html
+
+
 def test_fix_generated_answer_format():
     """P3 质量硬化：填空类题型答案格式校验（禁止裸字母）。"""
     from skills_bridge import _fix_generated_answer_format
