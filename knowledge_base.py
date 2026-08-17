@@ -335,10 +335,17 @@ def _filter_real_mistakes(mistakes: List[Dict]) -> List[Dict]:
     同时把 user_answer / correct_answer 归一化为不带选项字母的纯答案内容。
     """
     import re as _re
+    from domain.grading import is_answer_correct
     real = []
     for m in mistakes:
         raw_u = m.get('user_answer')
         raw_c = m.get('correct_answer')
+        # 统一判分语义先行（与在线练习/批改同源）：备选答案任一命中
+        # （common/ordinary/normal → normal 即对）、首尾标点/大小写/全角
+        # 差异（nature. vs nature）→ 学生其实答对了，不构成错题。
+        # 仅在两侧都有内容时生效，纯字母/括号格式等复杂形态交给下方兜底。
+        if is_answer_correct(raw_u, raw_c):
+            continue
         nu = _normalize_answer(raw_u)
         nc = _normalize_answer(raw_c)
         user_display = None
