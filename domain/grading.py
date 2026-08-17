@@ -50,9 +50,35 @@ def normalize_answer(text, multiselect: bool = None) -> str:
 
 
 def is_answer_correct(student_answer, correct_answer, multiselect: bool = None) -> bool:
-    """判分：双侧归一化后比较。空答案一律判错。"""
-    a = normalize_answer(student_answer, multiselect)
-    b = normalize_answer(correct_answer, multiselect)
-    if not a or not b:
+    """判分：双侧归一化后比较。空答案一律判错。
+
+    多选识别以正确答案为准（显式传入或自动识别 A-F 字母组合）。
+    正确答案支持 / 分隔的多个可接受答案（如 common/ordinary/normal），
+    学生命中任意一个即判对——LLM 出题常把同义答案并排列出。
+    """
+    raw_student = str(student_answer or "")
+    raw_correct = str(correct_answer or "")
+    if not raw_student.strip() or not raw_correct.strip():
         return False
-    return a == b
+
+    if multiselect is None:
+        compact = _SEPARATORS.sub(
+            "", unicodedata.normalize("NFKC", raw_correct).upper())
+        multiselect = (_SEPARATORS.search(raw_correct) is not None
+                       and re.fullmatch(r"[A-F]+", compact) is not None)
+    if multiselect:
+        a = normalize_answer(raw_student, True)
+        b = normalize_answer(raw_correct, True)
+        return bool(a and b) and a == b
+
+    a = normalize_answer(raw_student)
+    if not a:
+        return False
+    if "/" in raw_correct:
+        # 备选答案列表：common/ordinary/normal 任一命中即正确
+        for alt in raw_correct.split("/"):
+            b = normalize_answer(alt)
+            if b and a == b:
+                return True
+        return False
+    return a == normalize_answer(raw_correct)

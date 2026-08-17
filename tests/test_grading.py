@@ -198,3 +198,53 @@ def test_family_page_no_master_button(client, sample_student, test_db_path):
     assert "已掌握</button>" not in html
     assert "masterMistake" not in html
     assert "去练习" in html  # 练习入口保留
+
+
+# ── 备选答案 + 标点误判修复（第 5 周提交）──────────────
+
+def test_alternatives_any_hit_is_correct():
+    """正确答案为 / 分隔的备选列表时，命中任意一个即判对。"""
+    # 用户实测：common/ordinary/normal，学生答 normal
+    assert is_answer_correct("normal", "common/ordinary/normal")
+    assert is_answer_correct("ordinary", "common/ordinary/normal")
+    assert is_answer_correct("COMMON", "common/ordinary/normal")
+    # 都不命中 → 错
+    assert not is_answer_correct("rare", "common/ordinary/normal")
+    # 备选答案带标点差异同样归一化
+    assert is_answer_correct("nature", "nature/common/ordinary")
+    # 字母组合（A/B）按既有多选约定处理，不走备选答案分支
+    assert not is_answer_correct("B", "A/B")  # 多选需同时答 A 和 B
+
+
+def test_trailing_punctuation_ignored():
+    """首尾标点不参与判分：nature. vs nature 判对。"""
+    assert is_answer_correct("nature", "nature.")
+    assert is_answer_correct("nature.", "nature")
+    assert is_answer_correct("went", "went.")
+    assert is_answer_correct("B.", "b")
+
+
+def test_llm_grading_override_deterministic_correct():
+    """AI 批改确定性兜底：字面命中强制判对，只纠正误判为错。"""
+    from llm_plans import _override_deterministic_correct
+    questions = [
+        {"question_index": 0, "question_type": "阅读选择",
+         "correct_answer": "nature."},
+        {"question_index": 1, "question_type": "完成对话",
+         "correct_answer": "common/ordinary/normal"},
+        {"question_index": 2, "question_type": "补全单词",
+         "correct_answer": "pollinate"},
+    ]
+    result = {"results": [
+        # 标点差异 → LLM 误判错 → 兜底判对
+        {"question_index": 0, "student_answer": "nature", "is_correct": False},
+        # 备选答案命中 → 兜底判对
+        {"question_index": 1, "student_answer": "normal", "is_correct": False},
+        # 字面不命中 → 保持 LLM 判断（宽松路径不受影响）
+        {"question_index": 2, "student_answer": "pollination", "is_correct": False},
+        # 已判对 → 不动
+        {"question_index": 0, "student_answer": "nature.", "is_correct": True},
+    ], "summary": {}}
+    _override_deterministic_correct(questions, result)
+    flags = [r["is_correct"] for r in result["results"]]
+    assert flags == [True, True, False, True], flags

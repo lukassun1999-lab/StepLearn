@@ -41,9 +41,33 @@ def grade_answers(questions: List[Dict], student_answers: List[Dict],
         "results": {"type": "array", "required": True},
         "summary": {"type": "object", "required": True},
     }
-    return _get_client().call(
+    result = _get_client().call(
         prompt=prompt, schema=schema, task_id=task_id, call_type="grade"
     )
+    _override_deterministic_correct(questions, result)
+    return result
+
+
+def _override_deterministic_correct(questions: List[Dict], result: Dict) -> None:
+    """确定性兜底：学生答案与标准答案字面命中时强制判对。
+
+    LLM 批改会对无关紧要的差异误判为错（实测：
+    - 正确答案带尾标点 "nature."，学生答 "nature" → LLM 判错
+    - 正确答案是备选列表 "common/ordinary/normal"，学生答其中 "normal" → LLM 判错）
+    归一化判分（大小写/全角/首尾标点/备选答案任一命中）确认正确时，
+    只把"误判为错"纠正为对，不覆盖 LLM 的宽容判断（同义改写等）。
+    """
+    from domain.grading import is_answer_correct
+
+    for r in result.get("results", []):
+        if r.get("is_correct"):
+            continue  # 已判对不动
+        q_idx = r.get("question_index", -1)
+        if not (0 <= q_idx < len(questions)):
+            continue
+        if is_answer_correct(r.get("student_answer"),
+                             questions[q_idx].get("correct_answer")):
+            r["is_correct"] = True
 
 
 def _normalize_plan_text_field(value) -> str:
