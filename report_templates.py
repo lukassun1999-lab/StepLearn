@@ -8,6 +8,7 @@
 
 import os
 import re
+import unicodedata
 from datetime import date
 
 from db import get_teacher_profile
@@ -686,6 +687,31 @@ def render_essay_review(student: dict, mistake: dict, review: dict) -> str:
 # 批改反馈
 # ═══════════════════════════════════════════════════
 
+def _display_answer(text) -> str:
+    """报告展示归一化（与判分逻辑一致，纯展示不影响判定）：
+
+    - 去首尾标点：nature. → nature
+    - 备选答案（/ 分隔，非字母多选）美化：common/ordinary/normal
+      → common / ordinary / normal（任选其一）
+    """
+    if not text:
+        return "?"
+    from domain.grading import _EDGE_PUNCT
+    raw = str(text).strip()
+    if not raw:
+        return "?"
+    if "/" in raw:
+        # 字母组合（A/B）是多选语义，不按备选答案展示
+        compact = re.sub(r"[,，、;；/\\\s]+", "",
+                         unicodedata.normalize("NFKC", raw).upper())
+        if not re.fullmatch(r"[A-F]+", compact):
+            alts = [a.strip().strip(_EDGE_PUNCT + " \t")
+                    for a in raw.split("/") if a.strip()]
+            if len(alts) >= 2:
+                return " / ".join(alts) + "（任选其一）"
+    return raw.strip(_EDGE_PUNCT + " \t") or raw
+
+
 def render_feedback_report(student_name: str, results: list, summary: dict,
                             week_start: str = "") -> str:
     """Generate grading feedback HTML."""
@@ -701,8 +727,8 @@ def render_feedback_report(student_name: str, results: list, summary: dict,
         result_rows += f"""
         <div class="card" style="border-left:4px solid {'var(--green)' if r.get('is_correct') else 'var(--red)'};">
           <h3>{icon} 第 {i+1} 题</h3>
-          <p><strong>你的答案：</strong>{r.get('student_answer', '?')}</p>
-          <p><strong>正确答案：</strong>{r.get('correct_answer', '?')}</p>
+          <p><strong>你的答案：</strong>{_display_answer(r.get('student_answer'))}</p>
+          <p><strong>正确答案：</strong>{_display_answer(r.get('correct_answer'))}</p>
           <p style="margin-top:8px;">{r.get('explanation', '')}</p>
           <p style="color:var(--sub); font-size:.85em;">{r.get('knowledge_point_feedback', '')}</p>
         </div>"""

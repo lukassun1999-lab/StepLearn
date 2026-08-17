@@ -45,7 +45,25 @@ def grade_answers(questions: List[Dict], student_answers: List[Dict],
         prompt=prompt, schema=schema, task_id=task_id, call_type="grade"
     )
     _override_deterministic_correct(questions, result)
+    _recompute_grading_summary(result)
     return result
+
+
+def _recompute_grading_summary(result: Dict) -> None:
+    """批改统计与逐题判分对齐：兜底纠正后重算 total/correct/accuracy。
+
+    LLM 的 summary 基于其原始判定（可能把 nature. vs nature、备选答案
+    命中误判为错），不重算会出现"报告头部答对数与逐题反馈不一致"。
+    """
+    results = result.get("results") or []
+    if not results:
+        return
+    total = len(results)
+    correct = sum(1 for r in results if r.get("is_correct"))
+    summary = result.setdefault("summary", {})
+    summary["total"] = total
+    summary["correct"] = correct
+    summary["accuracy"] = round(correct / total, 3) if total else 0
 
 
 def _override_deterministic_correct(questions: List[Dict], result: Dict) -> None:

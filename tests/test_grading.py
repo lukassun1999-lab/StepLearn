@@ -248,3 +248,70 @@ def test_llm_grading_override_deterministic_correct():
     _override_deterministic_correct(questions, result)
     flags = [r["is_correct"] for r in result["results"]]
     assert flags == [True, True, False, True], flags
+
+
+# ── 报告与批改统计对齐（第 5 周提交 2）────────────────
+
+def test_grading_summary_recomputed_after_override():
+    """兜底纠正后重算 summary：头部答对数与逐题判分一致。"""
+    from llm_plans import _override_deterministic_correct, _recompute_grading_summary
+    questions = [
+        {"question_index": 0, "correct_answer": "nature."},
+        {"question_index": 1, "correct_answer": "common/ordinary/normal"},
+        {"question_index": 2, "correct_answer": "pollinate"},
+        {"question_index": 3, "correct_answer": "B"},
+    ]
+    result = {"results": [
+        {"question_index": 0, "student_answer": "nature", "is_correct": False},
+        {"question_index": 1, "student_answer": "normal", "is_correct": False},
+        {"question_index": 2, "student_answer": "pollinate", "is_correct": True},
+        {"question_index": 3, "student_answer": "C", "is_correct": False},
+    ], "summary": {"total": 4, "correct": 1, "accuracy": 0.25}}
+    _override_deterministic_correct(questions, result)
+    _recompute_grading_summary(result)
+    s = result["summary"]
+    assert s["total"] == 4
+    assert s["correct"] == 3  # 兜底纠正 2 道误判为错
+    assert abs(s["accuracy"] - 0.75) < 1e-6
+    # 与逐题判分一致
+    assert s["correct"] == sum(1 for r in result["results"] if r["is_correct"])
+
+
+def test_feedback_report_display_normalization():
+    """反馈报告展示归一化：去尾标点、备选答案美化、多选字母不受影响。"""
+    from report_templates import _display_answer
+    assert _display_answer("nature.") == "nature"
+    assert _display_answer("common/ordinary/normal") == "common / ordinary / normal（任选其一）"
+    assert _display_answer("nature/common/ordinary") == "nature / common / ordinary（任选其一）"
+    # 字母多选（A/B）是多选语义，不做备选答案展示
+    assert _display_answer("A/B") == "A/B"
+    assert _display_answer(None) == "?"
+    assert _display_answer("  ") == "?"
+
+
+def test_feedback_report_stats_match_rows(client, sample_student, test_db_path):
+    """反馈报告：头部统计与逐题行一致，答案展示归一化。"""
+    from report_templates import render_feedback_report
+    results = [
+        {"question_index": 0, "student_answer": "nature",
+         "correct_answer": "nature.", "is_correct": True,
+         "explanation": "x", "knowledge_point_feedback": ""},
+        {"question_index": 1, "student_answer": "normal",
+         "correct_answer": "common/ordinary/normal", "is_correct": True,
+         "explanation": "y", "knowledge_point_feedback": ""},
+        {"question_index": 2, "student_answer": "pollination",
+         "correct_answer": "pollinate", "is_correct": False,
+         "explanation": "z", "knowledge_point_feedback": ""},
+    ]
+    summary = {"total": 3, "correct": 2, "accuracy": 0.667,
+               "mastered_points": ["词汇"], "still_weak_points": ["拼写"],
+               "overall_feedback": "继续加油"}
+    html = render_feedback_report("测试学生", results, summary, "2026-08-17")
+    # 展示归一化：nature. → nature；备选答案带任选其一提示
+    assert "你的答案：</strong>nature" in html
+    assert "common / ordinary / normal（任选其一）" in html
+    # 统计与逐题一致：2 对 1 需巩固
+    assert "答对" in html and ">2</div>" in html
+    # 两行绿一行红
+    assert html.count("border-left:4px solid var(--green);") == 2
+    assert html.count("border-left:4px solid var(--red);") == 1
