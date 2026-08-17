@@ -753,13 +753,18 @@ async function pollTaskProgress(taskId) {
         const out = t.output_data || {};
         const qCount = out.questions_count || 0;
         const mCount = out.mistakes_count || 0;
-        if (mCount === 0) {
-          resultDiv.textContent = '🎉 这份卷子没有识别到错题，掌握得不错！如需更多练习请联系老师';
-        } else {
-          resultDiv.textContent = qCount > 0
-            ? `✅ 已识别 ${mCount} 道错题，生成 ${qCount} 道专属练习题，去「练习」tab 开始吧！`
-            : `✅ 已识别 ${mCount} 道错题，练习题生成中，稍后刷新「练习」tab`;
-        }
+        // 完成态 = 结果摘要 + 一步直达：报告（错哪了）→ 练习（针对性练）
+        const doneMsg = mCount === 0
+          ? '🎉 这份卷子没有识别到错题，掌握得不错！如需更多练习请联系老师'
+          : (qCount > 0
+              ? `✅ 已识别 ${mCount} 道错题，生成 ${qCount} 道专属练习题`
+              : `✅ 已识别 ${mCount} 道错题，练习题生成中`);
+        resultDiv.innerHTML = `
+          <div style="font-weight:600;">${doneMsg}</div>
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button class="btn btn-primary" style="flex:1;" onclick="switchTab('reports', null)">📄 查看报告</button>
+            <button class="btn btn-outline" style="flex:1;" onclick="switchTab('practice', null)">🚀 去练习</button>
+          </div>`;
         renderPractice();
         return;
       } else if (t.status === 'failed') {
@@ -792,7 +797,7 @@ function renderReports(d) {
   div.innerHTML = `
     <div class="card">
       <h3>📋 诊断报告</h3>
-      <p class="meta">每次分析的报告都会保存在这里</p>
+      <p class="meta">AI 诊断总结 + 错题详解都在报告里，点击卡片可在线查看</p>
       <div id="reports-list"></div>
     </div>
   `;
@@ -802,14 +807,41 @@ function renderReports(d) {
       list.innerHTML = '<div class="empty"><p>📭 暂无报告</p><p class="meta">上传试卷后自动生成</p></div>';
       return;
     }
-    list.innerHTML = reports.map(r=>`
+    list.innerHTML = reports.map((r,i)=>`
       <div style="margin-top:12px;padding:12px;background:var(--bg);border-radius:6px;">
         <div style="font-weight:600;font-size:.9rem;">${r.title || '学情分析报告'}</div>
         <div class="meta">${r.created_at.slice(0,10)} · ${r.mistakes_count}道错题 · ${r.weak_points_count}个薄弱点</div>
-        <a href="/api/public/${CODE}/files/${r.report_file_id}/download" target="_blank" class="btn btn-primary" style="margin-top:8px;">📄 查看报告</a>
+        <button class="btn btn-primary" style="margin-top:8px;" onclick="toggleReportPreview(${i}, ${r.report_file_id})">📄 查看报告</button>
+        <div class="report-preview" id="report-preview-${i}" style="display:none;margin-top:10px;">
+          <iframe style="width:100%;height:62vh;border:1px solid var(--border);border-radius:8px;background:#fff;" sandbox="allow-same-origin"></iframe>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button class="btn btn-outline" style="flex:1;" onclick="switchTab('practice', null)">🚀 去练习</button>
+            <a href="/api/public/${CODE}/files/${r.report_file_id}/download" target="_blank" rel="noopener" class="btn btn-outline" style="flex:1;text-decoration:none;text-align:center;">↗ 新窗口打开</a>
+          </div>
+        </div>
       </div>
     `).join('');
+    // 最新报告默认展开，分析完一步看到"错哪了 + 怎么补"
+    if (reports.length) toggleReportPreview(0, reports[0].report_file_id);
   }).catch(()=>{});
+}
+
+// 报告内联预览：拉取报告 HTML → iframe srcdoc（与海报预览同模式，免下载/免登录态）
+function toggleReportPreview(i, fileId) {
+  const box = document.getElementById('report-preview-' + i);
+  if (!box) return;
+  const show = box.style.display === 'none';
+  document.querySelectorAll('.report-preview').forEach(b => b.style.display = 'none');
+  if (!show) return;
+  box.style.display = 'block';
+  const frame = box.querySelector('iframe');
+  if (!frame.dataset.loaded) {
+    frame.dataset.loaded = '1';
+    fetch('/api/public/' + CODE + '/files/' + fileId + '/download')
+      .then(r => r.text())
+      .then(html => { frame.srcdoc = html; })
+      .catch(() => { frame.srcdoc = '<div style="padding:20px;text-align:center;color:var(--sub);">报告加载失败，可点「新窗口打开」查看</div>'; });
+  }
 }
 
 // 掌握状态助手（全局，供错题本/展开项共用）

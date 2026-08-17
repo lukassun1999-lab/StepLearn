@@ -874,6 +874,11 @@ def api_public_reports(code):
                         break
             if title and (out.get("report_file_id") or out.get("weekly_report_file_id")
                           or out.get("feedback_file_id") or out.get("essay_review_file_id")):
+                # 空壳过滤：定时任务在学生无数据时生成的周错题本/月度总结是
+                # 0 错题占位文档，对家长无信息量且易被误读为"报告为空"，不展示
+                if (out.get("mistakes_count", 0) == 0
+                        and stage in ("weekly_book_done", "monthly_done")):
+                    continue
                 fid = (out.get("report_file_id") or out.get("weekly_report_file_id")
                        or out.get("feedback_file_id") or out.get("essay_review_file_id"))
                 reports.append({

@@ -196,3 +196,61 @@ def test_admin_consent_uses_modal():
     assert "saveConsent" in src
     # 两个 consent 函数均不再使用 prompt
     assert "consentedBy = prompt" not in src
+
+
+# ═══ 提交 5：报告合并方案（报告=诊断总结+错题明细，完成提示直达，空壳过滤）═══
+
+def test_student_done_card_has_report_entry():
+    """分析完成卡片直接给「查看报告」「去练习」入口（不再只提示去练习 tab）。"""
+    src = _page_src("family")
+    assert "查看报告" in src
+    assert "switchTab('reports', null)" in src
+    # 完成态卡片是带按钮的 HTML 而非纯文本
+    assert "resultDiv.innerHTML" in src
+
+
+def test_student_reports_inline_preview():
+    """报告列表卡片内联预览（iframe srcdoc 拉取报告 HTML，免下载打开）。"""
+    src = _page_src("family")
+    assert "toggleReportPreview" in src
+    assert "frame.srcdoc = html" in src
+    assert "report-preview-" in src
+    # 最新报告默认展开
+    assert "toggleReportPreview(0, reports[0].report_file_id)" in src
+    # 预览底部有去练习入口
+    assert "switchTab('practice', null)" in src
+
+
+def test_reports_api_filters_empty_shells(client, sample_student, test_db_path):
+    """报告列表过滤空壳：0 错题的周错题本/月度总结不再展示，有数据的保留。"""
+    import db
+    import json
+
+    student = db.get_student(sample_student)
+    code = student["access_code"]
+
+    # 制造两类任务：空壳周错题本 + 有错题的分析任务
+    db.create_task(sample_student, "weekly", {"stage": "grade_only"}, db_path=test_db_path)
+    db.create_task(sample_student, "weekly", {"stage": "grade_only"}, db_path=test_db_path)
+    conn = db.get_connection(test_db_path)
+    tasks = conn.execute(
+        "SELECT id FROM ai_tasks WHERE student_id = ? ORDER BY id DESC LIMIT 2",
+        [sample_student]).fetchall()
+    shell_id, real_id = tasks[0]["id"], tasks[1]["id"]
+    conn.execute(
+        "UPDATE ai_tasks SET status='done', needs_review=0, output_data=? WHERE id=?",
+        [json.dumps({"stage": "weekly_book_done", "mistakes_count": 0,
+                     "weekly_report_file_id": 1}), shell_id])
+    conn.execute(
+        "UPDATE ai_tasks SET status='done', needs_review=0, output_data=? WHERE id=?",
+        [json.dumps({"stage": "exercises_ready", "mistakes_count": 5,
+                     "report_file_id": 2}), real_id])
+    conn.commit()
+    conn.close()
+
+    r = client.get(f"/api/public/{code}/reports")
+    assert r.status_code == 200
+    reports = r.get_json()
+    titles = [x["title"] for x in reports]
+    assert "学情分析报告" in titles, f"有数据的报告应保留: {titles}"
+    assert "周错题本" not in titles, f"0 错题空壳应被过滤: {titles}"
