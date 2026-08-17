@@ -27,7 +27,7 @@ STUDENT_PAGE = r'''<!DOCTYPE html>
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 @keyframes spin { to { transform:rotate(360deg); } }
-body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text-alt); line-height:1.7; padding:16px; max-width:700px; margin:0 auto; font-size:1rem; }
+body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text-alt); line-height:1.7; padding:16px 16px 84px; max-width:700px; margin:0 auto; font-size:1rem; }
 .header { text-align:center; padding:28px 0 18px; border-bottom:2px solid var(--accent); margin-bottom:18px; }
 .header h1 { font-size:1.55rem; color:var(--accent); font-weight:800; letter-spacing:.01em; }
 .header .sub { color:var(--sub); font-size:.95rem; margin-top:6px; }
@@ -35,12 +35,25 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .sum-item { background:var(--card); border:none; border-radius:12px; padding:16px 12px; text-align:center; box-shadow:var(--shadow); }
 .sum-item .num { font-size:1.65rem; font-weight:800; color:var(--accent); }
 .sum-item .label { font-size:.8rem; color:var(--sub); margin-top:2px; }
-.tabs { display:flex; gap:4px; margin-bottom:18px; background:var(--card); padding:6px; border-radius:12px; box-shadow:var(--shadow); overflow-x:auto; -webkit-overflow-scrolling:touch; }
-.tab { flex:1; padding:12px 10px; border:none; background:none; border-radius:8px; font-size:.92rem; font-weight:600; color:var(--sub); cursor:pointer; white-space:nowrap; transition:all .15s; border-bottom:2px solid transparent; }
-.tab:hover { background:var(--bg-alt); color:var(--text); }
-.tab.active { background:var(--accent-light); color:var(--accent); border-bottom-color:var(--accent); }
+/* 底部导航（移动优先 IA：9 tab 收敛为 首页/练习/报告/成长/我的） */
+.bottom-nav { position:fixed; bottom:0; left:0; right:0; z-index:100; display:flex;
+  background:var(--card); border-top:1px solid var(--border);
+  box-shadow:0 -2px 10px rgba(0,0,0,.05); padding-bottom:env(safe-area-inset-bottom);
+  max-width:700px; margin:0 auto; }
+.bn-item { flex:1; display:flex; flex-direction:column; align-items:center; gap:1px;
+  padding:8px 0 9px; border:none; background:none; font-size:.68rem; font-weight:600;
+  color:var(--sub); cursor:pointer; }
+.bn-item .bn-icon { font-size:1.3rem; line-height:1.35; }
+.bn-item.active { color:var(--accent); }
+/* 分组内子区分段控件（成长=时间轴/成就墙/成长记录，我的=复盘/坚持日记/进度） */
+.seg { display:flex; background:var(--card); border-radius:12px; padding:4px; margin-bottom:14px; box-shadow:var(--shadow); }
+.seg-btn { flex:1; padding:10px 4px; border:none; background:none; border-radius:8px;
+  font-size:.88rem; font-weight:600; color:var(--sub); cursor:pointer; white-space:nowrap; }
+.seg-btn.active { background:var(--accent-light); color:var(--accent); }
 .page { display:none; }
 .page.active { display:block; }
+.sub-page { display:none; }
+.sub-page.active { display:block; }
 .card { background:var(--card); border:none; border-radius:12px; padding:22px; margin-bottom:14px; box-shadow:var(--shadow); }
 .card h3 { font-size:1.12rem; margin-bottom:12px; font-weight:700; color:var(--text); }
 .card .meta { color:var(--sub); font-size:.88rem; }
@@ -179,17 +192,13 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
   </div>
 </div>
 
-<div class="tabs">
-  <button class="tab active" onclick="switchTab('home', event)">首页</button>
-  <button class="tab" onclick="switchTab('practice', event)">练习</button>
-  <button class="tab" onclick="switchTab('reports', event)">报告</button>
-  <button class="tab" onclick="switchTab('timeline', event)">时间轴</button>
-  <button class="tab" onclick="switchTab('mistakes', event)">成长记录</button>
-  <button class="tab" onclick="switchTab('achievements', event)">成就墙</button>
-  <button class="tab" onclick="switchTab('review', event)">复盘</button>
-  <button class="tab" onclick="switchTab('checkin', event)">坚持日记</button>
-  <button class="tab" onclick="switchTab('progress', event)">进度</button>
-</div>
+<nav class="bottom-nav" id="bottomNav">
+  <button class="bn-item active" data-tab="home" onclick="switchTab('home', event)"><span class="bn-icon">🏠</span><span>首页</span></button>
+  <button class="bn-item" data-tab="practice" onclick="switchTab('practice', event)"><span class="bn-icon">📝</span><span>练习</span></button>
+  <button class="bn-item" data-tab="reports" onclick="switchTab('reports', event)"><span class="bn-icon">📊</span><span>报告</span></button>
+  <button class="bn-item" data-tab="growth" onclick="switchTab('growth', event)"><span class="bn-icon">🌱</span><span>成长</span></button>
+  <button class="bn-item" data-tab="me" onclick="switchTab('me', event)"><span class="bn-icon">👤</span><span>我的</span></button>
+</nav>
 
 <div id="page-home" class="page active">
   <div id="home-stats" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;"></div>
@@ -212,16 +221,33 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 
 <div id="page-practice" class="page"></div>
 <div id="page-reports" class="page"></div>
-<div id="page-timeline" class="page"></div>
-<div id="page-mistakes" class="page"></div>
-<div id="page-achievements" class="page"></div>
-<div id="page-review" class="page"></div>
-<div id="page-checkin" class="page"></div>
-<div id="page-progress" class="page"></div>
 
-<div style="text-align:center;margin:24px 0;">
-  <button class="btn btn-outline" onclick="requestDataDeletion()" style="font-size:.85em;">🗑️ 申请删除孩子学习数据</button>
-  <p style="font-size:.75em;color:var(--sub);margin-top:8px;">依据个人信息保护法，家长可申请删除孩子数据，老师会尽快处理。</p>
+<!-- 成长：时间轴 / 成就墙 / 成长记录（错题本） -->
+<div id="page-growth" class="page">
+  <div class="seg">
+    <button class="seg-btn active" data-sub="timeline" onclick="switchTab('timeline', event)">时间轴</button>
+    <button class="seg-btn" data-sub="achievements" onclick="switchTab('achievements', event)">成就墙</button>
+    <button class="seg-btn" data-sub="mistakes" onclick="switchTab('mistakes', event)">成长记录</button>
+  </div>
+  <div id="page-timeline" class="sub-page active"></div>
+  <div id="page-achievements" class="sub-page"></div>
+  <div id="page-mistakes" class="sub-page"></div>
+</div>
+
+<!-- 我的：复盘 / 坚持日记 / 学习进度 / 数据删除申请 -->
+<div id="page-me" class="page">
+  <div class="seg">
+    <button class="seg-btn active" data-sub="review" onclick="switchTab('review', event)">复盘</button>
+    <button class="seg-btn" data-sub="checkin" onclick="switchTab('checkin', event)">坚持日记</button>
+    <button class="seg-btn" data-sub="progress" onclick="switchTab('progress', event)">学习进度</button>
+  </div>
+  <div id="page-review" class="sub-page active"></div>
+  <div id="page-checkin" class="sub-page"></div>
+  <div id="page-progress" class="sub-page"></div>
+  <div style="text-align:center;margin:24px 0;">
+    <button class="btn btn-outline" onclick="requestDataDeletion()" style="font-size:.85em;">🗑️ 申请删除孩子学习数据</button>
+    <p style="font-size:.75em;color:var(--sub);margin-top:8px;">依据个人信息保护法，家长可申请删除孩子数据，老师会尽快处理。</p>
+  </div>
 </div>
 
 <div class="footer">
@@ -259,25 +285,34 @@ async function requestDataDeletion() {
   }
 }
 
+// 底部导航分组：旧 9 tab 中 时间轴/成就墙/成长记录 → 成长，复盘/坚持日记/进度 → 我的
+const SUB_GROUPS = { timeline:'growth', achievements:'growth', mistakes:'growth',
+                     review:'me', checkin:'me', progress:'me' };
+const VALID_TABS = ['home','practice','reports','growth','me',
+                    'timeline','achievements','mistakes','review','checkin','progress'];
+
 function switchTab(name, evt) {
-  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+  if (evt) evt.preventDefault();
+  const group = SUB_GROUPS[name] || name;  // 子区名 → 所属分组
+  document.querySelectorAll('.bn-item').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  // Support both click events and programmatic calls
-  if (evt && evt.target) {
-    evt.target.classList.add('active');
-  } else {
-    // Programmatic: find tab button by onclick pattern
-    const tabBtn = document.querySelector(`.tab[onclick*="'${name}'"]`);
-    if (tabBtn) tabBtn.classList.add('active');
-    // Fallback: find by text content
-    if (!tabBtn) {
-      const allTabs = document.querySelectorAll('.tab');
-      const labelMap = {home:'首页',practice:'练习',reports:'报告',timeline:'时间轴',mistakes:'成长记录',achievements:'成就墙',review:'复盘',checkin:'坚持日记',progress:'进度'};
-      const label = labelMap[name] || name;
-      for (const t of allTabs) { if (t.textContent.trim() === label) { t.classList.add('active'); break; } }
-    }
+  const navBtn = document.querySelector(`.bn-item[data-tab="${group}"]`);
+  if (navBtn) navBtn.classList.add('active');
+  if (SUB_GROUPS[name]) {
+    // 子区：激活所属分组的子页 + 分段按钮
+    const sub = document.getElementById('page-' + name);
+    if (sub) sub.classList.add('active');
+    const segBtn = document.querySelector(`.seg-btn[data-sub="${name}"]`);
+    if (segBtn) segBtn.classList.add('active');
   }
-  document.getElementById('page-'+name).classList.add('active');
+  const page = document.getElementById('page-' + group);
+  if (page) page.classList.add('active');
+  // hash 同步：刷新/浏览器返回可恢复位置（hashchange 再触发本函数，幂等无害）
+  if (window.location.hash !== '#' + name) {
+    try { window.location.hash = name; } catch(e) {}
+  }
+  window.scrollTo(0, 0);
 }
 
 async function loadData() {
@@ -1344,14 +1379,18 @@ function renderSvgChart(labels, values, target) {
   </svg>`;
 }
 
-// Auto-switch to tab from URL hash (e.g. /s/xxx#mistakes)
+// Auto-switch to tab from URL hash (e.g. /s/xxx#mistakes / #growth)
 if (window.location.hash) {
   const hashTab = window.location.hash.slice(1);
-  const validTabs = ['home','practice','reports','timeline','mistakes','achievements','review','checkin','progress'];
-  if (validTabs.includes(hashTab)) {
+  if (VALID_TABS.includes(hashTab)) {
     setTimeout(() => switchTab(hashTab), 500);
   }
 }
+// 浏览器前进/后退时的 hash 变化 → 恢复对应 tab
+window.addEventListener('hashchange', () => {
+  const h = window.location.hash.slice(1);
+  if (h && VALID_TABS.includes(h)) switchTab(h);
+});
 loadData();
 </script>
 </body>

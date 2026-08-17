@@ -163,6 +163,12 @@ tr:last-child td { border-bottom:none; }
   <!-- Compliance alerts -->
   <div id="dashboard-compliance-banner" style="margin-bottom:16px;"></div>
 
+  <!-- 进行中任务实时条：10s 轮询，免手动 F5 盯任务 -->
+  <div id="live-tasks-wrap" style="margin-bottom:16px; display:none;">
+    <h2 style="margin-bottom:10px;">⚙️ 进行中任务</h2>
+    <div id="live-tasks"></div>
+  </div>
+
   <!-- P3-13：审核队列已移除（D1 决策）。AI 结果直通家长，质量由抽检+纠错回路保障。 -->
 
   {% if feature_school %}
@@ -728,6 +734,20 @@ tr:last-child td { border-bottom:none; }
     <div class="btn-group" style="justify-content:flex-end;">
       <button class="btn btn-outline" onclick="closeAdminModal()">取消</button>
       <button class="btn btn-primary" onclick="saveAdminUser()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 家长授权记录（consent 三连 prompt 已改 modal） -->
+<div class="modal-overlay" id="consent-modal">
+  <div class="modal" style="max-width:480px;">
+    <h3 id="consent-modal-title">记录家长授权</h3>
+    <div class="form-group"><label>家长姓名 *</label><input id="consent-name" placeholder="必填"></div>
+    <div class="form-group"><label>家长联系方式（手机/微信，可选）</label><input id="consent-contact" placeholder="选填"></div>
+    <div class="form-group"><label>备注（可选）</label><input id="consent-notes" placeholder="选填"></div>
+    <div class="btn-group" style="justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeConsentModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveConsent()">保存</button>
     </div>
   </div>
 </div>
@@ -1720,6 +1740,36 @@ async function loadDashboard() {
   } catch(e) { console.error('Status load failed', e); }
 }
 
+// ── 进行中任务实时条 ──
+const TASK_TYPE_LABELS = { onboarding:'首次建档', weekly:'周分析', grade_only:'批改',
+                           analysis_only:'分析', report_only:'周报' };
+async function loadLiveTasks() {
+  // 仅仪表盘可见时轮询，切页即停（免后台空转）
+  const dash = document.getElementById('page-dashboard');
+  if (!dash || !dash.classList.contains('active')) return;
+  try {
+    const tasks = await (await fetch('/api/tasks')).json();
+    const active = (tasks || []).filter(t => t.status === 'processing' || t.status === 'pending').slice(0, 8);
+    const wrap = document.getElementById('live-tasks-wrap');
+    const box = document.getElementById('live-tasks');
+    if (!active.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    box.innerHTML = active.map(t => `
+      <div style="background:var(--card);border-radius:8px;padding:10px 14px;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <strong style="font-size:.9em;">${escapeHtml(t.student_name || '?')}</strong>
+          <span style="font-size:.78em;color:var(--sub);">${TASK_TYPE_LABELS[t.task_type] || t.task_type}</span>
+          <span class="badge badge-${t.status}">${t.status === 'processing' ? '处理中' : '排队中'}</span>
+        </div>
+        <div style="margin-top:6px;">
+          <div style="font-size:.78em;color:var(--sub);margin-bottom:3px;">${escapeHtml(t.current_step || '等待处理...')}</div>
+          <div class="progress-bar" style="height:6px;background:var(--bg-alt);"><div class="fill" style="width:${Math.min(100, Math.round(t.progress || 0))}%;"></div></div>
+        </div>
+      </div>`).join('');
+  } catch(e) { /* 静默失败，下一轮重试 */ }
+}
+setInterval(loadLiveTasks, 10000);
+
 // ── Students ──
 async function loadStudents() {
   const r = await fetch('/api/students'); const students = await r.json();
@@ -1791,19 +1841,41 @@ async function loadStudents() {
   });
 }
 
-async function recordConsentFromStudent(studentId, studentName) {
-  const consentedBy = prompt(`补录 ${studentName} 的家长授权\n请输入家长姓名（必填）：`);
-  if (!consentedBy || !consentedBy.trim()) return;
-  const contact = prompt(`请输入家长联系方式（手机/微信，可选）：`) || '';
-  const notes = prompt(`备注（可选）：`) || '';
+// ── 家长授权（consent 三连 prompt 已改统一 modal，学生页/合规页共用）──
+let consentStudentId = null;
+
+function recordConsentFromStudent(studentId, studentName) {
+  openConsentModal(studentId, studentName);
+}
+
+function openConsentModal(studentId, studentName) {
+  consentStudentId = studentId;
+  document.getElementById('consent-modal-title').textContent = '记录 ' + studentName + ' 的家长授权';
+  document.getElementById('consent-name').value = '';
+  document.getElementById('consent-contact').value = '';
+  document.getElementById('consent-notes').value = '';
+  document.getElementById('consent-modal').classList.add('show');
+}
+
+function closeConsentModal() {
+  document.getElementById('consent-modal').classList.remove('show');
+}
+
+async function saveConsent() {
+  const consentedBy = document.getElementById('consent-name').value.trim();
+  if (!consentedBy) { toast('请填写家长姓名', 'error'); return; }
+  const contact = document.getElementById('consent-contact').value.trim();
+  const notes = document.getElementById('consent-notes').value.trim();
   const r = await fetch('/api/compliance/consents', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({student_id: studentId, consented_by: consentedBy, contact, notes}),
+    body: JSON.stringify({student_id: consentStudentId, consented_by: consentedBy, contact, notes}),
   });
+  closeConsentModal();
   if (r.ok) {
     toast('家长授权已记录');
     loadStudents();
+    loadCompliance();
     loadDashboard();
   } else {
     toast('授权记录失败', 'error');
@@ -2427,7 +2499,7 @@ async function loadWeeklyPage() {
   const tasks = await tr.json();
   const tbody = document.querySelector('#tasks-table tbody');
   tbody.innerHTML = '';
-  tasks.filter(t=>t.task_type==='weekly').slice(0,20).forEach(t => {
+  tasks.filter(t=>t.task_type==='weekly' || t.task_type==='onboarding').slice(0,20).forEach(t => {
     let out = {};
     try { out = JSON.parse(t.output_data || '{}'); } catch(e) {}
     const stage = out.stage || '';
@@ -3069,25 +3141,6 @@ async function loadCompliance() {
       });
     }
   } catch(e) { console.error('Deletion requests load failed', e); }
-}
-
-async function openConsentModal(studentId, studentName) {
-  const consentedBy = prompt(`记录 ${studentName} 的家长授权\n请输入家长姓名（必填）：`);
-  if (!consentedBy || !consentedBy.trim()) return;
-  const contact = prompt(`请输入家长联系方式（手机/微信，可选）：`) || '';
-  const notes = prompt(`备注（可选）：`) || '';
-  const r = await fetch('/api/compliance/consents', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({student_id: studentId, consented_by: consentedBy, contact, notes}),
-  });
-  if (r.ok) {
-    toast('家长授权已记录');
-    loadCompliance();
-    loadDashboard();
-  } else {
-    toast('授权记录失败', 'error');
-  }
 }
 
 async function processDeletion(reqId, btn) {

@@ -135,3 +135,64 @@ def test_public_upload_accepts_multi():
     import api.family_api as fa
     src = open(fa.__file__, encoding='utf-8').read()
     assert "getlist('file')" in src
+
+
+# ═══ 提交 3：底部导航重构 + 管理端运营效率 ═══
+
+def test_student_bottom_nav_five_items():
+    """学生页顶部 9 tab 收敛为底部导航 5 项（首页/练习/报告/成长/我的）。"""
+    src = _page_src("family")
+    assert "bottom-nav" in src
+    for tab in ('home', 'practice', 'reports', 'growth', 'me'):
+        assert f'data-tab="{tab}"' in src, f"底部导航缺 {tab} 项"
+    # 旧的 9 tab 顶栏按钮已移除
+    assert 'onclick="switchTab(\'timeline\', event)"' in src  # 转为分段按钮
+    assert "class=\"tabs\"" not in src
+
+
+def test_student_growth_me_groups():
+    """成长（时间轴/成就墙/成长记录）与我的（复盘/坚持日记/进度）分组容器。"""
+    src = _page_src("family")
+    assert 'id="page-growth"' in src
+    assert 'id="page-me"' in src
+    # 子区用 sub-page（与 .page 主容器区分，switchTab 不会误伤）
+    assert 'id="page-timeline" class="sub-page' in src
+    assert 'id="page-mistakes" class="sub-page' in src
+    assert 'id="page-progress" class="sub-page' in src
+    # 旧 tab 名映射到分组
+    assert "SUB_GROUPS" in src
+    assert "mistakes:'growth'" in src
+    assert "progress:'me'" in src
+
+
+def test_student_hash_sync():
+    """底部导航切换写 hash，刷新/返回可恢复位置。"""
+    src = _page_src("family")
+    assert "window.location.hash = name" in src or "location.hash = name" in src
+    assert "hashchange" in src
+    assert "VALID_TABS" in src
+
+
+def test_admin_live_tasks_strip():
+    """仪表盘含进行中任务实时条（10s 轮询 /api/tasks 过滤 processing/pending）。"""
+    src = _page_src("admin")
+    assert "live-tasks-wrap" in src
+    assert "loadLiveTasks" in src
+    assert "setInterval(loadLiveTasks, 10000)" in src
+    assert "t.status === 'processing' || t.status === 'pending'" in src
+
+
+def test_admin_history_has_onboarding():
+    """历史任务表补 onboarding 任务（此前只显示 weekly）。"""
+    src = _page_src("admin")
+    assert "t.task_type==='weekly' || t.task_type==='onboarding'" in src
+
+
+def test_admin_consent_uses_modal():
+    """consent 三连 prompt() 改为 modal 表单。"""
+    src = _page_src("admin")
+    assert 'id="consent-modal"' in src
+    assert "consent-name" in src
+    assert "saveConsent" in src
+    # 两个 consent 函数均不再使用 prompt
+    assert "consentedBy = prompt" not in src
