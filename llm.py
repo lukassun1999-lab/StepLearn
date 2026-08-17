@@ -585,8 +585,12 @@ class LLMClient:
                         timeout=LLM_TIMEOUT, max_retries=0)
         response = client.chat.completions.create(
             model=self.model,
-            max_tokens=4096,
+            max_tokens=16384,  # 结构化 JSON 可能很长；4096 会被推理模型的思考占满
             temperature=0.3,
+            # 关闭思维链：MiniMax-M3 等推理模型先输出 <think> 再出答案（实测 4095/4096
+            # token 全耗在思考上，JSON 被截断 → 校验报 Required field missing）。
+            # 流水线全部为结构化 JSON 任务，直接输出即可，与 _call_openai_vision 同源。
+            extra_body={"thinking": {"type": "disabled"}},
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.choices[0].message.content or ""
