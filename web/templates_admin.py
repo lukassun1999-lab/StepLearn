@@ -158,6 +158,13 @@ tr:last-child td { border-bottom:none; }
     <div id="live-tasks"></div>
   </div>
 
+  <!-- 家长转化漏斗：本周去重学生数，一眼定位流失环节 -->
+  <div id="funnel-card" style="margin-bottom:16px; display:none;">
+    <h2 style="margin-bottom:2px;">📈 家长转化漏斗</h2>
+    <p id="funnel-week" style="margin:0 0 10px;color:var(--sub);font-size:.8em;"></p>
+    <div class="card" id="funnel-body"></div>
+  </div>
+
   <!-- P3-13：审核队列已移除（D1 决策）。AI 结果直通家长，质量由抽检+纠错回路保障。 -->
 
   {% if feature_school %}
@@ -1549,6 +1556,7 @@ async function loadDashboard() {
     <div class="stat" style="background:var(--blue-light);"><div class="num" style="color:var(--blue);">${d.question_bank ? d.question_bank.total_questions : 0}</div><div class="label">题库题目</div></div>
   `;
   document.getElementById('week-label').textContent = '周期：' + d.week_start + ' 起';
+  renderFunnel();
 
   // P3-13：审核队列已移除。逐条纠错入口见「周度服务 → 任务历史」。
 
@@ -1727,6 +1735,37 @@ async function loadDashboard() {
       `;
     }
   } catch(e) { console.error('Status load failed', e); }
+}
+
+// ── 家长转化漏斗（本周）──
+async function renderFunnel() {
+  try {
+    const f = await (await fetch('/api/funnel')).json();
+    const wrap = document.getElementById('funnel-card');
+    const box = document.getElementById('funnel-body');
+    if (!f.stages || !f.stages.length) { wrap.style.display = 'none'; return; }
+    const max = Math.max(...f.stages.map(s => s.students), 1);
+    box.innerHTML = f.stages.map((s, i) => {
+      const width = Math.round(s.students / max * 100);
+      let delta = '';
+      if (i > 0) {
+        const diff = s.students - f.stages[i-1].students;
+        delta = `<span style="width:110px;font-size:.75em;color:${diff < 0 ? 'var(--red)' : 'var(--sub)'};">较上步 ${diff >= 0 ? '+' : ''}${diff} · 占上传 ${s.pct_of_upload}%</span>`;
+      } else {
+        delta = `<span style="width:110px;font-size:.75em;color:var(--sub);">占上传 ${s.pct_of_upload}%</span>`;
+      }
+      return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+        <span style="width:66px;font-size:.8em;color:var(--sub);flex-shrink:0;">${s.label}</span>
+        <div style="flex:1;background:var(--bg-alt);border-radius:4px;height:18px;overflow:hidden;">
+          <div style="height:100%;width:${Math.max(width, s.students > 0 ? 4 : 0)}%;background:${i === 0 ? 'var(--blue)' : i === f.stages.length-1 ? 'var(--green)' : 'var(--accent)'};"></div>
+        </div>
+        <strong style="width:34px;text-align:right;font-size:.85em;">${s.students}</strong>
+        ${delta}
+      </div>`;
+    }).join('');
+    document.getElementById('funnel-week').textContent = '周期：' + f.week_start + ' 起 · 去重学生数';
+    wrap.style.display = 'block';
+  } catch(e) { /* 静默失败，下轮仪表盘刷新重试 */ }
 }
 
 // ── 进行中任务实时条 ──

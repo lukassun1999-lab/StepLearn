@@ -516,3 +516,47 @@ def get_class_stats(class_id: int, db_path: str = DB_PATH) -> Dict[str, Any]:
         "weak_points_top5": weak_points[:5],
     }
 
+
+
+def get_conversion_funnel(db_path: str = DB_PATH) -> Dict[str, Any]:
+    """家长转化漏斗（运营看板）：上传 → 分析完成 → 报告打开 → 答题练习 → 批改回传。
+
+    口径均为"本周（get_week_start 起，按本地日期）有该行为的去重学生数"。
+    报告打开来自公开下载埋点（api_public_file_download 写 audit_logs
+    action=view_report）；其余直接取业务表。
+    """
+    week_start = get_week_start()
+    conn = get_connection(db_path)
+
+    def _count(sql: str) -> int:
+        return conn.execute(sql, [week_start]).fetchone()[0]
+
+    uploaded = _count(
+        "SELECT COUNT(DISTINCT student_id) FROM ai_tasks "
+        "WHERE date(created_at, 'localtime') >= ?")
+    analyzed = _count(
+        "SELECT COUNT(DISTINCT student_id) FROM ai_tasks "
+        "WHERE date(created_at, 'localtime') >= ? AND status = 'done'")
+    report_opened = _count(
+        "SELECT COUNT(DISTINCT actor_id) FROM audit_logs "
+        "WHERE action = 'view_report' AND date(created_at, 'localtime') >= ?")
+    practiced = _count(
+        "SELECT COUNT(DISTINCT m.student_id) FROM practice_records pr "
+        "JOIN mistakes m ON m.id = pr.mistake_id "
+        "WHERE date(pr.created_at, 'localtime') >= ?")
+    graded = _count(
+        "SELECT COUNT(DISTINCT student_id) FROM weekly_records "
+        "WHERE exercises_graded > 0 AND date(updated_at, 'localtime') >= ?")
+    conn.close()
+
+    stages = [
+        {"key": "uploaded", "label": "上传试卷", "students": uploaded},
+        {"key": "analyzed", "label": "分析完成", "students": analyzed},
+        {"key": "report_opened", "label": "报告打开", "students": report_opened},
+        {"key": "practiced", "label": "答题练习", "students": practiced},
+        {"key": "graded", "label": "批改回传", "students": graded},
+    ]
+    base = stages[0]["students"] if stages else 0
+    for st in stages:
+        st["pct_of_upload"] = round(st["students"] / base * 100) if base else 0
+    return {"week_start": week_start, "stages": stages}

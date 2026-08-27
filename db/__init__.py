@@ -185,6 +185,7 @@ from db.operations import (  # noqa: F401
 from db.analytics import (  # noqa: F401
     get_class_learning_stats,
     get_class_stats,
+    get_conversion_funnel,
     get_dashboard_stats,
     get_knowledge_point_mastery_trends,
     get_operations_stats,

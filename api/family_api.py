@@ -476,6 +476,14 @@ def api_public_file_download(code, file_id):
     filepath = _resolve_file_path(f)
     if not filepath:
         return ('', 404)
+    # 转化漏斗埋点：家长打开报告/练习卷（操作类审计表复用，失败不阻断下载）
+    try:
+        log_audit(actor_type="parent", actor_id=str(student_id),
+                  action="view_report", target_type=f["file_type"],
+                  target_id=str(file_id),
+                  ip_address=request.remote_addr or "")
+    except Exception:
+        pass
     return send_file(filepath, download_name=f["original_filename"])
 
 

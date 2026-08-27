@@ -59,6 +59,12 @@ def api_dashboard():
         stats['pending_this_week'] = sum(1 for r in pending_filtered if not r.get('exercises_sent'))
     return jsonify(stats)
 
+@ops_api_bp.route('/api/funnel')
+@staff_required
+def api_funnel():
+    """家长转化漏斗（本周去重学生数）：上传→分析→报告→练习→批改。"""
+    return jsonify(get_conversion_funnel())
+
 @ops_api_bp.route('/api/cost')
 @staff_required
 def api_cost():
