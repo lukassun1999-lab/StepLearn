@@ -96,7 +96,8 @@ python app.py
 
 ```
 StepLearn/
-├── app.py                  # 装配层：Flask 实例 + 蓝图注册 + 流水线注册 + CLI（~240 行）
+├── app.py                  # 装配层：Flask 实例 + 蓝图注册 + 流水线注册 + CLI（~350 行）
+├── wsgi.py                 # 生产入口（gunicorn wsgi:app，见 DEPLOY.md）
 ├── web/                    # 页面与共享层
 │   ├── pages.py            #   页面蓝图（登录/注册/运营后台/家庭端）
 │   ├── shared.py           #   装饰器、共享辅助、UPLOAD_DIR/VERSION
@@ -108,6 +109,7 @@ StepLearn/
 │   └── routes.py           #   学校/班级/教师机构路由
 ├── domain/                 # 领域服务（不碰 HTTP，可单测）
 │   ├── cycle.py            #   ★ Cycle 状态机
+│   ├── grading.py          #   判分归一化（备选答案/标点兜底）
 │   ├── upload.py           #   统一上传服务（存文件→额度闸门→建任务）
 │   ├── quota.py            #   订阅额度统一闸门
 │   └── questions.py        #   取题服务（收拢三处重复逻辑）
@@ -118,13 +120,24 @@ StepLearn/
 │   ├── cycle_pipeline.py   #   统一 handler（onboarding + weekly）
 │   └── scheduler.py        #   调度器：周六条件周报/周一错题本/月度总结
 ├── pipeline_worker.py      # 任务队列 + worker 池（僵尸恢复/退额度/抽检）
-├── db.py                   # SQLite 数据层（唯一数据源，35 表，含 cause_profiles 错因画像）
+├── db/                     # SQLite 数据层包（唯一数据源，36 表）
+│   ├── __init__.py         #   门面：再导出全部符号（含 _now_iso）
+│   ├── core.py             #   连接/schema/迁移/时间/PRICING
+│   └── students/learning/subscriptions/operations/analytics/compliance.py
 ├── llm.py                  # LLM 抽象：重试/schema 校验/缓存/成本计费/demo 模式
-├── skills_bridge.py        # OCR + LLM 业务封装（prompt 库 + 错因因果链分析）
+├── log_setup.py            # 标准库 logging 配置（stderr + logs/app.log 轮转）
+├── skills_bridge.py        # 门面（再导出，~90 行）；实现拆分为以下 7 模块：
+├── bridge_common.py        #   路径/惰性 client
+├── llm_prompts.py          #   prompt 常量库
+├── ocr_service.py          #   OCR（vision 优先 + Tesseract 降级）
+├── knowledge_base.py       #   知识点/错因归一化（knowledge_points.json 147 条受控词表）
+├── llm_analysis.py         #   错题提取/错因因果链分析
+├── question_gen.py         #   题目生成
+├── llm_plans.py            #   批改/方案/月度总结
 ├── report_templates.py     # HTML/PDF 报告渲染（含错因画像/卡点变化板块）
 ├── ocr_wrapper.js          # Tesseract.js 包装脚本
 ├── tessdata/               # OCR 语言包（.traineddata.gz）
-├── tests/                  # pytest 测试（90 用例）
+├── tests/                  # pytest 测试（289 用例）
 ├── uploads/<student_id>/   # 学生上传文件与产出报告
 ├── backups/                # 自动备份（每日 03:00）
 ├── archive/                # 归档：历史测试产物与备份
@@ -176,7 +189,7 @@ StepLearn/
 | `HTTPS_ENABLED` | `false` | 反代终结 TLS 后置 true（启用 Secure cookie） |
 | `CONSENT_REQUIRED` | `false` | true 时无监护人同意禁止上传（商用开启） |
 
-无任何 API key 时自动进入 demo 模式（返回占位数据，可跑通全流程）。
+无任何 API key 时自动进入 demo 模式（返回占位数据，可跑通全流程；启动与任务完成时有显式告警，不会静默降级）。
 
 ---
 

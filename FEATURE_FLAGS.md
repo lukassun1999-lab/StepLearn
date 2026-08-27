@@ -38,8 +38,8 @@ python -c "from db import is_feature_enabled; print('school:', is_feature_enable
 
 ## 实现机制
 
-- 存储：SQLite `settings` 表（key-value），通过 `db.py` 的 `get_setting()` / `set_setting()` 读写
-- 默认值：`db.py` 中 `FEATURE_FLAGS` 字典，数据库无记录时使用默认值
+- 存储：SQLite `settings` 表（key-value），通过 `db` 包门面（`db/operations.py` 实现）的 `get_setting()` / `set_setting()` 读写；上方命令 `from db import ...` 不受 db.py 拆分影响
+- 默认值：`FEATURE_FLAGS` 字典，数据库无记录时使用默认值
 - 后端守卫：`web/shared.py` 的 `@feature_required('flag_name')` 装饰器，关闭时API返回404
 - 前端渲染：Jinja `{% if feature_school %}` / `{% if feature_teacher %}` 条件控制导航按钮和页面区块
 - 学生注册：班级码改为可选，`feature_school_enabled=false` 时注册只需姓名+手机号+密码

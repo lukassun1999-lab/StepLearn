@@ -2,7 +2,7 @@
 
 > 家长驱动的 AI 个性化学习系统。家长拍照 → AI 自动分析 → 家长看见成长 → 孩子针对性练习 → 错题本越读越薄。
 
-**最后更新：** 2026-08-04（P1-P3 收敛重构后）
+**最后更新：** 2026-08-17（P4 错因因果链 + 商用硬化 + 模块拆分后）
 **架构模式：** 单租户自营（非多租户 SaaS）
 **产品形态：** C 端最小闭环（学校/教师功能由 feature flag 封存，见 `FEATURE_FLAGS.md`）
 
@@ -24,8 +24,8 @@
 
 | 层 | 选型 | 说明 |
 |----|------|------|
-| 后端 | Python 3 + Flask | app.py 仅装配层（~240 行），路由拆分为蓝图 |
-| 数据库 | SQLite（WAL + busy_timeout=15000） | 单文件 `data.db`，35 张表，`db/` 包唯一数据源 |
+| 后端 | Python 3 + Flask | app.py 仅装配层（~350 行），路由拆分为蓝图 |
+| 数据库 | SQLite（WAL + busy_timeout=15000） | 单文件 `data.db`，36 张表，`db/` 包唯一数据源 |
 | 异步任务 | `threading` + `queue.Queue` | 3 worker + 按学生串行锁 + 僵尸任务自愈 + 失败退额度 |
 | LLM | Anthropic / OpenAI 兼容 API | 当前接 Kimi/MiniMax；无 key 自动 demo 模式（有告警） |
 | 日志 | 标准库 logging | stderr + `logs/app.log` 轮转（log_setup.py，LOG_LEVEL 可调） |
@@ -100,7 +100,7 @@ learning ← analytics；operations 对 students/learning 的个别引用走
 
 ---
 
-## 4. 数据模型（35 张表）
+## 4. 数据模型（36 张表）
 
 **核心实体**
 - `students` — 学生档案（姓名/年级/教材版本 textbook_version/access_code/parent_access_code/手机号密码；注册时采集年级与教材版本）
@@ -129,6 +129,9 @@ learning ← analytics；operations 对 students/learning 的个别引用走
 **合规与可观测**
 - `parent_consents`、`deletion_requests`、`audit_logs`、`alerts`、`backups`、`llm_usage_log`
 
+**知识点词表**
+- `unmapped_kps` — 未识别知识点标签池（LLM 自由标签归一化未命中时入池，按频次统计，数据驱动补词）
+
 **账号与设置**
 - `admin_users`（role: admin/teacher）、`sms_codes`、`settings`（KV：预算/feature flag 等）
 
@@ -147,7 +150,7 @@ learning ← analytics；operations 对 students/learning 的个别引用走
   → [worker] ocr → analyze → plan → analysis_report → exercises（一次任务跑完）
   → 家长轮询 /api/public/<code>/task/<id> → 学习中心呈现报告+练习+错题本
 ```
-首访家长走 `/parent`（学情体检）：自动建档（trial 1 次额度）→ onboarding 诊断 → 获得 access_code。
+首访家长走 `/parent`（学情体检）：自动建档（trial 3 次额度）→ onboarding 诊断 → 获得 access_code。
 
 ### 运营端三按钮（= 链上恢复点）
 - 批改试卷 `grade_only`：ocr 起点（需照片，消耗额度）
@@ -252,7 +255,7 @@ learning ← analytics；operations 对 students/learning 的个别引用走
 ## 8. 开发约定
 
 ### 测试
-- `python -m pytest tests/`（55 用例）；fixture 见 `tests/conftest.py`
+- `python -m pytest tests/`（289 用例）；fixture 见 `tests/conftest.py`
 - **conftest 关键约定**：`test_db_path` 在 fixture 内设置 `WEEKEND_ENGLISH_DB` 后才 import db。**所有测试必须在函数内惰性导入 db/domain/pipeline 模块**，模块顶层导入会让 DB_PATH 绑定到生产库（曾造成测试数据污染事故）。
 - demo 模式测试用 `demo_mode` fixture；会话级共享测试库，注意测试间数据隔离（唯一知识点名等）。
 
@@ -289,5 +292,9 @@ learning ← analytics；operations 对 students/learning 的个别引用走
 | 2026-08-04 | **P1 收敛后端** | Cycle 状态机、声明式链、自动链 hack 移除、审核闸门移除、统一额度闸门、周六条件周报 |
 | 2026-08-04 | **P2 收敛界面** | 家庭端合并（/parent 首访 + /s/<code> 学习中心）、统一上传服务、链路状态可见、app.py 拆蓝图（9949→237 行） |
 | 2026-08-04 | **P3 清理固化** | 审核队列代码删除、取题收拢 domain/questions、B 端隔离 b_end/、_migrate_db 重复修复、杂物归档、文档重写 |
+| 2026-08-05 | **P4 错因因果链** | 受控五类错因归因、因果链画像（cause_profiles）、跨周"卡点变化"叙事、注册采集年级/教材版本 |
+| 2026-08-16 | **商用硬化** | 安全止血（越权/IDOR/XSS/上传防线）、新计价（trial 3/¥39/¥399/超级账号）、注销级联硬删、标准库 logging、时区对齐、备份调度修复 |
+| 2026-08-16 | **模块拆分** | app.py 拆蓝图后进一步拆 db/（5869→core+6 子模块）、skills_bridge 拆 7 模块，均保留再导出门面 |
+| 2026-08-17 | **体验对齐** | 微信场景（多图上传/客户端压缩/海报保存）、报告合并方案、判分归一化兜底、长 OCR 按题型分节分析 |
 
 详见 `核心链路架构设计.md`（决策记录与实施细节）。
