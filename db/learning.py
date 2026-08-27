@@ -1501,6 +1501,27 @@ def get_check_in_calendar(student_id: int, days: int = 30, db_path: str = DB_PAT
     return [r["check_in_date"] for r in rows]
 
 
+def get_checkin_streak(student_id: int, db_path: str = DB_PATH) -> int:
+    """连续打卡天数（首页 🔥 连击）。
+
+    截至"今天或昨天"向后回溯：今天尚未打卡不断签（晚上打卡前打开页面，
+    连击应保持），断一天即清零。
+    """
+    date_set = set(get_check_in_calendar(student_id, days=800, db_path=db_path))
+    if not date_set:
+        return 0
+    cursor = date.today()
+    if cursor.isoformat() not in date_set:
+        cursor -= timedelta(days=1)
+        if cursor.isoformat() not in date_set:
+            return 0
+    streak = 0
+    while cursor.isoformat() in date_set:
+        streak += 1
+        cursor -= timedelta(days=1)
+    return streak
+
+
 def get_weekly_completion_rate(student_id: int, week_start: str,
                                db_path: str = DB_PATH) -> float:
     """
@@ -1651,6 +1672,7 @@ def get_student_public_summary(code: str, db_path: str = DB_PATH) -> Optional[Di
         "mistakes": mistakes,
         "mistakes_count": len(mistakes),
         "mastered_count": len(mastered_mistakes),
+        "checkin_streak": get_checkin_streak(student_id, db_path=db_path),
         "due_reviews": due_reviews,
         "due_review_count": len(due_reviews),
         "review_stats": review_stats,

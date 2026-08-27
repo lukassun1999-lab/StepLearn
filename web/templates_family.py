@@ -146,6 +146,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
   <div class="sum-item"><div class="num" id="sum-score">--</div><div class="label">当前分数</div></div>
   <div class="sum-item"><div class="num" id="sum-mistakes">--</div><div class="label">待攻克错题</div></div>
   <div class="sum-item"><div class="num" id="sum-due" style="color:var(--red);">--</div><div class="label">待复习</div></div>
+  <div class="sum-item"><div class="num" id="sum-streak" style="display:none;">🔥--</div><div class="label" id="streak-label" style="display:none;">连续打卡</div></div>
   <div class="sum-item"><div class="num" id="sum-checkins">--</div><div class="label">本月打卡</div></div>
   <div class="sum-item"><div class="num" id="sum-achievements">--</div><div class="label">成就</div></div>
 </div>
@@ -342,6 +343,14 @@ async function loadData() {
   const _t = new Date();
   const _ymPrefix = _t.getFullYear() + '-' + String(_t.getMonth()+1).padStart(2,'0');
   document.getElementById('sum-checkins').textContent = (d.check_ins||[]).filter(x=>x.startsWith(_ymPrefix)).length;
+  // 连续打卡连击（≥2 天才点亮，突出"坚持"）
+  const streak = d.checkin_streak || 0;
+  const streakEl = document.getElementById('sum-streak');
+  if (streak >= 2) {
+    streakEl.textContent = '🔥' + streak;
+    streakEl.style.display = '';
+    document.getElementById('streak-label').style.display = '';
+  }
 
   // Load achievement count async
   fetch('/api/public/' + CODE + '/achievements').then(r=>r.json()).then(data=>{
@@ -609,10 +618,20 @@ async function submitPracticeAnswer() {
 
     if (fb.is_correct) {
       practiceCorrect++;
+      // 攻克庆祝：连续答对 2 次（与错题本"已掌握"同口径）时当场正反馈
+      let celebrateHtml = '';
+      if (fb.mastery && fb.mastery.just_mastered) {
+        celebrateHtml = `
+          <div style="margin-top:10px;padding:12px 14px;background:#fff8e1;border-radius:10px;border-left:4px solid var(--accent);">
+            <div style="font-weight:700;color:var(--accent);">🎉 这道错题攻克了！</div>
+            <div style="font-size:.85rem;color:var(--sub);margin-top:2px;">累计已攻克 ${fb.mastery.mastered_count} 题，继续保持！</div>
+          </div>`;
+        toast('🎉 错题攻克！累计 ' + fb.mastery.mastered_count + ' 题');
+      }
       fbDiv.innerHTML = `<div style="padding:16px;background:var(--green-light);border-radius:10px;border-left:4px solid var(--green);">
         <div style="font-weight:700;color:var(--green);margin-bottom:6px;font-size:1.05rem;">✅ 正确！</div>
         <div style="font-size:.95rem;color:var(--sub);line-height:1.7;">${escapeHtml(fb.explanation||'')}</div>
-      </div>`;
+      </div>` + celebrateHtml;
       // Highlight correct option
       document.querySelectorAll('.practice-opt').forEach(o=>{
         if(o.dataset.key===fb.correct_answer){o.style.borderColor='var(--green)';o.style.background='var(--green-light)';}

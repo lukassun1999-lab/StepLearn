@@ -374,6 +374,7 @@ def api_public_practice_submit(code):
     # 若每次提交都计分，马上重交一次即可刷「连续答对」。当日后续提交
     # 只返回反馈不改掌握度；隔天可再计分（兼容 ≥1 天的间隔复习节奏）。
     source_mistake_id = q["source_mistake_id"]
+    mastery_info = None  # 本次提交计入掌握度且答对 → 前端即时攻克反馈
     if source_mistake_id:
         conn = get_connection()
         owner = conn.execute(
@@ -397,14 +398,30 @@ def api_public_practice_submit(code):
                     is_correct=is_correct,
                     feedback=q["explanation"] or "",
                 )
+                if is_correct:
+                    # 攻克 = 连续答对达 2 次（与错题本徽标/统计同口径）。
+                    # 即时庆祝是练习激励回路的核心：学生当场知道"这道题拿下了"。
+                    row = conn.execute(
+                        "SELECT consecutive_correct FROM mistakes WHERE id = ?",
+                        [source_mistake_id]).fetchone()
+                    new_cc = (row["consecutive_correct"] or 0) if row else 0
+                    mastered_total = conn.execute("""
+                        SELECT COUNT(*) AS c FROM mistakes
+                        WHERE student_id = ? AND consecutive_correct >= 2
+                    """, [student_id]).fetchone()["c"]
+                    mastery_info = {"just_mastered": new_cc >= 2,
+                                    "mastered_count": mastered_total}
         conn.close()
 
-    return jsonify({
+    resp = {
         "is_correct": is_correct,
         "correct_answer": correct_answer,
         "explanation": q["explanation"] or "",
         "knowledge_points": json.loads(q["knowledge_points"]) if isinstance(q["knowledge_points"], str) else q["knowledge_points"],
-    })
+    }
+    if mastery_info:
+        resp["mastery"] = mastery_info
+    return jsonify(resp)
 
 @family_api_bp.route('/api/public/<code>/mistake-books', methods=['GET'])
 def api_public_mistake_books(code):

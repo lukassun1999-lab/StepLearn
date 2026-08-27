@@ -315,3 +315,93 @@ def test_feedback_report_stats_match_rows(client, sample_student, test_db_path):
     # 两行绿一行红
     assert html.count("border-left:4px solid var(--green);") == 2
     assert html.count("border-left:4px solid var(--red);") == 1
+
+
+# ── 练习激励回路：打卡连击 + 攻克即时反馈 ──────────────
+
+def test_checkin_streak_calculation(sample_student, test_db_path):
+    """连击规则：今天未打卡不断签（回溯昨天）；断一天清零。"""
+    from datetime import date, timedelta
+    import db
+    from db.learning import get_checkin_streak
+
+    assert get_checkin_streak(sample_student, db_path=test_db_path) == 0
+    today = date.today()
+    # 只有昨天 → 连击 1（今天还没打，不断签）
+    db.record_check_in(sample_student,
+                       check_in_date=(today - timedelta(days=1)).isoformat(),
+                       db_path=test_db_path)
+    assert get_checkin_streak(sample_student, db_path=test_db_path) == 1
+    # 今天 + 昨天 → 2
+    db.record_check_in(sample_student, check_in_date=today.isoformat(),
+                       db_path=test_db_path)
+    assert get_checkin_streak(sample_student, db_path=test_db_path) == 2
+    # 断一天的前史不影响当前连击（3 天前有，但昨天断档——今天+昨天仍为 2）
+    db.record_check_in(sample_student,
+                       check_in_date=(today - timedelta(days=3)).isoformat(),
+                       db_path=test_db_path)
+    assert get_checkin_streak(sample_student, db_path=test_db_path) == 2
+
+
+def test_public_summary_includes_streak(client, sample_student, test_db_path):
+    """公开学情接口带 checkin_streak 字段。"""
+    from datetime import date, timedelta
+    import db
+    code = db.get_student(sample_student, db_path=test_db_path)["access_code"]
+    body = client.get(f"/api/public/{code}").get_json()
+    assert body["checkin_streak"] == 0
+    today = date.today()
+    db.record_check_in(sample_student, check_in_date=today.isoformat(),
+                       db_path=test_db_path)
+    db.record_check_in(sample_student,
+                       check_in_date=(today - timedelta(days=1)).isoformat(),
+                       db_path=test_db_path)
+    body = client.get(f"/api/public/{code}").get_json()
+    assert body["checkin_streak"] == 2
+
+
+def test_submit_mastery_feedback(client, sample_student, test_db_path):
+    """答对且连续答对达 2 次 → 响应带 mastery 攻克反馈与累计攻克数。"""
+    from datetime import date
+    import db
+    conn = db.get_connection(test_db_path)
+    mid = db.add_mistake(student_id=sample_student, source_exam="t",
+                         question="Q", question_type="单项选择",
+                         correct_answer="A", user_answer="B",
+                         db_path=test_db_path)
+    # 模拟昨天已答对一次：cc=1，本次答对即攻克
+    conn.execute("UPDATE mistakes SET consecutive_correct = 1 WHERE id = ?", [mid])
+    conn.execute(
+        "INSERT INTO questions (question_text, question_type, correct_answer, "
+        "explanation, knowledge_points, difficulty, enabled, source_mistake_id) "
+        "VALUES ('Pick A.', '单项选择', 'A', '解析x', '[]', 2, 1, ?)", [mid])
+    qid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit()
+    conn.close()
+
+    code = db.get_student(sample_student, db_path=test_db_path)["access_code"]
+    r = client.post(f"/api/public/{code}/practice/submit",
+                    json={"question_id": qid, "answer": "A"})
+    body = r.get_json()
+    assert body["is_correct"] is True
+    assert body["mastery"]["just_mastered"] is True
+    assert body["mastery"]["mastered_count"] >= 1
+
+    # 当日重复提交（防刷）→ 不再返回攻克反馈
+    r2 = client.post(f"/api/public/{code}/practice/submit",
+                     json={"question_id": qid, "answer": "A"})
+    assert "mastery" not in r2.get_json()
+
+    # 答错的计分提交也不产生攻克反馈
+    conn = db.get_connection(test_db_path)
+    conn.execute("INSERT INTO questions (question_text, question_type, correct_answer, "
+                 "explanation, knowledge_points, difficulty, enabled, source_mistake_id) "
+                 "VALUES ('Wrong path.', '语法填空', 'went', '解析y', '[]', 2, 1, ?)", [mid])
+    qid2 = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit()
+    conn.close()
+    r3 = client.post(f"/api/public/{code}/practice/submit",
+                     json={"question_id": qid2, "answer": "go"})
+    body3 = r3.get_json()
+    assert body3["is_correct"] is False
+    assert "mastery" not in body3
