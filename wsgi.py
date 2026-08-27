@@ -13,6 +13,11 @@
 """
 
 from app import app
+from db import init_db
+
+# 通过 gunicorn 启动时 __name__ != "__main__，init_db() 不会在 app.py 的
+# __main__ 分支执行，这里显式调用以幂等创建所有表（IF NOT EXISTS 安全）。
+init_db()
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=8000)
