@@ -101,6 +101,10 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
         # 跳过缺提示词的词形转换题（历史坏题，学生无法作答）
         if _inflection_missing_hint(q):
             continue
+        # 跳过关键字段缺失的历史脏行（入库闸门建立前的存量数据）
+        if not (str(q.get("correct_answer") or "").strip()
+                and str(q.get("explanation") or "").strip()):
+            continue
         selected_from_bank.append({
             "question_text": q["question_text"],
             "question_type": q["question_type"],
@@ -148,7 +152,10 @@ def generate_questions(mistakes: List[Dict], task_id: int = None,
             _ensure_options_embedded(q)
             try:
                 q_text = q.get("question_text", "").strip()
-                if (q.get("question_type") or "") in _OPTION_TYPES and not _options_embedded(q_text):
+                # 选项已内嵌 → options 字段是冗余信息，统一清空
+                # （内嵌文本为唯一事实来源，防下游重复渲染裸字母）
+                _drop_redundant_options(q)
+                if not _passes_quality_gate({**q, "question_text": q_text}):
                     bad_indexes.add(i)
                     continue
                 # 无选项词形转换题缺括号提示词 → 坏题（学生无法作答）
@@ -250,6 +257,36 @@ def _options_embedded(text: str) -> bool:
     if _OPTION_INLINE_RE is None:
         _OPTION_INLINE_RE = _re.compile(r"[A-Da-d][.、)）:：]\s*\S")
     return len(_OPTION_INLINE_RE.findall(text or "")) >= 2
+
+
+def _drop_redundant_options(q: Dict[str, Any]) -> None:
+    """题干已内嵌选项时清空 options 冗余字段。
+
+    内嵌文本是判分与渲染的唯一事实来源；LLM 偶发同时返回裸字母列表
+    （['A','B','C','D']），历史上导致练习卷出现重复且内容为空的选项块。
+    """
+    if q.get("options") and _options_embedded(str(q.get("question_text") or "")):
+        q["options"] = []
+
+
+def _passes_quality_gate(q) -> bool:
+    """下发/入库前的统一质量闸门（单口），任一项不满足即丢弃：
+
+    - 题干、正确答案、解析三者非空（解析是学习价值的核心载体）
+    - 答案不是占位符（___ 等）
+    - 有选项题型必须已内嵌 ≥2 个选项（前端渲染与判分依赖内嵌文本）
+    """
+    text = str(q.get("question_text") or "").strip()
+    answer = str(q.get("correct_answer") or "").strip()
+    expl = str(q.get("explanation") or "").strip()
+    if not text or not answer or not expl:
+        return False
+    if answer in ("___", "__", "_"):
+        return False
+    qt = str(q.get("question_type") or "")
+    if qt in _OPTION_TYPES and not _options_embedded(text):
+        return False
+    return True
 
 
 def _ensure_options_embedded(q: Dict[str, Any]) -> bool:

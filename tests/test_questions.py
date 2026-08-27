@@ -311,3 +311,85 @@ def test_fix_generated_answer_format():
     q = {"question_type": "语法填空", "correct_answer": "A"}
     out = _fix_generated_answer_format(q, source_answer="")
     assert out["correct_answer"] == "A"
+
+
+# ── 生成侧质量闸门（第 5 周提交）──────────────────────
+
+def test_quality_gate_rejects_incomplete():
+    """闸门否决项：题干/答案/解析缺失、占位答案、选项题型未内嵌选项。"""
+    from question_gen import _passes_quality_gate
+    base = {"question_text": "What is it?\n   A. X\n   B. Y",
+            "question_type": "单项选择", "correct_answer": "A. X",
+            "explanation": "考查疑问词"}
+    assert _passes_quality_gate(base)
+    # 缺题干 / 缺答案 / 缺解析
+    for field in ("question_text", "correct_answer", "explanation"):
+        bad = {**base, field: "   "}
+        assert not _passes_quality_gate(bad), f"缺 {field} 应被拒"
+    # 占位答案
+    assert not _passes_quality_gate({**base, "correct_answer": "___"})
+    # 有选项题型但题干未内嵌选项
+    no_embed = {**base, "question_text": "What is it?"}
+    assert not _passes_quality_gate(no_embed)
+
+
+def test_quality_gate_accepts_fill_type():
+    """填空类题型无需内嵌选项，答案为内容即可通过。"""
+    from question_gen import _passes_quality_gate
+    q = {"question_text": "She kept ___28___ she faced challenges.",
+         "question_type": "语法填空", "correct_answer": "even though",
+         "explanation": "让步状语从句"}
+    assert _passes_quality_gate(q)
+
+
+def test_drop_redundant_bare_letter_options():
+    """题干已内嵌选项时清空 options 冗余字段（裸字母脏数据的历史源头）。"""
+    from question_gen import _drop_redundant_options
+    # 内嵌 + 裸字母列表 → 清空
+    q1 = {"question_text": "Pick one.\n   A. yes\n   B. no",
+          "question_type": "阅读选择", "options": ["A", "B", "C", "D"]}
+    _drop_redundant_options(q1)
+    assert q1["options"] == []
+    # 未内嵌 → 保留（兜底渲染仍需要）
+    q2 = {"question_text": "Choose the word.", "question_type": "选择题",
+          "options": [{"key": "A", "text": "x"}]}
+    _drop_redundant_options(q2)
+    assert len(q2["options"]) == 1
+    # 本就为空 → 不受影响
+    q3 = {"question_text": "Fill.___", "options": []}
+    _drop_redundant_options(q3)
+    assert q3["options"] == []
+
+
+def test_bank_selection_skips_dirty_rows(test_db_path):
+    """题库选题跳过答案或解析缺失的存量脏行。"""
+    import db
+    import question_gen as qg
+
+    mid = db.add_mistake(student_id=1, source_exam="t", question="Q",
+                         question_type="完形填空", correct_answer="A",
+                         user_answer="B", db_path=test_db_path)
+    # 一好一坏两道同类题：坏行缺解析
+    db.save_question({"question_text": "Good q?\n   A. x\n   B. y\n   C. z",
+                      "question_type": "完形填空", "correct_answer": "A",
+                      "explanation": "ok", "knowledge_points": ["kp-gate"],
+                      "difficulty": 2}, db_path=test_db_path)
+    db.save_question({"question_text": "Bad q?\n   A. x\n   B. y\n   C. z",
+                      "question_type": "完形填空", "correct_answer": "B",
+                      "explanation": "", "knowledge_points": ["kp-gate"],
+                      "difficulty": 2}, db_path=test_db_path)
+
+    class NoLLM:
+        def call(self, **kw):
+            return {"questions": []}
+    orig_client = qg._get_client
+    qg._get_client = lambda: NoLLM()
+    try:
+        out = qg.generate_questions(
+            [{"id": mid, "knowledge_points": ["kp-gate"], "passage": "",
+              "question_type": "完形填空"}])
+    finally:
+        qg._get_client = orig_client
+    texts = [q["question_text"] for q in out["questions"]]
+    assert any("Good q?" in t for t in texts), "完整题应入选"
+    assert not any("Bad q?" in t for t in texts), "缺解析的脏行应被跳过"
