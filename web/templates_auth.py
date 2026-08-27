@@ -8,6 +8,7 @@ LOGIN_PAGE = r'''<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>登录 · 拾阶而上</title>
 <link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/css/shared.css?v={{version|default('1')}}">
 <style>
 :root {
   --bg: #f8f7f4; --card: #fff; --text: #1a1a1a; --text-alt: #37352f; --sub: #6b6b6b; --mute:#9b9b9b;
@@ -17,7 +18,6 @@ LOGIN_PAGE = r'''<!DOCTYPE html>
   --shadow-lg: 0 4px 24px rgba(0,0,0,.08); --radius: 8px;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-@keyframes spin { to { transform:rotate(360deg); } }
 body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text-alt); display:flex; align-items:center; justify-content:center; min-height:100vh; font-size:.875rem; padding:20px; }
 .login-card { background:var(--card); border:none; border-radius:12px; padding:36px 32px; width:100%; max-width:380px; box-shadow:var(--shadow-lg); }
 .login-card h1 { font-size:1.3rem; color:var(--text); margin-bottom:6px; text-align:center; font-weight:700; }
@@ -25,7 +25,6 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .role-tabs { display:flex; background:var(--bg); border-radius:10px; padding:4px; margin-bottom:24px; }
 .role-tab { flex:1; text-align:center; padding:9px 0; border-radius:8px; font-size:.85rem; color:var(--sub); cursor:pointer; transition:all .18s; font-weight:500; }
 .role-tab.active { background:var(--card); color:var(--accent); font-weight:600; box-shadow:var(--shadow); }
-.form-group { margin-bottom:16px; }
 .form-group label { display:block; font-size:.8rem; color:var(--sub); margin-bottom:5px; font-weight:600; }
 .form-group input {
   width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); font-size:.9rem;

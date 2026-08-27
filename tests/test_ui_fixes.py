@@ -288,3 +288,33 @@ def test_failure_presentation_reliable():
     assert "dismissParentError" in parent
     # showError 不再走自动消失的 toast
     assert "setTimeout(() => { toast.style.display = 'none'; }, 3000);" not in parent
+
+
+def test_shared_css_common_layer():
+    """模板公共层：四端共享样式抽取到 static/css/shared.css。
+
+    - shared.css 必须存在且含公共组件规则（modal/page/btn/spin）
+    - 四个内联模板均注入 <link>，且位于各页 <style> 之前（本地覆盖优先）
+    - 被抽取的规则不得残留在模板中（重复声明即回退）
+    """
+    import os
+    import web.templates_family as tf
+    import web.templates_admin as ta
+    import web.templates_auth as th
+
+    css_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'css', 'shared.css')
+    assert os.path.exists(css_path), "static/css/shared.css 不存在"
+    css = open(css_path, encoding='utf-8').read()
+    for sel in ('.page.active', '.modal-overlay.show', '.btn-outline',
+                '.form-group', '@keyframes spin', '@keyframes modalEnter'):
+        assert sel in css, f"shared.css 缺 {sel}"
+
+    auth_tpl = getattr(th, [a for a in dir(th) if a.isupper() and 'PAGE' in a][0])
+    for name, tpl in [('student', tf.STUDENT_PAGE), ('parent', tf.PARENT_PAGE),
+                      ('admin', ta.MAIN_PAGE), ('auth', auth_tpl)]:
+        link_pos = tpl.find('shared.css')
+        style_pos = tpl.find('<style>')
+        assert link_pos > 0, f"{name} 未引入 shared.css"
+        assert link_pos < style_pos, f"{name} 的 link 必须在本地 <style> 之前"
+        for leftover in ('.toast-success {', '@keyframes spin'):
+            assert leftover not in tpl, f"{name} 残留已抽取规则: {leftover}"

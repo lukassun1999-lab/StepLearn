@@ -8,6 +8,7 @@ MAIN_PAGE = r'''<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>拾阶而上 · 管理系统</title>
 <link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/css/shared.css?v={{version|default('1')}}">
 <style>
 :root {
   --bg: #f8f7f4; --bg-alt: #f1f0ec; --card: #fff;
@@ -22,7 +23,6 @@ MAIN_PAGE = r'''<!DOCTYPE html>
   --radius: 8px;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-@keyframes spin { to { transform:rotate(360deg); } }
 body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text-alt); line-height:1.6; font-size:.875rem; }
 .header { background:var(--card); border-bottom:1px solid var(--border); padding:0 20px; display:flex; align-items:center; height:56px; }
 .header h1 { font-size:1.1rem; color:var(--accent); margin-right:auto; font-weight:700; }
@@ -31,8 +31,6 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .nav button:hover { background:var(--bg-alt); color:var(--text); }
 .nav button.active { background:var(--accent-light); color:var(--accent); font-weight:600; }
 .main { max-width:1200px; margin:0 auto; padding:24px 20px; }
-.page { display:none; }
-.page.active { display:block; }
 h2 { font-size:1.15rem; font-weight:600; line-height:1.4; margin-bottom:16px; border-left:3px solid var(--accent); padding-left:12px; color:var(--text); }
 .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:16px; margin-bottom:24px; }
 .stat { background:var(--card); border:none; border-radius:10px; padding:20px; box-shadow:var(--shadow); transition:box-shadow .2s; }
@@ -61,7 +59,6 @@ tr:last-child td { border-bottom:none; }
 .badge-done { background:var(--green-light); color:var(--green); }
 .badge-failed { background:var(--red-light); color:var(--red); }
 .badge-cancelled { background:var(--bg-alt); color:var(--sub); }
-.form-group { margin-bottom:16px; }
 .form-group label { display:block; font-size:.8rem; color:var(--sub); margin-bottom:4px; font-weight:600; }
 .form-group input, .form-group select, .form-group textarea {
   width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius); font-size:.875rem;
@@ -77,14 +74,9 @@ tr:last-child td { border-bottom:none; }
 .btn:hover { transform:translateY(-1px); box-shadow:var(--shadow); }
 .btn-primary { background:var(--accent); color:#fff; }
 .btn-primary:hover { background:var(--accent-hover); }
-.btn-green { background:var(--green); color:#fff; }
-.btn-outline { background:var(--card); border:1px solid var(--border); color:var(--text); }
 .btn-outline:hover { background:var(--bg-alt); border-color:var(--accent); }
 .btn-sm { padding:4px 12px; font-size:.8rem; }
 .btn-group { display:flex; gap:8px; margin-top:16px; }
-.modal-overlay { display:none; position:fixed; top:0;left:0;right:0;bottom:0; background:rgba(0,0,0,.25); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); z-index:100; align-items:center; justify-content:center; animation:fadeIn .2s ease; }
-.modal-overlay.show { display:flex; }
-.modal { background:var(--card); border-radius:12px; padding:28px; max-width:560px; width:90%; max-height:80vh; overflow-y:auto; box-shadow:var(--shadow-lg); animation:modalEnter .25s ease; }
 .modal h3 { margin-bottom:16px; }
 .progress-bar { width:100%; height:8px; background:var(--border); border-radius:100px; overflow:hidden; margin:12px 0; }
 .progress-bar .fill { height:100%; background:var(--accent); border-radius:100px; transition:width .3s ease; }
@@ -94,11 +86,8 @@ tr:last-child td { border-bottom:none; }
 .step-item.current { background:var(--accent-light); color:var(--accent); font-weight:600; }
 .step-item.pending { background:var(--bg); color:var(--sub); }
 .spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top:2px solid var(--accent); border-radius:50%; animation:spin 1s linear infinite; }
-@keyframes spin { to { transform:rotate(360deg); } }
 @keyframes fadeIn { from{opacity:0;} to{opacity:1;} }
-@keyframes modalEnter { from{opacity:0;transform:scale(.95) translateY(8px);} to{opacity:1;transform:scale(1) translateY(0);} }
 .toast { position:fixed; top:20px; right:20px; padding:12px 20px; border-radius:var(--radius); color:#fff; font-size:.875rem; z-index:200; box-shadow:var(--shadow-lg); animation:fadeIn .3s ease; }
-.toast-success { background:var(--green); }
 .toast-error { background:var(--red); }
 .card { background:var(--card); border:none; border-radius:10px; padding:20px; box-shadow:var(--shadow); margin-bottom:16px; }
 .table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }

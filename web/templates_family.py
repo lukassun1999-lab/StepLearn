@@ -12,6 +12,7 @@ STUDENT_PAGE = r'''<!DOCTYPE html>
 <meta property="og:description" content="AI 分析试卷错题，生成专属练习与成长报告，进步看得见。">
 <meta name="description" content="AI 分析试卷错题，生成专属练习与成长报告。">
 <link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/css/shared.css?v={{version|default('1')}}">
 <style>
 :root {
   --bg: #f8f7f4; --bg-alt: #f1f0ec; --card: #fff;
@@ -26,7 +27,6 @@ STUDENT_PAGE = r'''<!DOCTYPE html>
   --radius: 10px;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-@keyframes spin { to { transform:rotate(360deg); } }
 body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text-alt); line-height:1.7; padding:16px 16px 84px; max-width:700px; margin:0 auto; font-size:1rem; }
 .header { text-align:center; padding:28px 0 18px; border-bottom:2px solid var(--accent); margin-bottom:18px; }
 .header h1 { font-size:1.55rem; color:var(--accent); font-weight:800; letter-spacing:.01em; }
@@ -50,8 +50,6 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .seg-btn { flex:1; padding:10px 4px; border:none; background:none; border-radius:8px;
   font-size:.88rem; font-weight:600; color:var(--sub); cursor:pointer; white-space:nowrap; }
 .seg-btn.active { background:var(--accent-light); color:var(--accent); }
-.page { display:none; }
-.page.active { display:block; }
 .sub-page { display:none; }
 .sub-page.active { display:block; }
 .card { background:var(--card); border:none; border-radius:12px; padding:22px; margin-bottom:14px; box-shadow:var(--shadow); }
@@ -61,8 +59,6 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .btn:hover { transform:translateY(-1px); box-shadow:var(--shadow); }
 .btn-primary { background:var(--accent); color:#fff; }
 .btn-primary:hover { background:var(--accent-hover); }
-.btn-green { background:var(--green); color:#fff; }
-.btn-outline { background:var(--card); border:1px solid var(--border); color:var(--text); }
 .btn-outline:hover { background:var(--bg-alt); }
 .badge { display:inline-block; padding:4px 12px; border-radius:100px; font-size:.8rem; font-weight:600; }
 .badge-green { background:var(--green-light); color:var(--green); }
@@ -96,12 +92,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .kp-item { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); font-size:.95rem; }
 .kp-item:last-child { border-bottom:none; }
 .toast { position:fixed; top:20px; left:50%; transform:translateX(-50%); padding:12px 24px; border-radius:var(--radius); color:#fff; font-size:.95rem; z-index:200; box-shadow:var(--shadow-lg); }
-.toast-success { background:var(--green); }
 /* Modal（修复：此前模板缺失弹窗 CSS，导致弹窗常驻页面） */
-.modal-overlay { display:none; position:fixed; top:0;left:0;right:0;bottom:0; background:rgba(0,0,0,.25); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); z-index:100; align-items:center; justify-content:center; animation:fadeIn .2s ease; }
-.modal-overlay.show { display:flex; }
-.modal { background:var(--card); border-radius:12px; padding:28px; max-width:560px; width:90%; max-height:80vh; overflow-y:auto; box-shadow:var(--shadow-lg); animation:modalEnter .25s ease; }
-@keyframes modalEnter { from{opacity:0;transform:scale(.95) translateY(8px);} to{opacity:1;transform:scale(1) translateY(0);} }
 /* Achievement Wall */
 .ach-card { border-radius:10px; padding:12px 10px; text-align:center; transition:transform .2s; }
 .ach-card:hover { transform:translateY(-2px); }
@@ -1484,6 +1475,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
 <meta property="og:description" content="拍一张试卷照片，5 分钟看懂孩子的英语薄弱点，附专属提升方案。">
 <meta name="description" content="拍一张试卷照片，AI 看懂孩子的英语薄弱点。">
 <link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/css/shared.css?v={{version|default('1')}}">
 <style>
   :root {
     --bg: #f8f7f4; --card: #ffffff; --text: #1a1a1a;
@@ -1495,7 +1487,6 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     --border: #e8e6e1;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
-@keyframes spin { to { transform:rotate(360deg); } }
   body {
     font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
     background: var(--bg); color: var(--text); line-height:1.6;
@@ -1561,8 +1552,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite;
     margin-bottom:16px;
   }
-  @keyframes spin { to { transform:rotate(360deg); } }
-  .progress-card .status { font-size:.875rem; color:var(--sub); }
+    .progress-card .status { font-size:.875rem; color:var(--sub); }
   .progress-card .step-name { font-size:.75rem; color:var(--mute); margin-top:4px; }
 
   /* Result Card */

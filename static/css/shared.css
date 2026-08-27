@@ -1,0 +1,28 @@
+/* 拾阶而上 · 全端共享样式（组件层）。
+   规则来源：各内联模板中逐字节一致的公共组件，抽取至此消除三处维护；
+   引入顺序在页面 <style> 之前，页面本地同名定义按级联优先、不受影响。
+   模板以 ?v={{version}} 破缓存。刻意不抽：* 全局 reset（家长页未用，
+   共享会改变其布局）与 :root 设计变量（四页存在少量刻意的值差异）。 */
+
+/* ── 页面切换（学生端 tab / 管理端 page 双方同构）── */
+.page { display:none; }
+.page.active { display:block; }
+
+/* ── 弹窗 ── */
+.modal-overlay { display:none; position:fixed; top:0;left:0;right:0;bottom:0; background:rgba(0,0,0,.25); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); z-index:100; align-items:center; justify-content:center; animation:fadeIn .2s ease; }
+.modal-overlay.show { display:flex; }
+.modal { background:var(--card); border-radius:12px; padding:28px; max-width:560px; width:90%; max-height:80vh; overflow-y:auto; box-shadow:var(--shadow-lg); animation:modalEnter .25s ease; }
+
+/* ── 轻提示成功态（基础 .toast 各页位置不同，留在各自模板）── */
+.toast-success { background:var(--green); }
+
+/* ── 按钮 ── */
+.btn-green { background:var(--green); color:#fff; }
+.btn-outline { background:var(--card); border:1px solid var(--border); color:var(--text); }
+
+/* ── 表单 ── */
+.form-group { margin-bottom:16px; }
+
+/* ── 动画 ── */
+@keyframes spin { to { transform:rotate(360deg); } }
+@keyframes modalEnter { from{opacity:0;transform:scale(.95) translateY(8px);} to{opacity:1;transform:scale(1) translateY(0);} }
