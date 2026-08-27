@@ -154,7 +154,11 @@ def analyze_mistakes(ocr_text: str, task_id: int = None) -> Dict[str, Any]:
 
 
 def _analyze_chunked(ocr_text: str, hints: str, task_id: int = None) -> Dict[str, Any]:
-    """按题型分节逐块分析，合并结果。单块失败不阻断整卷（该块按 0 错题计）。"""
+    """按题型分节逐块分析，合并结果。单块失败不阻断整卷（该块按 0 错题计）。
+
+    summary.chunk_stats 记录分块执行情况 {total, ok, failed}，
+    随 output_data 流到前端——部分成功时家长能看到"少了几块"而非无声缺失。
+    """
     chunks = chunk_ocr_by_section(ocr_text)
     if not chunks:
         # 分节失败（无题号/无节标题的异常格式）→ 回退整卷单次调用
@@ -166,6 +170,7 @@ def _analyze_chunked(ocr_text: str, hints: str, task_id: int = None) -> Dict[str
             call_type="analyze")
 
     results = []
+    failed = 0
     for i, chunk in enumerate(chunks):
         try:
             prompt = MISTAKE_ANALYSIS_PROMPT.format(ocr_text=chunk)
@@ -176,10 +181,13 @@ def _analyze_chunked(ocr_text: str, hints: str, task_id: int = None) -> Dict[str
                 call_type="analyze"))
         except Exception:
             # 单块失败：跳过该块继续，保证整卷不因一块异常而失败
-            continue
+            failed += 1
+    chunk_stats = {"total": len(chunks), "ok": len(results), "failed": failed}
     if not results:
-        return {"mistakes": [], "summary": {}}
-    return _merge_chunk_results(results)
+        return {"mistakes": [], "summary": {"chunk_stats": chunk_stats}}
+    merged = _merge_chunk_results(results)
+    merged["summary"]["chunk_stats"] = chunk_stats
+    return merged
 
 
 def _postprocess_mistakes(result: Dict) -> None:

@@ -147,3 +147,45 @@ def test_chunked_fallback_when_no_sections(monkeypatch):
     monkeypatch.setattr(llm_analysis, "_get_client", lambda: fake)
     llm_analysis.analyze_mistakes("纯文本无题号" * 3000)
     assert len(calls) == 1
+
+
+def test_chunked_partial_failure_tracked(monkeypatch):
+    """单块失败不阻断整卷，且 chunk_stats 如实记录（total/ok/failed）。"""
+    import pytest as _pytest
+    calls = []
+
+    class FlakyClient:
+        def call(self, **kw):
+            calls.append(kw)
+            if len(calls) == 1:
+                raise RuntimeError("simulated LLM outage")
+            return {"mistakes": [
+                {"question_number": 23, "question_text": "Q23", "question_type": "完形填空",
+                 "correct_answer": "caught", "user_answer": "chased",
+                 "error_cause": "vocab", "knowledge_points": []}],
+                "summary": {"total_mistakes": 1, "by_type": {"完形填空": 1},
+                            "top_weak_points": [], "overall_assessment": ""}}
+
+    fake = FlakyClient()
+    monkeypatch.setattr(llm_analysis, "_get_client", lambda: fake)
+
+    long_ocr = _SYNTHETIC_OCR + "\n" + "x" * (_llm_analysis_threshold())
+    res = llm_analysis.analyze_mistakes(long_ocr)
+    assert len(calls) == 2, "两块都应被调用"
+    stats = res["summary"]["chunk_stats"]
+    assert stats == {"total": 2, "ok": 1, "failed": 1}
+    assert len(res["mistakes"]) == 1  # 成功块的结果保留
+
+
+def test_build_output_includes_chunk_stats(test_db_path):
+    """Ctx.build_output 把 chunk_stats 带进任务 output_data。"""
+    from pipeline.stages import Ctx
+    ctx = Ctx({"id": 1, "student_id": 1, "task_type": "weekly",
+               "input_data": {"file_ids": [1]}, "week_start": None}, test_db_path)
+    assert ctx.chunk_stats is None
+    ctx.mistakes = [{"q": 1}]
+    out = ctx.build_output()
+    assert "chunk_stats" not in out  # 非分段分析不带该字段
+    ctx.chunk_stats = {"total": 6, "ok": 5, "failed": 1}
+    out = ctx.build_output()
+    assert out["chunk_stats"] == {"total": 6, "ok": 5, "failed": 1}

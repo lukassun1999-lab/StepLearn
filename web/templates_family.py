@@ -754,6 +754,11 @@ async function pollTaskProgress(taskId) {
         const out = t.output_data || {};
         const qCount = out.questions_count || 0;
         const mCount = out.mistakes_count || 0;
+        // 部分成功：分段分析有块失败时明示，避免"错题变少"被无声吞掉
+        const cs = out.chunk_stats || {};
+        const partialNote = (cs.failed > 0)
+          ? `<div style="margin-top:6px;font-size:.85rem;color:var(--accent);background:var(--accent-light);border-radius:8px;padding:8px 12px;">⚠️ 有 ${cs.failed}/${cs.total} 个章节分析未成功，结果可能不完整，可重新上传试试</div>`
+          : '';
         // 完成态 = 结果摘要 + 一步直达：报告（错哪了）→ 练习（针对性练）
         const doneMsg = mCount === 0
           ? '🎉 这份卷子没有识别到错题，掌握得不错！如需更多练习请联系老师'
@@ -762,6 +767,7 @@ async function pollTaskProgress(taskId) {
               : `✅ 已识别 ${mCount} 道错题，练习题生成中`);
         resultDiv.innerHTML = `
           <div style="font-weight:600;">${doneMsg}</div>
+          ${partialNote}
           <div style="display:flex;gap:8px;margin-top:10px;">
             <button class="btn btn-primary" style="flex:1;" onclick="switchTab('reports', null)">📄 查看报告</button>
             <button class="btn btn-outline" style="flex:1;" onclick="switchTab('practice', null)">🚀 去练习</button>
@@ -769,8 +775,20 @@ async function pollTaskProgress(taskId) {
         renderPractice();
         return;
       } else if (t.status === 'failed') {
-        statusText.textContent = '分析失败：' + (t.error_message||'未知错误').slice(0,60);
-        fillBar.style.background = 'var(--red)';
+        // 常驻错误卡片：完整原因 + 重试引导（此前是进度条旁一行小字，易被忽略）
+        resultDiv.style.display = 'block';
+        const reason = escapeHtml(t.error_message || '未知错误');
+        resultDiv.innerHTML = `
+          <div style="background:var(--red-light);border-radius:10px;padding:14px 16px;text-align:left;">
+            <div style="font-weight:700;color:var(--red);font-size:1.02rem;">❌ 分析没成功</div>
+            <div style="font-size:.88rem;color:var(--sub);line-height:1.7;margin-top:4px;word-break:break-all;">${reason}</div>
+            <div style="font-size:.85rem;color:var(--sub);margin-top:6px;">扣回的练习额度已自动退返，重新上传不会重复消耗。</div>
+            <button class="btn btn-primary" style="width:100%;margin-top:10px;" onclick="resetUploadAfterFailure()">📷 重新上传试卷照片</button>
+          </div>`;
+        statusText.textContent = '';
+        fillBar.style.width = '0%';
+        fillBar.style.background = '';
+        document.getElementById('upload-card').scrollIntoView({behavior:'smooth'});
         return;
       } else {
         fillBar.style.width = Math.min(60 + (t.progress||0)*0.35, 95) + '%';
@@ -778,18 +796,43 @@ async function pollTaskProgress(taskId) {
         if (attempts < 600) {
           setTimeout(poll, 3000);
         } else {
-          statusText.textContent = '仍在处理中，可稍后刷新页面查看结果（通常 5-10 分钟完成）';
+          // 超时不再是一行小字：给出入口，结果出来后报告/练习里都有
+          resultDiv.style.display = 'block';
+          resultDiv.innerHTML = `
+            <div style="background:var(--accent-light);border-radius:10px;padding:14px 16px;">
+              <div style="font-weight:600;">⏳ 分析还在进行中（复杂试卷通常 5-10 分钟完成）</div>
+              <button class="btn btn-primary" style="width:100%;margin-top:10px;" onclick="switchTab('reports', null)">📋 稍后去「报告」tab 查看</button>
+            </div>`;
+          statusText.textContent = '';
         }
       }
     } catch(e) {
       if (attempts < 600) {
         setTimeout(poll, 5000);
       } else {
-        statusText.textContent = '网络不稳定，结果会更新在「报告」和「练习」tab，可稍后再来看';
+        resultDiv.style.display = 'block';
+        resultDiv.innerHTML = `
+          <div style="background:var(--accent-light);border-radius:10px;padding:14px 16px;">
+            <div style="font-weight:600;">📡 网络不稳定，结果会照常生成</div>
+            <div style="font-size:.85rem;color:var(--sub);margin-top:4px;">完成后自动出现在「报告」和「练习」tab</div>
+            <button class="btn btn-primary" style="width:100%;margin-top:10px;" onclick="switchTab('reports', null)">📋 去「报告」tab 查看</button>
+          </div>`;
+        statusText.textContent = '';
       }
     }
   };
   setTimeout(poll, 2000);
+}
+
+// 分析失败后重置上传区（隐藏结果卡片、复原进度条，回到拍照入口）
+function resetUploadAfterFailure() {
+  const resultDiv = document.getElementById('upload-result');
+  if (resultDiv) resultDiv.style.display = 'none';
+  const fillBar = document.getElementById('upload-fill');
+  const statusText = document.getElementById('upload-status');
+  if (fillBar) { fillBar.style.width = '0%'; fillBar.style.background = ''; }
+  if (statusText) statusText.textContent = '';
+  document.getElementById('upload-card').scrollIntoView({behavior:'smooth'});
 }
 
 function renderReports(d) {
@@ -1625,6 +1668,15 @@ PARENT_PAGE = r'''<!DOCTYPE html>
 
   <!-- Upload Zone (wrapped) -->
   <div id="uploadSection">
+    <!-- 分析失败常驻卡片（替代 3 秒自动消失的 toast——失败原因家长必须能看清） -->
+    <div id="parent-error-card" style="display:none;background:var(--red-light);border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div style="font-weight:700;color:var(--red);font-size:1rem;">❌ 这次分析没成功</div>
+        <button type="button" onclick="dismissParentError()" style="border:none;background:none;font-size:1.2rem;color:var(--sub);cursor:pointer;padding:0 4px;min-width:44px;min-height:44px;line-height:44px;">✕</button>
+      </div>
+      <div id="parent-error-msg" style="font-size:.88rem;color:var(--sub);line-height:1.7;margin-top:4px;word-break:break-all;"></div>
+      <div style="font-size:.85rem;color:var(--sub);margin-top:6px;">额度已自动退返，重新上传不会重复消耗。拍得清晰一点成功率更高。</div>
+    </div>
     <div class="grade-pick" id="gradePick">
       <div style="font-size:.85rem;font-weight:600;margin-bottom:8px;">🎓 孩子现在读几年级？</div>
       <div class="grade-opts" id="gradeOpts">
@@ -1766,6 +1818,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     dashboard.style.display = 'none';
     resultCard.style.display = 'none';
     progressCard.style.display = 'none';
+    dismissParentError();
     setStep(1);
   }
 
@@ -2069,10 +2122,13 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     progressCard.style.display = 'none';
     uploadZone.style.display = 'block';
     setStep(1);
-    const toast = document.getElementById('toast');
-    toast.textContent = msg;
-    toast.style.display = 'block';
-    setTimeout(() => { toast.style.display = 'none'; }, 3000);
+    // 常驻错误卡片（家长可手动关闭），不再用 3 秒自动消失的 toast
+    document.getElementById('parent-error-msg').textContent = msg || '出了点小问题，请再试一次';
+    document.getElementById('parent-error-card').style.display = 'block';
+  }
+
+  function dismissParentError() {
+    document.getElementById('parent-error-card').style.display = 'none';
   }
 
   function setStep(n) {

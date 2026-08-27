@@ -57,6 +57,7 @@ class Ctx:
         self.ocr_confidence = 0.8
         self.analysis = None          # analyze_mistakes 原始返回
         self.mistakes = []            # 本次分析产出的错题（dict 形态）
+        self.chunk_stats = None       # 分段分析执行情况 {total, ok, failed}（非分段为 None）
         self.session_id = None
         self.saved_mistake_ids = []
         self.weak_points = []
@@ -83,7 +84,7 @@ class Ctx:
         """按 kind 构造任务 output_data。"""
         from domain import cycle as cycle_mod
         if self.kind == cycle_mod.KIND_DIAGNOSTIC:
-            return {
+            out = {
                 "needs_review": False,
                 "student_id": self.student_id,
                 "report_file_id": self.report_file_id,
@@ -93,6 +94,9 @@ class Ctx:
                 "session_id": self.session_id,
                 "mistake_ids": self.saved_mistake_ids,
             }
+            if self.chunk_stats:
+                out["chunk_stats"] = self.chunk_stats
+            return out
         out = {
             "needs_review": False,
             "student_id": self.student_id,
@@ -108,6 +112,8 @@ class Ctx:
         }
         if self.file_ids:
             out["file_ids"] = self.file_ids
+        if self.chunk_stats:
+            out["chunk_stats"] = self.chunk_stats
         return out
 
 
@@ -196,6 +202,7 @@ def node_analyze(ctx: Ctx):
         ocr_text = f"{ocr_text}\n\n[老师意见]: {teacher_notes}"
     analysis = analyze_mistakes(ocr_text, task_id=ctx.task_id)
     mistakes = analysis.get("mistakes", [])
+    ctx.chunk_stats = (analysis.get("summary") or {}).get("chunk_stats")
 
     if ctx.kind == cycle_mod.KIND_DIAGNOSTIC:
         exam_name = f"{ctx.student['name']}首次诊断"

@@ -264,3 +264,27 @@ def test_practice_options_data_driven():
     # 阅读类题型补进白名单（选项缺失时走跳过分支而非填空输入框）
     assert "阅读选择" in src and "阅读补全短文" in src
     assert "escapeHtml(o.text)" in src
+
+
+def test_failure_presentation_reliable():
+    """失败/进度可靠呈现（任务 1 优化）：
+
+    - 学生页：分析失败为常驻错误卡片（完整原因 + 重置按钮），不再是一行会被
+      下一次状态覆盖的小字；超时给报告入口；部分成功明示 chunk_stats.failed
+    - 家长页：showError 改常驻卡片（可手动关闭），不再 3 秒自动消失
+    """
+    student = _page_src("family")
+    # 常驻错误卡片 + 重试引导
+    assert "resetUploadAfterFailure" in student
+    assert "❌ 分析没成功" in student
+    assert "重新上传试卷照片" in student
+    # 部分成功提示（分段分析块失败）
+    assert "chunk_stats" in student and "个章节分析未成功" in student
+    # 超时/网络异常给报告入口而非裸文本
+    assert "分析还在进行中" in student
+
+    parent = _page_src("parent")
+    assert 'id="parent-error-card"' in parent
+    assert "dismissParentError" in parent
+    # showError 不再走自动消失的 toast
+    assert "setTimeout(() => { toast.style.display = 'none'; }, 3000);" not in parent
