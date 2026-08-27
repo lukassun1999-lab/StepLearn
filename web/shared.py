@@ -4,6 +4,8 @@
 
 import functools
 import os
+import threading
+import time
 import uuid
 from typing import Optional
 
@@ -89,15 +91,82 @@ def feature_required(flag: str):
     return decorator
 
 def _resolve_student_by_code(code):
-    """Resolve student_id from access_code. Returns (student_id, error_response)."""
+    """Resolve student_id from access_code. Returns (student_id, error_response).
+
+    访问码暴力枚举防护：同一 IP 短时间内大量无效 code 查询 → 临时封禁
+    （6 次失败 / 15 分钟滑动窗口，按 IP 聚合）。此函数是全部
+    /api/public/<code>/* 端点的唯一 code 校验入口，封禁在此统一生效。
+    单进程内存计数即可（多 worker 部署时需换共享存储）。
+    """
+    now = _now_s()
+    # 封禁短路（纯读路径，不计数）——返回与"code 无效"完全一致的 404，
+    # 不泄露"该 code 其实存在"的信息
+    if _code_ip_blocked(now):
+        return None, (jsonify({"error": "invalid or expired code"}), 404)
     conn = get_connection()
     row = conn.execute(
         "SELECT id FROM students WHERE access_code = ? AND status = 'active'", [code]
     ).fetchone()
     conn.close()
     if not row:
+        _code_fail_rate_limit(now)
         return None, (jsonify({"error": "invalid or expired code"}), 404)
+    # 命中即清零：正常用户偶尔输错几次后成功，不应被锁
+    _code_clear_ip_failures()
     return row["id"], None
+
+
+# ═══════════════════════════════════════════════════
+# 访问码失败限流（滑动窗口，按 IP 聚合）
+# ═══════════════════════════════════════════════════
+# 按 IP 聚合而不是按 IP+code：攻击者换着 code 试也能被同一计数累计命中，
+# 这正是暴力枚举防护的目的。纯读路径不加锁（最坏容忍并发下误判一次）。
+_code_limit = {}          # ip -> [失败时间戳...]
+_code_limit_lock = threading.Lock()
+_CODE_MAX_FAILS = 6       # 窗口内失败达到该数即封锁（放行 5 次）
+_CODE_WINDOW_S = 900      # 15 分钟
+
+
+def _now_s() -> float:
+    return time.monotonic()
+
+
+def _code_fails(ip: str) -> list:
+    return _code_limit.get(ip, ())
+
+
+def _code_ip_blocked(now: float) -> bool:
+    ip = request.remote_addr or "unknown"
+    cutoff = now - _CODE_WINDOW_S
+    return sum(1 for t in _code_fails(ip) if t > cutoff) >= _CODE_MAX_FAILS
+
+
+def _code_fail_rate_limit(now: float) -> bool:
+    """记录一次失败；返回是否已超限（True=应拒绝后续请求）。"""
+    ip = request.remote_addr or "unknown"
+    with _code_limit_lock:
+        ts = list(_code_limit.get(ip, ()))
+        cutoff = now - _CODE_WINDOW_S
+        ts = [t for t in ts if t > cutoff]
+        ts.append(now)
+        _code_limit[ip] = ts
+        if len(_code_limit) > 4096:  # 防内存无限增长：顺带清理过期 IP
+            for k, v in list(_code_limit.items()):
+                if not v or v[-1] <= cutoff:
+                    del _code_limit[k]
+    return len(ts) >= _CODE_MAX_FAILS
+
+
+def _code_clear_ip_failures() -> None:
+    ip = request.remote_addr or "unknown"
+    with _code_limit_lock:
+        _code_limit.pop(ip, None)
+
+
+def _reset_code_rate_limit() -> None:
+    """测试隔离：清空全部计数（conftest autouse 调用）。"""
+    with _code_limit_lock:
+        _code_limit.clear()
 
 def _extract_options(question_text):
     """Extract A/B/C/D options from question text if embedded."""

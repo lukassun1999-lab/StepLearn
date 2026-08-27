@@ -233,28 +233,20 @@ def api_sms_reset_password():
 @family_api_bp.route('/api/public/<code>/achievements', methods=['GET'])
 def api_public_achievements(code):
     """Public: get achievement wall by access code."""
-    from db import get_connection, get_student_achievements
-    conn = get_connection()
-    student = conn.execute(
-        "SELECT id FROM students WHERE access_code = ? AND status = 'active'", [code]
-    ).fetchone()
-    conn.close()
-    if not student:
-        return jsonify({"error": "invalid code"}), 404
-    return jsonify(get_student_achievements(student["id"]))
+    from db import get_student_achievements
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+    return jsonify(get_student_achievements(student_id))
 
 @family_api_bp.route('/api/public/<code>/review', methods=['GET'])
 def api_public_review(code):
     """Public: get metacognitive review for current week."""
-    from db import get_connection, get_or_create_metacognitive_review, get_metacognitive_reviews
-    conn = get_connection()
-    student = conn.execute(
-        "SELECT id FROM students WHERE access_code = ? AND status = 'active'", [code]
-    ).fetchone()
-    conn.close()
-    if not student:
-        return jsonify({"error": "invalid code"}), 404
-    sid = student["id"]
+    from db import get_or_create_metacognitive_review, get_metacognitive_reviews
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+    sid = student_id
     week = request.args.get("week", "")
     review = get_or_create_metacognitive_review(sid, week or None)
     history = get_metacognitive_reviews(sid, limit=8)
@@ -263,15 +255,11 @@ def api_public_review(code):
 @family_api_bp.route('/api/public/<code>/review', methods=['POST'])
 def api_public_review_submit(code):
     """Public: submit metacognitive review for current week."""
-    from db import get_connection, submit_metacognitive_review, get_week_start
-    conn = get_connection()
-    student = conn.execute(
-        "SELECT id FROM students WHERE access_code = ? AND status = 'active'", [code]
-    ).fetchone()
-    conn.close()
-    if not student:
-        return jsonify({"error": "invalid code"}), 404
-    sid = student["id"]
+    from db import submit_metacognitive_review, get_week_start
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+    sid = student_id
     data = request.get_json() or {}
     week = data.get("week_start", get_week_start())
     success = submit_metacognitive_review(
@@ -291,19 +279,22 @@ def api_public_review_submit(code):
 @family_api_bp.route('/api/public/<code>/timeline', methods=['GET'])
 def api_public_timeline(code):
     """Public: get learning path timeline by access code."""
-    from db import get_connection, get_student_timeline
-    conn = get_connection()
-    student = conn.execute(
-        "SELECT id FROM students WHERE access_code = ? AND status = 'active'", [code]
-    ).fetchone()
-    conn.close()
-    if not student:
-        return jsonify({"error": "invalid code"}), 404
-    return jsonify({"milestones": get_student_timeline(student["id"])})
+    from db import get_student_timeline
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+    return jsonify({"milestones": get_student_timeline(student_id)})
 
 @family_api_bp.route('/api/public/<code>', methods=['GET'])
 def api_public_summary(code):
-    """Public summary for student page."""
+    """Public summary for student page.
+
+    code 校验统一走 _resolve_student_by_code（限流防护的唯一入口），
+    避免主路由成为绕过枚举防护的侧门。
+    """
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
     summary = get_student_public_summary(code)
     if not summary:
         return jsonify({"error": "invalid or expired code"}), 404
@@ -591,17 +582,13 @@ def api_public_task_status(code, task_id):
 @family_api_bp.route('/api/referrals/my/<code>', methods=['GET'])
 def api_my_referrals(code):
     """Public: get referral info for a student by access_code."""
-    conn = get_connection()
-    student = conn.execute(
-        "SELECT id FROM students WHERE access_code = ? AND status = 'active'", [code]
-    ).fetchone()
-    conn.close()
-    if not student:
-        return jsonify({"error": "invalid code"}), 404
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
 
     # Ensure invite code exists
-    invite_code = get_or_create_referral_code(student["id"])
-    info = get_student_referrals(student["id"])
+    invite_code = get_or_create_referral_code(student_id)
+    info = get_student_referrals(student_id)
     info["invite_code"] = invite_code
     return jsonify(info)
 
@@ -638,6 +625,9 @@ def api_referral_settings():
 @family_api_bp.route('/api/poster/<code>', methods=['GET'])
 def api_generate_poster(code):
     """Generate shareable poster HTML for a student."""
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
     summary = get_student_public_summary(code)
     if not summary:
         return jsonify({"error": "invalid code"}), 404
@@ -691,21 +681,16 @@ def api_parent_diagnose():
     grade = (request.form.get('grade') or '').strip() or '高二'
     existing_code = (request.form.get('access_code') or '').strip()
 
-    conn = get_connection()
     import secrets
 
     # Returning user — reuse existing student
     if existing_code:
-        student = conn.execute(
-            "SELECT id, name, grade FROM students WHERE access_code = ? AND status = 'active'",
-            [existing_code]
-        ).fetchone()
-        if student:
-            sid = student["id"]
-            access_code = existing_code
-        else:
-            conn.close()
-            return jsonify({"error": "链接已过期，请重新开始"}), 404
+        # 走统一校验入口：无效 code 计入该 IP 的失败限流（与公开端点同源），
+        # 防止此回访路径成为枚举有效 code 的侧门
+        sid, err = _resolve_student_by_code(existing_code)
+        if err:
+            return err
+        access_code = existing_code
     else:
         # New parent — create student
         access_code = secrets.token_urlsafe(8)
@@ -715,7 +700,6 @@ def api_parent_diagnose():
             "grade": grade,
             "access_code": access_code,
         })
-    conn.close()
 
     # P2-10：统一上传服务（存文件 → 额度闸门 → 建任务）。
     # 新用户建档时已自动获得 trial 订阅 1 次额度，闸门在此统一执行。
@@ -773,15 +757,18 @@ def api_parent_task(task_id):
 @family_api_bp.route('/api/parent/progress/<code>')
 def api_parent_progress(code):
     """Get learning progress for a parent-linked student."""
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
     conn = get_connection()
     student = conn.execute(
-        "SELECT * FROM students WHERE access_code = ? AND status = 'active'", [code]
+        "SELECT * FROM students WHERE id = ? AND status = 'active'", [student_id]
     ).fetchone()
     if not student:
         conn.close()
         return jsonify({"error": "invalid code"}), 404
 
-    sid = student["id"]
+    sid = student_id
 
     # Diagnoses history (completed tasks)
     tasks = conn.execute("""
@@ -858,21 +845,17 @@ def api_parent_progress(code):
 @family_api_bp.route('/api/public/<code>/reports', methods=['GET'])
 def api_public_reports(code):
     """Get approved reports for public student page."""
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
     conn = get_connection()
-    student = conn.execute(
-        "SELECT id FROM students WHERE access_code = ? AND status = 'active'", [code]
-    ).fetchone()
-    if not student:
-        conn.close()
-        return jsonify({"error": "invalid code"}), 404
-
     tasks = conn.execute("""
         SELECT output_data, created_at, task_type
         FROM ai_tasks
         WHERE student_id = ? AND task_type IN ('onboarding', 'weekly')
           AND status = 'done' AND needs_review = 0
         ORDER BY created_at DESC LIMIT 10
-    """, [student["id"]]).fetchall()
+    """, [student_id]).fetchall()
     conn.close()
 
     # Each pipeline stage stores its downloadable artifact under a different key
@@ -924,16 +907,12 @@ def api_public_request_deletion(code):
     reason = (data.get('reason') or '').strip()
     requested_by = (data.get('requested_by') or '家长').strip()
 
-    conn = get_connection()
-    student = conn.execute(
-        "SELECT id FROM students WHERE access_code = ? AND status = 'active'", [code]
-    ).fetchone()
-    conn.close()
-    if not student:
-        return jsonify({"error": "invalid or expired code"}), 404
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
 
     req_id = request_data_deletion(
-        student_id=student["id"],
+        student_id=student_id,
         requested_by=requested_by,
         reason=reason,
     )
@@ -942,7 +921,7 @@ def api_public_request_deletion(code):
         actor_id=None,
         action="public_request_data_deletion",
         target_type="student",
-        target_id=student["id"],
+        target_id=student_id,
         details={"request_id": req_id, "reason": reason},
         ip_address=request.remote_addr or '',
     )

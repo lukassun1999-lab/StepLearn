@@ -7,7 +7,7 @@ from flask import (Blueprint, make_response, redirect,
 from werkzeug.security import check_password_hash
 
 from db import *  # noqa: F401,F403
-from web.shared import VERSION, login_required
+from web.shared import VERSION, _resolve_student_by_code, login_required
 from web.templates_admin import MAIN_PAGE
 from web.templates_auth import LOGIN_PAGE, STUDENT_REGISTER_PAGE
 from web.templates_family import PARENT_PAGE, STUDENT_PAGE
@@ -66,12 +66,8 @@ def index():
 @pages_bp.route('/s/<code>')
 def student_view(code):
     """Public student view — no login required."""
-    conn = get_connection()
-    student = conn.execute(
-        "SELECT id FROM students WHERE access_code = ? AND status = 'active'", [code]
-    ).fetchone()
-    conn.close()
-    if not student:
+    _, err = _resolve_student_by_code(code)
+    if err:
         return '<h2 style="text-align:center;margin-top:80px;">链接无效或已过期</h2>', 404
     resp = make_response(render_template_string(STUDENT_PAGE, code=code, version=VERSION))
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'

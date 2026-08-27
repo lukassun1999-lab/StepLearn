@@ -86,6 +86,16 @@ def demo_mode(monkeypatch):
     monkeypatch.setattr(llm, "VISION_MODEL", "kimi-k2.6")
 
 
+@pytest.fixture(autouse=True)
+def _reset_shared_state():
+    """每个测试前复位 web.shared 里的进程内全局计数（限流器等），
+    防止跨测试的状态污染导致偶发失败。"""
+    import web.shared as ws
+    ws._reset_code_rate_limit()
+    yield
+    ws._reset_code_rate_limit()
+
+
 @pytest.fixture
 def frozen_past_saturday():
     """冻结 Python 侧时间到过去的周六（2000-01-01），调度器周六窗口逻辑全周可测。

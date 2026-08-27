@@ -5,6 +5,8 @@ cookie*.txt
 
 # 数据文件（含学生个人信息，禁止入库）
 data.db
+data.db-shm
+data.db-wal
 data.db.bak_*
 *.sqlite
 *.sqlite-*
@@ -31,3 +33,7 @@ logs/
 # 归档（仅本地保留）
 archive/
 scripts/archive/
+
+# 部署产物（含 base64 环境变量，可能有密钥）
+.deploy_tmp/
+*.bundle

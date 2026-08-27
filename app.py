@@ -24,6 +24,7 @@ setup_logging()
 import logging
 
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash
 
 log = logging.getLogger(__name__)
@@ -50,6 +51,13 @@ app.config.update(
 )
 if os.environ.get("HTTPS_ENABLED") == "true":
     app.config["SESSION_COOKIE_SECURE"] = True
+
+# 反向代理后取真实客户端 IP：限流（web.shared._code_*）按 request.remote_addr
+# 聚合，若不信任上游代理的 X-Forwarded-For，所有用户会坍缩成代理 IP（127.0.0.1），
+# 6 次集体输错即全站封锁。仅在真有单层可信代理（如 nginx/gunicorn）时开启，
+# 直连开发环境保持关闭，避免客户端伪造 XFF 绕过限流。
+if os.environ.get("TRUST_PROXY_HEADERS") == "true":
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # 注册蓝图（路由路径与拆分前完全一致）
 app.register_blueprint(pages_bp)
