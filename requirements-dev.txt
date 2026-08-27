@@ -1,1 +1,2 @@
 pytest
+freezegun>=1.5

@@ -97,7 +97,7 @@ def _task_count(test_db_path, student_id, kw):
     return n
 
 
-def test_batch_dedup_within_window(test_db_path, sample_student):
+def test_batch_dedup_within_window(test_db_path, sample_student, frozen_past_saturday):
     """窗口内已有同 stage 任务 → 不重建；无 → 补建。
     （会话级共享库含其他测试学生，断言只看本学生。）"""
     import db
@@ -119,7 +119,7 @@ def test_batch_dedup_within_window(test_db_path, sample_student):
     assert _task_count(test_db_path, sample_student, "monthly_summary") == 1
 
 
-def test_weekly_report_dedup_since_saturday(test_db_path, sample_student):
+def test_weekly_report_dedup_since_saturday(test_db_path, sample_student, frozen_past_saturday):
     """本周六以来已有 report_only → 不重复出报。"""
     import db
     from pipeline import scheduler

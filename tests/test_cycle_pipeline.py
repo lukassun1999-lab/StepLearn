@@ -281,7 +281,7 @@ def test_report_only_generates_weekly_report(env):
     assert cyc["stage"] == "reported"
 
 
-def test_saturday_weekly_report_conditional(env, monkeypatch):
+def test_saturday_weekly_report_conditional(env, monkeypatch, frozen_past_saturday):
     # 注意：test_db_path 为会话级共享库，其他测试的学生也会命中触发条件，
     # 因此断言只针对本测试学生的 report_only 任务数量变化。
     db, sid, file_id, week_start = _make_student_and_file(env)

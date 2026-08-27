@@ -87,6 +87,22 @@ def demo_mode(monkeypatch):
 
 
 @pytest.fixture
+def frozen_past_saturday():
+    """冻结 Python 侧时间到过去的周六（2000-01-01），调度器周六窗口逻辑全周可测。
+
+    背景：_saturday_start_utc 在周一~周五会算出"本周六（未来）"，测试直调
+    _trigger_weekly_reports 时窗口去重失效 → 任务重复创建、断言随星期数漂移。
+    冻结到过去周六后：since 窗口恒在过去，而 SQLite 的 CURRENT_TIMESTAMP
+    是真实时钟（恒晚于 2000 年），"窗口内已建任务命中去重"天然成立。
+    只冻结 datetime.now/today，不影响数据库时间戳。
+    """
+    from freezegun import freeze_time
+
+    with freeze_time("2000-01-01 09:00:00"):  # 2000-01-01 是周六
+        yield
+
+
+@pytest.fixture
 def disable_cache(monkeypatch):
     """Disable the LLM response cache."""
     import llm
