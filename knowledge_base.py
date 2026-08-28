@@ -18,12 +18,33 @@ from bridge_common import (MISTAKE_ANALYZER_REFS, MISTAKE_ANALYZER_SCRIPTS,
 # Reference Reading (english-mistake-analyzer + english-learning-plan)
 # ═══════════════════════════════════════════════════
 
+def _project_references_dir() -> str:
+    """项目内 references/ 目录（与 SKILLS_DIR 行为互补）。
+
+    服务器（Linux/容器）通常没有 ~/.workbuddy/skills，因此把 skill 参考文件
+    随仓库分发在 references/ 下，避免运行时 FileNotFoundError。
+    """
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "references")
+
+
 def read_reference(skill: str, filename: str) -> str:
-    """Read a reference file from a skill's references/ directory."""
+    """Read a reference file from a skill's references/ directory.
+
+    查找顺序：
+      1. 项目内 <project>/references/<skill>/references/<filename>（部署自带）
+      2. SKILLS_DIR（~/.workbuddy/skills/...，本地开发可跟随 skill 更新）
+    """
+    project_refs = os.path.join(_project_references_dir(), skill, "references", filename)
+    if os.path.exists(project_refs):
+        with open(project_refs, "r", encoding="utf-8") as f:
+            return f.read()
+
     refs_dir = os.path.join(SKILLS_DIR, skill, "references")
-    filepath = os.path.join(refs_dir, filename)
+    filepath = os.path.normpath(os.path.join(refs_dir, filename))
     if not os.path.exists(filepath):
-        raise FileNotFoundError(f"Reference not found: {filepath}")
+        raise FileNotFoundError(
+            f"Reference not found: tried {project_refs} and {filepath}"
+        )
     with open(filepath, "r", encoding="utf-8") as f:
         return f.read()
 
