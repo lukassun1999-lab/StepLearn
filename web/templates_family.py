@@ -780,8 +780,8 @@ async function pollTaskProgress(taskId) {
           <div style="font-weight:600;">${doneMsg}</div>
           ${partialNote}
           <div style="display:flex;gap:8px;margin-top:10px;">
-            <button class="btn btn-primary" style="flex:1;" onclick="switchTab('reports', null)">📄 查看报告</button>
-            <button class="btn btn-outline" style="flex:1;" onclick="switchTab('practice', null)">🚀 去练习</button>
+            <button class="btn btn-primary" style="flex:1;" onclick="event.stopPropagation(); switchTab('reports', null)">📄 查看报告</button>
+            <button class="btn btn-outline" style="flex:1;" onclick="event.stopPropagation(); switchTab('practice', null)">🚀 去练习</button>
           </div>`;
         renderPractice();
         return;
