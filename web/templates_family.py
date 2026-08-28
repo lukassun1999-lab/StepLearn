@@ -146,7 +146,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
   <div class="sum-item"><div class="num" id="sum-score">--</div><div class="label">当前分数</div></div>
   <div class="sum-item"><div class="num" id="sum-mistakes">--</div><div class="label">待攻克错题</div></div>
   <div class="sum-item"><div class="num" id="sum-due" style="color:var(--red);">--</div><div class="label">待复习</div></div>
-  <div class="sum-item"><div class="num" id="sum-streak" style="display:none;">🔥--</div><div class="label" id="streak-label" style="display:none;">连续打卡</div></div>
+  <div class="sum-item" id="sum-streak-item" style="display:none;"><div class="num" id="sum-streak">🔥--</div><div class="label" id="streak-label">连续打卡</div></div>
   <div class="sum-item"><div class="num" id="sum-checkins">--</div><div class="label">本月打卡</div></div>
   <div class="sum-item"><div class="num" id="sum-achievements">--</div><div class="label">成就</div></div>
 </div>
@@ -350,6 +350,7 @@ async function loadData() {
     streakEl.textContent = '🔥' + streak;
     streakEl.style.display = '';
     document.getElementById('streak-label').style.display = '';
+    document.getElementById('sum-streak-item').style.display = '';
   }
 
   // Load achievement count async
