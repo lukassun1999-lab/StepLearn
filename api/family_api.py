@@ -537,11 +537,14 @@ def api_public_upload(code):
     files = request.files.getlist('file')
     if not files:
         return jsonify({"error": "no file uploaded"}), 400
+    # 答题卡（可选）：学生用答题卡作答时上传，AI 从答题卡读作答、试卷读题目
+    answer_sheets = request.files.getlist('answer_sheet')
 
     from domain import upload as upload_mod
     try:
         task_id, file_ids = upload_mod.family_upload(
-            student_id, files, uploader_role="parent",
+            student_id, files, answer_sheet_files=answer_sheets,
+            uploader_role="parent",
             task_type="weekly", stage="grade_only")
     except upload_mod.UploadError as e:
         return jsonify({"error": e.message}), e.status
@@ -705,9 +708,12 @@ def api_parent_diagnose():
     # 新用户建档时已自动获得 trial 订阅 1 次额度，闸门在此统一执行。
     from domain import upload as upload_mod
     task_type = "weekly" if existing_code else "onboarding"
+    # 答题卡（可选）：学生用答题卡作答时上传，AI 从答题卡读作答、试卷读题目
+    answer_sheets = request.files.getlist('answer_sheet')
     try:
         task_id, _file_ids = upload_mod.family_upload(
-            sid, files, uploader_role="parent",
+            sid, files, answer_sheet_files=answer_sheets,
+            uploader_role="parent",
             task_type=task_type, stage="full",
             extra_input={"grade": grade, "subject": "英语"})
     except upload_mod.UploadError as e:

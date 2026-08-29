@@ -69,11 +69,17 @@ def save_files(student_id, files, file_type: str = "test_paper",
     return file_ids
 
 
-def family_upload(student_id, files, *, uploader_role: str = "parent",
+def family_upload(student_id, files, *, answer_sheet_files=None,
+                  uploader_role: str = "parent",
                   task_type: str = "weekly", stage: str = "grade_only",
                   is_staff: bool = False, extra_input: dict = None,
                   db_path: str = None):
     """家庭端统一上传：存文件 → 额度闸门 → 建任务入队。
+
+    试卷（files）与答题卡（answer_sheet_files）分开存储：
+    - 试卷存 test_paper，答题卡存 answer_sheet，OCR 时按组拼接段落，
+      LLM 从试卷读题目、从答题卡读学生作答（双输入判题）。
+    - 答题卡缺省（未传）→ 答案直接书写在试卷上，走原单输入逻辑。
 
     Returns:
         (task_id, file_ids)
@@ -90,10 +96,16 @@ def family_upload(student_id, files, *, uploader_role: str = "parent",
 
     file_ids = save_files(student_id, files, uploader_role=uploader_role,
                           db_path=db_path)
-    if not file_ids:
+    sheet_ids = save_files(
+        student_id, answer_sheet_files or [],
+        file_type="answer_sheet", uploader_role=uploader_role,
+        db_path=db_path)
+    if not file_ids and not sheet_ids:
         raise UploadError("没有有效的文件", 400)
 
     input_data = {"file_ids": file_ids}
+    if sheet_ids:
+        input_data["answer_sheet_file_ids"] = sheet_ids
     if task_type == "weekly":
         input_data["stage"] = stage
     if extra_input:

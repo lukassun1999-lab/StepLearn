@@ -53,6 +53,7 @@ class Ctx:
         # ── 中间产物 ──
         self.student = None
         self.file_ids = []
+        self.answer_sheet_file_ids = []   # 答题卡（双输入判题：试卷读题目、答题卡读作答）
         self.ocr_text = ""
         self.ocr_confidence = 0.8
         self.analysis = None          # analyze_mistakes 原始返回
@@ -79,6 +80,10 @@ class Ctx:
     def resolve_file_ids(self):
         return self.input_data.get("file_ids") or (
             [self.input_data["file_id"]] if self.input_data.get("file_id") else [])
+
+    def resolve_answer_sheet_file_ids(self):
+        """答题卡 file_ids（双输入判题：试卷读题目、答题卡读作答）。"""
+        return self.input_data.get("answer_sheet_file_ids") or []
 
     def build_output(self) -> dict:
         """按 kind 构造任务 output_data。"""
@@ -131,33 +136,41 @@ def get_image_path(student_id: int, file_id: int, db_path: str) -> str:
     return path
 
 
-def ocr_to_text(file_ids, student_id, task_id, db_path):
+def ocr_to_text(file_ids, student_id, task_id, db_path,
+                answer_sheet_file_ids=None):
     """并行 OCR 全部页并按页序拼接。返回 (text, avg_confidence)。
 
+    试卷（file_ids）与答题卡（answer_sheet_file_ids）分组拼接，段落标注
+    （试卷）/（答题卡），供判题 LLM 区分题目来源与学生作答来源。
     缺页/识别失败不中断，以占位提示替代（与历史行为一致）。
     """
     from skills_bridge import run_ocr_parallel
-    jobs = []
-    for idx, fid in enumerate(file_ids):
-        try:
-            jobs.append((idx, get_image_path(student_id, fid, db_path)))
-        except Exception:
-            log.warning("试卷图片缺失跳过 file_id=%s", fid, exc_info=True)
-    results = run_ocr_parallel([p for _, p in jobs], task_id=task_id)
-    parts = [None] * len(file_ids)
-    conf_sum, conf_n = 0.0, 0
-    for (idx, _), r in zip(jobs, results):
-        if r["ok"] and r["text"]:
-            parts[idx] = f"--- 第 {idx + 1} 页 ---\n{r['text']}"
-            conf_sum += r.get("confidence", 0.0) or 0.0
-            conf_n += 1
-        else:
-            parts[idx] = f"--- 第 {idx + 1} 页 ---\n[系统提示] OCR未能识别该页"
-    for i in range(len(file_ids)):
-        if parts[i] is None:
-            parts[i] = f"--- 第 {i + 1} 页 ---\n[系统提示] OCR未能识别该页"
-    confidence = conf_sum / conf_n if conf_n else 0.3
-    return "\n\n".join(parts), confidence
+
+    def _ocr_group(ids, label):
+        """OCR 一组图片，返回按序 parts 列表（含段落标注）。"""
+        jobs = []
+        for idx, fid in enumerate(ids):
+            try:
+                jobs.append((idx, get_image_path(student_id, fid, db_path)))
+            except Exception:
+                log.warning("图片缺失跳过 file_id=%s", fid, exc_info=True)
+        results = run_ocr_parallel([p for _, p in jobs], task_id=task_id)
+        parts = [None] * len(ids)
+        for (idx, _), r in zip(jobs, results):
+            if r["ok"] and r["text"]:
+                parts[idx] = f"--- 第 {idx + 1} 页 {label}---\n{r['text']}"
+            else:
+                parts[idx] = f"--- 第 {idx + 1} 页 {label}---\n[系统提示] OCR未能识别该页"
+        for i in range(len(ids)):
+            if parts[i] is None:
+                parts[i] = f"--- 第 {i + 1} 页 {label}---\n[系统提示] OCR未能识别该页"
+        return parts, sum(r.get("confidence", 0.0) or 0.0 for r in results), len(ids)
+
+    sheet_ids = answer_sheet_file_ids or []
+    sheet_parts, sheet_conf, sheet_n = _ocr_group(sheet_ids, "（答题卡）")
+    parts, conf_sum, n = _ocr_group(file_ids, "")
+    confidence = (conf_sum + sheet_conf) / (n + sheet_n) if (n + sheet_n) else 0.3
+    return "\n\n".join(parts + sheet_parts), confidence
 
 
 _OCR_EMPTY_PLACEHOLDER = (
@@ -174,11 +187,15 @@ def node_ocr(ctx: Ctx):
     if not file_ids:
         raise ValueError("缺少试卷照片（file_id/file_ids）")
     ctx.progress("OCR识别试卷", 15)
-    text, confidence = ocr_to_text(file_ids, ctx.student_id, ctx.task_id, ctx.db_path)
+    sheet_ids = ctx.resolve_answer_sheet_file_ids()
+    text, confidence = ocr_to_text(
+        file_ids, ctx.student_id, ctx.task_id, ctx.db_path,
+        answer_sheet_file_ids=sheet_ids)
     if not text.strip() or len(text.strip()) < 50:
         text = _OCR_EMPTY_PLACEHOLDER
         confidence = confidence or 0.3
     ctx.file_ids = file_ids
+    ctx.answer_sheet_file_ids = sheet_ids
     ctx.ocr_text = text
     ctx.ocr_confidence = confidence
     # 持久化 OCR 中间产物，供断点续跑（免重复识别）

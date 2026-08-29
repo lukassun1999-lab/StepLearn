@@ -170,6 +170,15 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
   <input type="file" id="parentFileInput" accept="image/*" capture="environment" multiple style="display:none;" onchange="handleParentUpload(this)">
 </div>
 
+<!-- 答题卡（选填）：孩子用答题卡作答时传这里，AI 读卡判得更准 -->
+<div class="card" id="sheet-card" style="margin-bottom:18px;border:1.5px solid var(--accent);text-align:center;cursor:pointer;transition:all .2s;background:var(--accent-light);" onclick="document.getElementById('parentSheetInput').click()">
+  <div style="font-size:2em;margin-bottom:6px;">✏️</div>
+  <div style="font-weight:800;font-size:1.02rem;margin-bottom:4px;">答题卡（选填）</div>
+  <div style="font-size:.85rem;color:var(--sub);line-height:1.6;">孩子在答题卡上作答时上传，AI 判得更准<br>不传 = 答案直接写在试卷上</div>
+  <div id="sheet-file-names" style="display:none;margin-top:8px;font-size:.85rem;color:var(--green);font-weight:600;"></div>
+  <input type="file" id="parentSheetInput" accept="image/*" capture="environment" multiple style="display:none;" onchange="handleParentSheetUpload(this)">
+</div>
+
 <!-- Poster Modal -->
 <div class="modal-overlay" id="poster-modal">
   <div class="modal" style="max-width:420px;">
@@ -709,6 +718,10 @@ async function handleParentUpload(input) {
 
   const formData = new FormData();
   for (const f of compressed) formData.append('file', f);
+  const sheetInput = document.getElementById('parentSheetInput');
+  if (sheetInput && sheetInput.files && sheetInput.files.length) {
+    for (const f of sheetInput.files) formData.append('answer_sheet', f);
+  }
 
   await new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
@@ -746,6 +759,17 @@ async function handleParentUpload(input) {
     xhr.send(formData);
   });
   input.value = '';
+}
+
+// 答题卡选择（选填）：仅记录已选文件并在试卷上传时一并提交
+function handleParentSheetUpload(input) {
+  const names = document.getElementById('sheet-file-names');
+  if (!input.files || !input.files.length) {
+    names.style.display = 'none';
+    return;
+  }
+  names.textContent = '已选 ' + input.files.length + ' 张答题卡，随试卷一起分析';
+  names.style.display = 'block';
 }
 
 async function pollTaskProgress(taskId) {
@@ -843,6 +867,11 @@ function resetUploadAfterFailure() {
   const statusText = document.getElementById('upload-status');
   if (fillBar) { fillBar.style.width = '0%'; fillBar.style.background = ''; }
   if (statusText) statusText.textContent = '';
+  // 答题卡选择一并清空（重新上传入口）
+  const sheetInput = document.getElementById('parentSheetInput');
+  if (sheetInput) { sheetInput.value = ''; }
+  const sheetNames = document.getElementById('sheet-file-names');
+  if (sheetNames) { sheetNames.style.display = 'none'; }
   document.getElementById('upload-card').scrollIntoView({behavior:'smooth'});
 }
 
@@ -1706,6 +1735,15 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     </div>
     <input type="file" id="fileInput" accept="image/*" capture="environment" multiple />
     <div class="preview-list" id="previewList"></div>
+    <div class="upload-zone" id="sheetZone" style="margin-top:12px;border-style:solid;border-color:var(--accent);"
+         onclick="document.getElementById('sheetInput').click()">
+      <span class="icon">✏️</span>
+      <div class="title">答题卡（选填）</div>
+      <div class="hint">孩子在答题卡上作答时传这里，AI 读卡判得更准；<br>答题卡不传 = 答案直接写在试卷上</div>
+      <img class="preview" id="sheetPreviewImg" />
+    </div>
+    <input type="file" id="sheetInput" accept="image/*" capture="environment" multiple />
+    <div class="preview-list" id="sheetPreviewList"></div>
     <button class="btn btn-primary" id="startBtn" style="display:none;width:100%;margin-top:12px;">🚀 开始分析（<span id="photoCount">0</span> 张）</button>
   </div>
 
@@ -1751,7 +1789,8 @@ PARENT_PAGE = r'''<!DOCTYPE html>
   })();
 
   // ── 多图选择 + 压缩 + 确认上传（微信手机场景优化）──
-  let pickedFiles = [];   // [{file, url}]
+  let pickedFiles = [];   // [{file, url}] 试卷
+  let pickedSheets = [];  // [{file, url}] 答题卡（选填）
   let pickedGrade = '高二';
 
   document.getElementById('gradeOpts').addEventListener('click', (e) => {
@@ -1769,6 +1808,14 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     renderPreviews();
   });
 
+  document.getElementById('sheetInput').addEventListener('change', async (e) => {
+    const list = Array.from(e.target.files || []);
+    if (!list.length) return;
+    for (const f of list) pickedSheets.push({ file: f, url: URL.createObjectURL(f) });
+    document.getElementById('sheetInput').value = '';
+    renderSheetPreviews();
+  });
+
   function renderPreviews() {
     const box = document.getElementById('previewList');
     const btn = document.getElementById('startBtn');
@@ -1777,14 +1824,32 @@ PARENT_PAGE = r'''<!DOCTYPE html>
         <img src="${p.url}" alt="试卷照片 ${i+1}">
         <button type="button" class="rm" onclick="removePhoto(${i})">✕</button>
       </div>`).join('');
-    document.getElementById('photoCount').textContent = pickedFiles.length;
+    document.getElementById('photoCount').textContent =
+      pickedFiles.length + (pickedSheets.length ? `+${pickedSheets.length}答题卡` : '');
     btn.style.display = pickedFiles.length ? 'block' : 'none';
+  }
+
+  function renderSheetPreviews() {
+    const box = document.getElementById('sheetPreviewList');
+    box.innerHTML = pickedSheets.map((p, i) => `
+      <div class="preview-item">
+        <img src="${p.url}" alt="答题卡 ${i+1}">
+        <button type="button" class="rm" onclick="removeSheetPhoto(${i})">✕</button>
+      </div>`).join('');
+    document.getElementById('photoCount').textContent =
+      pickedFiles.length + (pickedSheets.length ? `+${pickedSheets.length}答题卡` : '');
   }
 
   function removePhoto(i) {
     URL.revokeObjectURL(pickedFiles[i].url);
     pickedFiles.splice(i, 1);
     renderPreviews();
+  }
+
+  function removeSheetPhoto(i) {
+    URL.revokeObjectURL(pickedSheets[i].url);
+    pickedSheets.splice(i, 1);
+    renderSheetPreviews();
   }
 
   // 手机照片压缩：长边 ≤1600px、JPEG q0.8（原片 3-8MB → 数百 KB，
@@ -1838,7 +1903,10 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     progressCard.style.display = 'none';
     pickedFiles.forEach(p => URL.revokeObjectURL(p.url));
     pickedFiles = [];
+    pickedSheets.forEach(p => URL.revokeObjectURL(p.url));
+    pickedSheets = [];
     renderPreviews();
+    renderSheetPreviews();
     document.getElementById('startBtn').style.display = 'none';
     document.getElementById('steps').style.display = 'flex';
     setStep(1);
@@ -1862,6 +1930,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
 
     const formData = new FormData();
     files.forEach(f => formData.append('file', f));
+    pickedSheets.forEach(p => formData.append('answer_sheet', p.file));
     formData.append('grade', grade || '高二');
     if (savedCode) formData.append('access_code', savedCode);
 
