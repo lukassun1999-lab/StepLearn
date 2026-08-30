@@ -407,6 +407,21 @@ def _cli_doctor():
             _emit("warn", "未找到 node 命令，Tesseract.js 兜底将不可用"
                           "（仅 vision OCR 可用时影响有限）")
 
+    # ── 2.5 PDF 导出字体 ─────────────────────────────
+    print("\n▶ PDF 导出")
+    import report_templates as _rt
+    probe = next(_rt._iter_cjk_font_paths(), None)
+    if probe is None:
+        _emit("fail", "未找到任何可用 CJK 字体（自带 + 系统均无），"
+                      "练习卷 PDF 中文将变占位字形（英文兜底版式）")
+    else:
+        source = "自带" if probe == _rt._BUNDLED_CJK_FONT else "系统"
+        try:
+            _rt._register_cjk_ttf("CJK-DoctorProbe", probe)
+            _emit("ok", f"中文字体可注册（{source}）: {os.path.basename(probe)}")
+        except Exception as e:
+            _emit("fail", f"中文字体注册失败: {os.path.basename(probe)}（{e}）")
+
     # ── 3. 数据库 ───────────────────────────────────
     print("\n▶ 数据库")
     init_db()  # 幂等：建表 + 补迁移

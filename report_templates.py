@@ -6,12 +6,15 @@
 所有报告均为手机友好的独立 HTML 文件。
 """
 
+import logging
 import os
 import re
 import unicodedata
 from datetime import date
 
 from db import get_teacher_profile
+
+log = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════
@@ -26,13 +29,20 @@ def _text_has_inline_options(text: str) -> bool:
 
 
 # ═══════════════════════════════════════════════════
-# CJK font for xhtml2pdf (PDF export only)
-# xhtml2pdf renders every Chinese glyph as a black box (tofu) unless a CJK
-# font is registered with reportlab's pdfmetrics. We register one up front
-# and reference it by name in CSS — this avoids xhtml2pdf's @font-face URL
-# fetch (which copies to a temp file and can fail on permission/sandbox).
+# CJK font for reportlab PDF export (render_exercise_pdf)
+# PDF 渲染器没有可用 CJK 字体时，每个汉字都会画成同一个占位字形
+# （家长看到整页"n"乱码）。历史教训：只搜 Windows 字体目录且失败静默，
+# Linux 生产环境（gunicorn）上必然踩中。现自带开源字体（OFL 许可，
+# assets/fonts/NotoSansSC-Regular.ttf，TrueType 轮廓 reportlab 可嵌入），
+# 任何环境都确定可用；系统字体仅作后备。
 # ═══════════════════════════════════════════════════
 
+# 仓库自带字体（绝对路径在 _ensure_cjk_font 内按 __file__ 解析）
+_BUNDLED_CJK_FONT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "assets", "fonts",
+    "NotoSansSC-Regular.ttf")
+
+# Windows 系统字体候选（按观感排序）
 _CJK_FONT_CANDIDATES = [
     "simhei.ttf",   # 黑体 — clean single TTF, renders well
     "Deng.ttf",     # 等线 — Windows 10/11 default
@@ -43,33 +53,72 @@ _CJK_FONT_CANDIDATES = [
     "simsun.ttc",   # 宋体 (collection, fallback)
 ]
 
+# Linux 服务器字体候选（部署机可能装了 Noto/WenQuanYi 等）
+_CJK_FONT_LINUX_DIRS = [
+    "/usr/share/fonts", "/usr/local/share/fonts",
+    os.path.expanduser("~/.fonts"),
+]
+_CJK_FONT_LINUX_NAMES = [
+    "NotoSansCJK-Regular.ttc", "NotoSansSC-Regular.ttf",
+    "NotoSansSC-Regular.otf", "wqy-microhei.ttc", "wqy-zenhei.ttc",
+    "DroidSansFallbackFull.ttf", "DroidSansFallback.ttf",
+    "SourceHanSansSC-Regular.otf",
+]
+
 _CJK_REGISTERED = False
 
 
+def _register_cjk_ttf(name: str, path: str) -> bool:
+    """Register a font file with reportlab; .ttc collections use subfont 0."""
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    kwargs = {"subfontIndex": 0} if path.lower().endswith(".ttc") else {}
+    pdfmetrics.registerFont(TTFont(name, path, **kwargs))
+    return True
+
+
+def _iter_cjk_font_paths():
+    """Yield candidate font paths in priority order:
+    仓库自带 → Windows 系统字体 → Linux 系统字体目录。"""
+    if os.path.exists(_BUNDLED_CJK_FONT):
+        yield _BUNDLED_CJK_FONT
+    win_fonts = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+    for name in _CJK_FONT_CANDIDATES:
+        path = os.path.join(win_fonts, name)
+        if os.path.exists(path):
+            yield path
+    for base in _CJK_FONT_LINUX_DIRS:
+        for name in _CJK_FONT_LINUX_NAMES:
+            for root, _dirs, files in os.walk(base):
+                if name in files:
+                    yield os.path.join(root, name)
+
+
 def _ensure_cjk_font() -> str:
-    """Register a CJK font with reportlab. Returns the family name to use in
-    CSS ('CJK'), or '' if no CJK font could be registered (best-effort tofu)."""
+    """Register a CJK font with reportlab. Returns the font name to use in
+    ParagraphStyle ('CJK'), or '' if no CJK font could be registered.
+
+    找不到字体时大声告警（历史上静默降级，Linux 生产环境整页 PDF 汉字
+    变占位字形而无人察觉）。"""
     global _CJK_REGISTERED
     if _CJK_REGISTERED:
         return "CJK"
-    try:
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
-        if "CJK" in pdfmetrics.getRegisteredFontNames():
+    from reportlab.pdfbase import pdfmetrics
+    if "CJK" in pdfmetrics.getRegisteredFontNames():
+        _CJK_REGISTERED = True
+        return "CJK"
+    for path in _iter_cjk_font_paths():
+        try:
+            _register_cjk_ttf("CJK", path)
             _CJK_REGISTERED = True
+            log.info("PDF 中文字体已注册: %s", path)
             return "CJK"
-        fonts_dir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
-        for name in _CJK_FONT_CANDIDATES:
-            path = os.path.join(fonts_dir, name)
-            if os.path.exists(path):
-                try:
-                    pdfmetrics.registerFont(TTFont("CJK", path))
-                    _CJK_REGISTERED = True
-                    return "CJK"
-                except Exception:
-                    continue
-    except Exception:
-        pass
+        except Exception:
+            log.warning("CJK 字体注册失败（跳过）: %s", path, exc_info=True)
+            continue
+    log.warning(
+        "未找到任何可用 CJK 字体，PDF 导出的中文将显示为占位字形！"
+        "请确认仓库文件 assets/fonts/NotoSansSC-Regular.ttf 存在")
     return ""
 
 
@@ -1399,6 +1448,29 @@ def render_exercise_pdf(student_name: str, questions: list, week_start: str = ""
 
     cjk = _ensure_cjk_font()
     font = cjk or "Helvetica"
+    # 无 CJK 字体的最后兜底：版式标签全英文（避免整页占位字形）。
+    # 自带字体正常在场的部署永远走不到这里。
+    if cjk:
+        L = {
+            "title": "专属练习题",
+            "meta": "{name} · {week} · 共 {n} 题",
+            "intro": "这些题目根据你最近的试卷错题定制，只练最需要的地方",
+            "qhead": "第 {n} 题",
+            "passage": "阅读短文",  # 不用 emoji：Noto Sans SC 无 emoji 字形
+            "answer": "我的答案：________________",
+            "footer": "拾阶而上 · 做完后拍照上传，AI 自动批改",
+        }
+    else:
+        log.warning("PDF 无可用 CJK 字体，练习卷已回退英文版式（中文内容可能无法显示）")
+        L = {
+            "title": "Practice Exercises",
+            "meta": "{name} · {week} · {n} questions",
+            "intro": "Customized from your recent mistakes - practice only what you need.",
+            "qhead": "Question {n}",
+            "passage": "Reading passage",
+            "answer": "My answer: ________________",
+            "footer": "StepLearn - finish, then photo-upload for AI grading",
+        }
 
     def esc(text):
         """Escape XML for reportlab Paragraph and convert newlines to <br/>."""
@@ -1424,30 +1496,34 @@ def render_exercise_pdf(student_name: str, questions: list, week_start: str = ""
                                textColor=colors.grey, spaceBefore=20)
 
     story = [
-        Paragraph("专属练习题", title_st),
-        Paragraph(f"{esc(student_name)} · {week_start or date.today().isoformat()} · 共 {len(questions)} 题", sub_st),
-        Paragraph("这些题目根据你最近的试卷错题定制，只练最需要的地方", sub_st),
+        Paragraph(L["title"], title_st),
+        Paragraph(L["meta"].format(
+            name=esc(student_name),
+            week=week_start or date.today().isoformat(),
+            n=len(questions)), sub_st),
+        Paragraph(L["intro"], sub_st),
         Spacer(1, 16),
     ]
 
     for i, q in enumerate(questions):
         kps = ", ".join(q.get("knowledge_points", []))
         qtype = q.get("question_type", "")
-        head = f"第 {i + 1} 题"
-        if qtype or kps:
+        head = L["qhead"].format(n=i + 1)
+        # 题型/知识点是中文内容：英文兜底版式下不渲染（字体画不出来）
+        if cjk and (qtype or kps):
             head += f'  <font size="9" color="#888888">{esc(qtype)} · {esc(kps)}</font>'
         story.append(Paragraph(head, qhead_st))
         if q.get("passage"):
             story.append(Paragraph(
-                f'<font size="8" color="#888888">📄 阅读短文</font><br/>{esc(q["passage"])}',
+                f'<font size="8" color="#888888">{L["passage"]}</font><br/>{esc(q["passage"])}',
                 body_st))
         story.append(Paragraph(esc(q.get("question_text", "")), body_st))
         for opt in q.get("options", []):
             story.append(Paragraph(esc(opt), opt_st))
-        story.append(Paragraph("我的答案：________________", ans_st))
+        story.append(Paragraph(L["answer"], ans_st))
 
     story.append(Spacer(1, 20))
-    story.append(Paragraph("拾阶而上 · 做完后拍照上传，AI 自动批改", footer_st))
+    story.append(Paragraph(L["footer"], footer_st))
 
     doc.build(story)
     return buffer.getvalue()
