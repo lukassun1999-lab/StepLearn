@@ -141,6 +141,7 @@ StepLearn/
 ├── ocr_wrapper.js          # Tesseract.js 包装脚本
 ├── tessdata/               # OCR 语言包（.traineddata.gz）
 ├── tests/                  # pytest 测试（289 用例）
+├── assets/fonts/           # 自带 CJK 字体（Noto Sans SC，OFL 许可；PDF 导出中文必需，Linux 无需装系统字体）
 ├── uploads/<student_id>/   # 学生上传文件与产出报告
 ├── backups/                # 自动备份（每日 03:00）
 ├── archive/                # 归档：历史测试产物与备份
@@ -215,6 +216,7 @@ StepLearn/
 - [`FEATURE_FLAGS.md`](FEATURE_FLAGS.md)：B 端功能封存与恢复方式
 - [`错因因果链实施方案.md`](错因因果链实施方案.md)：受控错因分类 + 因果链画像的设计与实施记录
 - [`错因校准报告.md`](错因校准报告.md)：首轮运营校准（83 条真实错题回测）
+- [`错判归因报告.md`](错判归因报告.md)：判卷误判分桶归因（分桶工具 `scripts/grading_bucket_analysis.py`，存量清洗 `scripts/cleanup_legacy_misjudged.py`）
 
 ---
 
@@ -223,4 +225,7 @@ StepLearn/
 - `.env` 不要提交到版本控制。
 - worker 池按学生串行、跨学生并行；同学生任务排队执行。
 - OCR 成本按 token 估算计入 `llm_usage_log`，建议定期与真实账单校准。
+- PDF 导出（练习题打印卷）使用仓库自带中文字体 `assets/fonts/NotoSansSC-Regular.ttf`；
+  缺失该文件时服务日志会有显式告警，且版式自动回退为英文（`python app.py doctor`
+  可体检字体是否可注册）。
 - 数据库迁移在 `init_db()` 中幂等执行；重大变更前先手动备份 `data.db`。

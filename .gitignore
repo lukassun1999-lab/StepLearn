@@ -37,3 +37,7 @@ scripts/archive/
 # 部署产物（含 base64 环境变量，可能有密钥）
 .deploy_tmp/
 *.bundle
+
+# 运维脚本导出的运行时备份/复核表（含学生数据，不入库）
+备份_*.csv
+错判人工复核表.csv
