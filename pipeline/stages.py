@@ -409,6 +409,8 @@ def node_plan(ctx: Ctx):
     plan_row = db.get_learning_plan(ctx.student_id, db_path=ctx.db_path) or {}
     existing_plan = plan_row.get("plan_data") or {}
     profile = db.get_student_profile(ctx.student_id, db_path=ctx.db_path)
+    # L3 长期记忆（月度总结刷新；为 None 时方案按无记忆生成）
+    memory = db.get_student_memory(ctx.student_id, db_path=ctx.db_path)
 
     if existing_plan.get("modules"):
         # 已有方案 → 增量更新（AI 诊所，按完成率自适应调整）
@@ -438,6 +440,7 @@ def node_plan(ctx: Ctx):
             plan_choices_json=json.dumps(plan_choices, ensure_ascii=False),
             current_modules_json=json.dumps(
                 existing_plan.get("modules", []), ensure_ascii=False),
+            memory_summary=_memory_digest(memory),
             task_id=ctx.task_id,
         )
         if plan_update.get("adjusted_modules"):
@@ -464,6 +467,7 @@ def node_plan(ctx: Ctx):
             },
             diagnosis=_build_diagnosis(ctx),
             profile=profile,
+            memory=memory,
             task_id=ctx.task_id,
         )
         # 因果链根因优先（确定性重排，prompt 引导之外的兜底保障）
@@ -480,6 +484,18 @@ def node_plan(ctx: Ctx):
             }, db_path=ctx.db_path)
         db.save_learning_plan(ctx.student_id, plan, weak_points, ctx.db_path)
         ctx.plan = plan
+
+
+def _memory_digest(memory: dict = None) -> str:
+    """L3 长期记忆压成一段短文本，供 AI 诊所（plan_update）prompt 使用。"""
+    if not memory or not (memory.get("memory_summary") or memory.get("learner_type")):
+        return ""
+    parts = [p for p in (memory.get("learner_type"),
+                         memory.get("memory_summary")) if p]
+    causes = memory.get("recurring_causes") or []
+    if causes:
+        parts.append("反复错因：" + "、".join(causes))
+    return "；".join(parts)[:300]
 
 
 def _recent_mistakes_from_db(ctx: Ctx, limit: int = 20):

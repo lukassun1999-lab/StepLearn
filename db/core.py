@@ -163,6 +163,10 @@ def _migrate_db(conn: sqlite3.Connection) -> None:
         if col not in mistake_col_names:
             conn.execute(f"ALTER TABLE mistakes ADD COLUMN {col} TEXT")
             conn.commit()
+    # Add ease_factor to mistakes (SM-2 个人难度系数，复习间隔随之伸缩)
+    if "ease_factor" not in mistake_col_names:
+        conn.execute("ALTER TABLE mistakes ADD COLUMN ease_factor REAL DEFAULT 2.5")
+        conn.commit()
     # Add passage column to mistakes (阅读题所属短文原文，练习生成时随题展示)
     if "passage" not in mistake_col_names:
         conn.execute("ALTER TABLE mistakes ADD COLUMN passage TEXT")
@@ -533,6 +537,7 @@ def init_db(db_path: str = DB_PATH) -> None:
             next_review_at TIMESTAMP,
             review_interval_hours REAL DEFAULT 0,
             review_stage INTEGER DEFAULT 0,
+            ease_factor REAL DEFAULT 2.5,
             source_task_id INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (student_id) REFERENCES students(id)
@@ -585,6 +590,21 @@ def init_db(db_path: str = DB_PATH) -> None:
             profile_snapshot TEXT DEFAULT '{}',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(student_id, week_start),
+            FOREIGN KEY (student_id) REFERENCES students(id)
+        );
+
+        -- ── L3 学生长期记忆（跨月画像：月度总结刷新，方案生成消费）──
+        -- 三层记忆的 L3 层：L1=批改原始记录(practice_records/mistakes)，
+        -- L2=周/月报告(analysis_report/weekly_report)，L3=跨月沉淀的
+        -- "什么类型的学习者、哪类错因反复出现、哪种讲法有效"。
+        CREATE TABLE IF NOT EXISTS student_memory (
+            student_id INTEGER PRIMARY KEY,
+            memory_summary TEXT DEFAULT '',
+            learner_type TEXT DEFAULT '',
+            recurring_causes TEXT DEFAULT '[]',
+            effective_methods TEXT DEFAULT '[]',
+            source_month TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (student_id) REFERENCES students(id)
         );
 

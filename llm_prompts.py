@@ -187,6 +187,12 @@ LEARNING_PLAN_PROMPT = """为学生生成个性化学习方案，返回JSON（�
 个性化画像（参考 chat.md 六大部分）:
 {profile_json}
 
+长期学习记忆（跨月沉淀的学生画像，可能为空）:
+{memory_section}
+- 若非空，方案设计必须与之呼应：recurring_causes 里的错因要用与之前不同的新讲法再攻；
+  effective_methods 里验证有效的做法应延续
+- 若为空（"（暂无）"），忽略本节
+
 错因因果链画像（diagnosis_json 中的 cause_profile 字段，可能缺失）:
 - 它给出孩子当前的核心瓶颈（primary_cause，如 vocab=词汇量不足）与传导链（cause_chain，如 词汇→语法）
 - 若存在，weak_point_priority 必须遵守：**根因优先，不是错误率优先**
@@ -283,6 +289,8 @@ PLAN_UPDATE_PROMPT = """更新学习方案，基于本周完成率和画像生�
 家长任务包详情: {parent_tasks_json}
 关键抉择（来自画像）: {plan_choices_json}
 当前模块设置: {current_modules_json}
+长期学习记忆（跨月沉淀，"（暂无）"则忽略）: {memory_summary}
+- recurring_causes 中的错因若仍在新错题里出现，next_week_focus 必须点名并换讲法
 
 调整规则（必须遵守）:
 - 综合完成率 ≥ 80%: 下周难度/任务量提升约 10%（可在现有 daily_word_count 上 +1~2，或增加 1 个薄弱模块练习）
@@ -352,4 +360,27 @@ MONTHLY_ANALYSIS_PROMPT = """你是学生的英语学习顾问，请基于以下
 
 返回格式:
 {{"progress_points":["进步1","进步2"],"regression_points":["关注1"],"next_month_suggestions":["建议1","建议2"],"overall_assessment":"一句话总结本月表现和趋势"}}"""
+
+
+STUDENT_MEMORY_PROMPT = """你是学生的学习档案管理员。请把"本月学情"合并进该学生的长期记忆，返回JSON（不要markdown代码块）。
+
+长期记忆只保留跨周稳定、对制定后续学习方案有用的信息：这个孩子是什么类型的学习者、哪类错因反复出现、哪种讲法/练习方式对他确实有效、哪种无效。一次性的、本月特有的细节请丢弃。
+
+学生: {name}, 年级: {grade}
+数据月份: {month_label}
+
+已有长期记忆（可能为空）:
+{old_memory_json}
+
+本月学情:
+{month_facts}
+
+合并规则:
+1. memory_summary：不超过 150 字的连贯中文描述（画像 + 有效/无效方法），信息密度优先
+2. recurring_causes：本月错因与旧记忆重复、或本月内多次出现的错因才保留
+3. effective_methods：本月数据显示进步明显处对应的做法，或旧记忆中仍有效的做法
+4. 与旧记忆冲突时，以本月数据为准
+
+返回格式:
+{{"memory_summary":"...","learner_type":"一句话学习者类型","recurring_causes":["错因1"],"effective_methods":["有效做法1"]}}"""
 

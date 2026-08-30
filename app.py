@@ -325,6 +325,205 @@ def _cli_set_super():
     print(f"[OK] 已将 '{student['name']}' (ID: {student['id']}) 设为超级账号（不限次数）")
 
 
+def _cli_doctor():
+    """运行体检: python app.py doctor
+    检查 LLM 配置与连通性、OCR 依赖、数据库完整性、任务队列积压、
+    备份新鲜度、磁盘空间与生产配置。返回退出码（0 正常 / 1 有异常项）。
+    """
+    import shutil
+    import time as _time
+    from datetime import datetime, timezone
+    from db import PROJECT_ROOT
+
+    counts = {"ok": 0, "warn": 0, "fail": 0}
+
+    def _emit(level: str, msg: str) -> None:
+        counts[level] += 1
+        tag = {"ok": "[OK]  ", "warn": "[WARN]", "fail": "[FAIL]"}[level]
+        print(f"  {tag} {msg}")
+
+    print(f"拾阶而上 v{VERSION} 运行体检")
+    print("=" * 60)
+
+    # ── 1. LLM 配置与连通性 ──────────────────────────
+    print("\n▶ LLM")
+    import llm
+    if llm.BACKEND == "demo":
+        _emit("warn", "LLM 为 demo 模式：未配置 API key，所有 AI 产出均为占位数据")
+        _emit("warn", "修复：在 .env 配置 ANTHROPIC_API_KEY 或 LLM_API_KEY 后重启")
+    else:
+        endpoint = llm.ANTHROPIC_BASE_URL if llm.BACKEND == "anthropic" else llm.LLM_BASE_URL
+        _emit("ok", f"后端 {llm.BACKEND} · 文本模型 {llm.DEFAULT_MODEL} · "
+                    f"视觉模型 {llm.VISION_MODEL}" + (f" · 端点 {endpoint}" if endpoint else ""))
+
+        def _ping_llm():
+            t0 = _time.time()
+            try:
+                if llm.BACKEND == "anthropic":
+                    import anthropic
+                    kwargs = dict(api_key=llm.ANTHROPIC_KEY)
+                    if llm.ANTHROPIC_BASE_URL:
+                        kwargs["base_url"] = llm.ANTHROPIC_BASE_URL
+                    client = anthropic.Anthropic(**kwargs)
+                    resp = client.messages.create(
+                        model=llm.DEFAULT_MODEL, max_tokens=8, timeout=15,
+                        messages=[{"role": "user", "content": "请只回复:OK"}])
+                    reply = (resp.content[0].text or "").strip()
+                else:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=llm.LLM_API_KEY,
+                                    base_url=llm.LLM_BASE_URL or None,
+                                    timeout=15, max_retries=0)
+                    resp = client.chat.completions.create(
+                        model=llm.DEFAULT_MODEL, max_tokens=8, temperature=0,
+                        messages=[{"role": "user", "content": "请只回复:OK"}])
+                    reply = (resp.choices[0].message.content or "").strip()
+                return True, f"{_time.time() - t0:.1f}s · 模型响应: {reply[:20]!r}"
+            except Exception as e:
+                return False, f"{_time.time() - t0:.1f}s · {type(e).__name__}: {str(e)[:120]}"
+
+        net_ok, net_msg = _ping_llm()
+        _emit("ok" if net_ok else "fail", f"API 连通性: {net_msg}")
+
+    # ── 2. OCR 依赖 ─────────────────────────────────
+    print("\n▶ OCR")
+    _emit("ok", f"OCR_BACKEND={llm.OCR_BACKEND}（auto=vision 优先，Tesseract 兜底）")
+    import glob
+    traineddata = glob.glob(os.path.join(PROJECT_ROOT, "tessdata", "*.traineddata*"))
+    if traineddata:
+        langs = ", ".join(os.path.basename(p).split(".")[0] for p in sorted(traineddata))
+        _emit("ok", f"Tesseract 语言包: {langs}")
+    else:
+        _emit("warn", "tessdata/ 下无语言包，Tesseract 兜底不可用")
+    from skills_bridge import OCR_WRAPPER
+    if os.path.exists(OCR_WRAPPER):
+        _emit("ok", f"OCR 包装脚本存在: {os.path.basename(OCR_WRAPPER)}")
+    else:
+        _emit("fail", f"OCR 包装脚本缺失: {OCR_WRAPPER}")
+    if llm.OCR_BACKEND in ("auto", "tesseract"):
+        if shutil.which("node"):
+            _emit("ok", "Node.js 可用（Tesseract.js 运行时）")
+        else:
+            _emit("warn", "未找到 node 命令，Tesseract.js 兜底将不可用"
+                          "（仅 vision OCR 可用时影响有限）")
+
+    # ── 3. 数据库 ───────────────────────────────────
+    print("\n▶ 数据库")
+    init_db()  # 幂等：建表 + 补迁移
+    size_mb = os.path.getsize(DB_PATH) / 1048576
+    _emit("ok", f"数据库 {DB_PATH} · {size_mb:.1f} MB")
+    conn = get_connection()
+    journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
+    if str(journal).lower() == "wal":
+        _emit("ok", "WAL 模式已启用")
+    else:
+        _emit("warn", f"journal_mode={journal}（预期 wal）")
+    quick = conn.execute("PRAGMA quick_check").fetchone()[0]
+    if str(quick).lower() == "ok":
+        _emit("ok", "quick_check 通过（数据库完整性正常）")
+    else:
+        _emit("fail", f"quick_check 异常: {quick}（先用 backups/ 恢复，勿覆盖）")
+    tables = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
+    _emit("ok", f"共 {tables} 张表")
+    stuck = conn.execute(
+        "SELECT COUNT(*) FROM ai_tasks WHERE status IN ('pending','processing') "
+        "AND created_at < datetime('now', '-2 hours')").fetchone()[0]
+    if stuck:
+        _emit("warn", f"{stuck} 个任务 pending/processing 超过 2 小时"
+                      "（服务未启动或 worker 僵尸；重启后自动复活/退额度）")
+    else:
+        _emit("ok", "任务队列无积压（无超 2 小时未完成任务）")
+    failed_7d = conn.execute(
+        "SELECT COUNT(*) FROM ai_tasks WHERE status='failed' "
+        "AND created_at > datetime('now', '-7 days')").fetchone()[0]
+    if failed_7d:
+        _emit("warn", f"近 7 天 {failed_7d} 个任务失败（运营后台可查 error_message）")
+    conn.close()
+
+    # ── 4. 备份 ─────────────────────────────────────
+    print("\n▶ 备份")
+    daily_at, weekly_at = _latest_backup_times()
+    now_utc = datetime.now(timezone.utc)
+    if daily_at is None:
+        _emit("warn", "尚无 daily 备份（首次启动 30 分钟内会自动执行）")
+    else:
+        age_h = (now_utc - _ensure_utc(daily_at)).total_seconds() / 3600
+        if age_h > 48:
+            _emit("warn", f"最近 daily 备份已是 {age_h:.0f} 小时前（服务是否在运行？）")
+        else:
+            _emit("ok", f"最近 daily 备份: {age_h:.1f} 小时前")
+    if weekly_at is None:
+        _emit("warn", "尚无 weekly 备份")
+    else:
+        age_d = (now_utc - _ensure_utc(weekly_at)).total_seconds() / 86400
+        if age_d > 8:
+            _emit("warn", f"最近 weekly 备份已是 {age_d:.0f} 天前")
+        else:
+            _emit("ok", f"最近 weekly 备份: {age_d:.1f} 天前")
+
+    # ── 5. 磁盘与目录 ───────────────────────────────
+    print("\n▶ 磁盘与目录")
+    targets = [
+        ("数据库所在盘", os.path.dirname(os.path.abspath(DB_PATH))),
+        ("上传目录", UPLOAD_DIR),
+    ]
+    for label, path in targets:
+        total, _used, free = shutil.disk_usage(path)
+        free_gb = free / 2**30
+        if free_gb < 1:
+            _emit("fail", f"{label}剩余空间仅 {free_gb:.2f} GB（{path}）")
+        elif free_gb < 5:
+            _emit("warn", f"{label}剩余空间 {free_gb:.1f} GB，建议清理（{path}）")
+        else:
+            _emit("ok", f"{label}剩余空间 {free_gb:.1f} GB")
+    for label, path in [
+        ("上传目录", UPLOAD_DIR),
+        ("日志目录", os.path.join(PROJECT_ROOT, "logs")),
+        ("备份目录", os.path.join(PROJECT_ROOT, "backups")),
+        ("LLM 缓存目录", llm.CACHE_DIR),
+    ]:
+        if not os.path.isdir(path):
+            _emit("warn", f"{label}不存在: {path}")
+            continue
+        try:
+            probe = os.path.join(path, ".doctor_probe")
+            with open(probe, "w") as f:
+                f.write("ok")
+            os.remove(probe)
+            _emit("ok", f"{label}可写: {path}")
+        except Exception as e:
+            _emit("fail", f"{label}不可写: {path}（{e}）")
+
+    # ── 6. 生产配置 ─────────────────────────────────
+    print("\n▶ 生产配置")
+    if os.environ.get("FLASK_SECRET_KEY", "") in ("", "dev-secret-key-change-in-prod"):
+        _emit("warn", "FLASK_SECRET_KEY 使用默认/空值，生产环境必须替换")
+    else:
+        _emit("ok", "FLASK_SECRET_KEY 已自定义")
+    if os.environ.get("HTTPS_ENABLED") == "true":
+        _emit("ok", "HTTPS_ENABLED=true（会话 cookie 已加固）")
+    else:
+        _emit("warn", "HTTPS_ENABLED 未开启（反代终结 TLS 后请置 true）")
+    if os.environ.get("CONSENT_REQUIRED") == "true":
+        _emit("ok", "CONSENT_REQUIRED=true（无监护人同意禁止上传）")
+    else:
+        _emit("warn", "CONSENT_REQUIRED 未开启（商用前建议开启，见 README 数据合规）")
+
+    print("\n" + "=" * 60)
+    print(f"体检完成: {counts['ok']} 项正常 · {counts['warn']} 项警告 · "
+          f"{counts['fail']} 项异常")
+    return 1 if counts["fail"] else 0
+
+
+def _ensure_utc(dt):
+    """backups.created_at 读出为 naive UTC，统一挂 UTC 时区用于差值计算。"""
+    from datetime import timezone
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 # ═══════════════════════════════════════════════════
 # Main
 # ═══════════════════════════════════════════════════
@@ -345,6 +544,8 @@ if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == 'clear-students':
         _cli_clear_students()
         sys.exit(0)
+    if len(sys.argv) > 1 and sys.argv[1] == 'doctor':
+        sys.exit(_cli_doctor())
 
     init_db()
     os.makedirs(UPLOAD_DIR, exist_ok=True)

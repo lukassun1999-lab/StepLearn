@@ -495,6 +495,59 @@ def has_student_profile(student_id: int, db_path: str = DB_PATH) -> bool:
 
 
 # ═══════════════════════════════════════════════════
+# L3 学生长期记忆（跨月画像；月度总结刷新，方案生成消费）
+# ═══════════════════════════════════════════════════
+
+_MEMORY_JSON_FIELDS = ("recurring_causes", "effective_methods")
+
+
+def get_student_memory(student_id: int, db_path: str = DB_PATH) -> Optional[Dict[str, Any]]:
+    """Get the student's L3 long-term memory. Returns None if never generated."""
+    conn = get_connection(db_path)
+    row = conn.execute("SELECT * FROM student_memory WHERE student_id = ?",
+                       [student_id]).fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    for field in _MEMORY_JSON_FIELDS:
+        try:
+            d[field] = json.loads(d.get(field) or "[]")
+        except Exception:
+            d[field] = []
+    return d
+
+
+def save_student_memory(student_id: int, memory: Dict[str, Any],
+                        db_path: str = DB_PATH) -> None:
+    """Create or update the student's L3 long-term memory (upsert)."""
+    conn = get_connection(db_path)
+    conn.execute("""
+        INSERT INTO student_memory (student_id, memory_summary, learner_type,
+                                    recurring_causes, effective_methods,
+                                    source_month, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(student_id) DO UPDATE SET
+            memory_summary = excluded.memory_summary,
+            learner_type = excluded.learner_type,
+            recurring_causes = excluded.recurring_causes,
+            effective_methods = excluded.effective_methods,
+            source_month = excluded.source_month,
+            updated_at = excluded.updated_at
+    """, [
+        student_id,
+        memory.get("memory_summary", ""),
+        memory.get("learner_type", ""),
+        json.dumps(memory.get("recurring_causes") or [], ensure_ascii=False),
+        json.dumps(memory.get("effective_methods") or [], ensure_ascii=False),
+        memory.get("source_month"),
+        _now_iso(),
+    ])
+    conn.commit()
+    conn.close()
+
+
+# ═══════════════════════════════════════════════════
 # Schools & Classes
 # ═══════════════════════════════════════════════════
 

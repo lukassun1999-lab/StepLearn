@@ -253,9 +253,13 @@ def update_mistake(mistake_id: int, updates: Dict[str, Any], db_path: str = DB_P
 
 
 # ═══════════════════════════════════════════════════
-# Spaced Repetition (Ebbinghaus intervals)
+# Spaced Repetition (Ebbinghaus 阶梯 + SM-2 个人难度系数)
 # ═══════════════════════════════════════════════════
 
+# 固定阶梯给出各阶段的基础间隔（几何递增，上限 60 天）；
+# ease_factor（SM-2）在此基础上按每道错题的答题表现伸缩间隔：
+# 答对 +0.05（上限 3.0）→ 间隔拉长，答错 -0.20（下限 1.3）→ 间隔缩短。
+# 掌握判定仍是"连对 2 次"（consecutive_correct >= 2），SM-2 只影响排程。
 _EBBINGHAUS_INTERVALS = [
     1.0,     # Stage 0: 1 hour
     24.0,    # Stage 1: 1 day
@@ -268,12 +272,20 @@ _EBBINGHAUS_INTERVALS = [
 ]
 _MAX_REVIEW_STAGE = len(_EBBINGHAUS_INTERVALS) - 1
 
+_EASE_MIN = 1.3
+_EASE_MAX = 3.0
+_EASE_DEFAULT = 2.5
+_EASE_UP = 0.05    # 答对
+_EASE_DOWN = 0.20  # 答错
 
-def _next_review_at(stage: int, from_time: datetime = None) -> str:
-    """Calculate the next review timestamp for a given stage."""
+
+def _next_review_at(stage: int, from_time: datetime = None,
+                    ease_factor: float = _EASE_DEFAULT) -> str:
+    """计算某阶段的下次复习时间（基础间隔 × SM-2 难度系数，下限 0.5h）。"""
     if stage > _MAX_REVIEW_STAGE:
         stage = _MAX_REVIEW_STAGE
-    interval_hours = _EBBINGHAUS_INTERVALS[stage]
+    ease = max(_EASE_MIN, min(_EASE_MAX, ease_factor if ease_factor else _EASE_DEFAULT))
+    interval_hours = max(0.5, _EBBINGHAUS_INTERVALS[stage] * ease / _EASE_DEFAULT)
     base = from_time or datetime.now()
     return (base + timedelta(hours=interval_hours)).isoformat(timespec="seconds")
 
@@ -294,33 +306,36 @@ def record_practice(mistake_id: int, user_answer: str, is_correct: bool,
         VALUES (?, ?, ?, ?)
     """, [mistake_id, user_answer, int(is_correct), feedback])
 
-    # Ebbinghaus scheduling
+    # Ebbinghaus scheduling + SM-2 ease adjustment
     cur_stage = row["review_stage"] or 0
+    cur_ease = row["ease_factor"] if row["ease_factor"] else _EASE_DEFAULT
     new_review_count = (row["review_count"] or 0) + 1
 
     if is_correct:
+        new_ease = min(_EASE_MAX, cur_ease + _EASE_UP)
         new_consecutive = (row["consecutive_correct"] or 0) + 1
         # Advance to next stage
         new_stage = min(_MAX_REVIEW_STAGE, cur_stage + 1)
         # Mastery: blend stage progress and consecutive streak
         new_mastery = min(100, int(new_stage / _MAX_REVIEW_STAGE * 70 + new_consecutive * 10))
     else:
+        new_ease = max(_EASE_MIN, cur_ease - _EASE_DOWN)
         new_consecutive = 0
         # Reset to stage 1 (1 day) on error — partial reset, not back to zero
         new_stage = 1
         new_mastery = max(0, int(cur_stage / _MAX_REVIEW_STAGE * 50))
 
-    new_interval = _EBBINGHAUS_INTERVALS[new_stage]
-    next_review = _next_review_at(new_stage)
+    new_interval = round(_EBBINGHAUS_INTERVALS[new_stage] * new_ease / _EASE_DEFAULT, 2)
+    next_review = _next_review_at(new_stage, ease_factor=new_ease)
 
     conn.execute("""
         UPDATE mistakes SET
             review_count = ?, consecutive_correct = ?, mastery_level = ?,
             last_reviewed_at = ?, next_review_at = ?,
-            review_interval_hours = ?, review_stage = ?
+            review_interval_hours = ?, review_stage = ?, ease_factor = ?
         WHERE id = ?
     """, [new_review_count, new_consecutive, new_mastery,
-          now, next_review, new_interval, new_stage, mistake_id])
+          now, next_review, new_interval, new_stage, new_ease, mistake_id])
     conn.commit()
     conn.close()
     return True

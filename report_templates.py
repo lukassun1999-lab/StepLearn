@@ -1555,6 +1555,7 @@ def render_monthly_report(
     month_label: str,
     month_stats: dict,
     ai_analysis: dict,
+    memory: dict = None,
 ) -> str:
     """Generate a monthly summary report HTML."""
 
@@ -1613,6 +1614,23 @@ def render_monthly_report(
 
     accuracy_display = f"{avg_accuracy:.0%}" if isinstance(avg_accuracy, (int, float)) else "—"
 
+    # L3 长期学习画像（月度总结时刷新的记忆；尚无记忆则整块不显示）
+    memory = memory or {}
+    memory_html = ""
+    if memory.get("memory_summary"):
+        recurring = memory.get("recurring_causes") or []
+        effective = memory.get("effective_methods") or []
+        memory_html = f"""
+<div class="section">
+  <h2>🧠 长期学习画像</h2>
+  <div class="card">
+    {f'<p style="margin-bottom:8px;"><strong>{memory["learner_type"]}</strong></p>' if memory.get("learner_type") else ''}
+    <p style="margin-bottom:12px;">{memory["memory_summary"]}</p>
+    {f'<p style="margin-bottom:6px;color:var(--red);font-size:.85rem;">⚠ 反复出现的卡点：{"、".join(recurring)}</p>' if recurring else ''}
+    {f'<p style="color:var(--green);font-size:.85rem;">✓ 已验证有效的做法：{"、".join(effective)}</p>' if effective else ''}
+  </div>
+</div>"""
+
     body = f"""
 <div class="header">
   <h1>📊 月度总结报告</h1>
@@ -1640,6 +1658,8 @@ def render_monthly_report(
     {f'<h3 style="margin-bottom:6px;">下月建议</h3><ul>{suggestions_html}</ul>' if suggestions else ''}
   </div>
 </div>''' if ai else ''}
+
+{memory_html}
 
 <div class="section">
   <h2>📒 月度错题清单</h2>

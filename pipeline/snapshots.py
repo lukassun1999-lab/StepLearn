@@ -7,16 +7,20 @@
 """
 
 import json
+import logging
 import os
 import uuid
 from datetime import date, timedelta
 
 import db
-from skills_bridge import grade_answers, generate_monthly_analysis
+from skills_bridge import (grade_answers, generate_monthly_analysis,
+                           update_student_memory)
 from report_templates import (
     render_feedback_report, render_weekly_mistake_book, render_monthly_report,
 )
 from pipeline import stages
+
+log = logging.getLogger(__name__)
 
 
 def _resolve_input(task: dict) -> dict:
@@ -236,6 +240,48 @@ def run_weekly_mistake_book(task: dict, db_path: str) -> dict:
 # 月度总结（每月 1 日自动，针对上个月）
 # ═══════════════════════════════════════════════════
 
+def _refresh_student_memory(student: dict, month_label: str, month_stats: dict,
+                            kp_breakdown: str, score_history_str: str,
+                            db_path: str, task_id: int = None) -> None:
+    """把本月学情合并进 L3 长期记忆（memory_summary 为空则保留旧记忆）。"""
+    student_id = student["id"]
+    old_memory = db.get_student_memory(student_id, db_path=db_path)
+    try:
+        cause = db.get_cause_profile(student_id, db_path=db_path) or {}
+    except Exception:
+        cause = {}
+    accuracy = month_stats.get("avg_accuracy")
+    facts = "\n".join([
+        f"- 本月错题 {month_stats.get('total_mistakes', 0)} 道，"
+        f"累计攻克 {month_stats.get('mastered_count', 0)} 道，"
+        f"练习 {month_stats.get('practice_count', 0)} 次，"
+        f"平均正确率 {round(accuracy * 100)}%" if accuracy is not None else
+        f"- 本月错题 {month_stats.get('total_mistakes', 0)} 道，"
+        f"累计攻克 {month_stats.get('mastered_count', 0)} 道，"
+        f"练习 {month_stats.get('practice_count', 0)} 次，无练习正确率数据",
+        f"知识点错题分布:\n{kp_breakdown or '无'}",
+        "最近错因画像: " + json.dumps(cause, ensure_ascii=False)[:600],
+        f"分数变化:\n{score_history_str}",
+    ])
+    merged = update_student_memory(
+        student_info={"name": student["name"], "grade": student["grade"]},
+        month_label=month_label,
+        old_memory=old_memory,
+        month_facts=facts,
+        task_id=task_id,
+    )
+    if not (merged or {}).get("memory_summary"):
+        log.warning("长期记忆生成结果为空，保留旧记忆 student=%s", student_id)
+        return
+    db.save_student_memory(student_id, {
+        "memory_summary": merged["memory_summary"],
+        "learner_type": merged.get("learner_type", ""),
+        "recurring_causes": merged.get("recurring_causes") or [],
+        "effective_methods": merged.get("effective_methods") or [],
+        "source_month": month_label,
+    }, db_path=db_path)
+
+
 def run_monthly_summary(task: dict, db_path: str) -> dict:
     task_id = task["id"]
     student_id = task["student_id"]
@@ -344,11 +390,21 @@ def run_monthly_summary(task: dict, db_path: str) -> dict:
     except Exception:
         ai_analysis = {}
 
+    # L3 长期记忆刷新（失败只告警，不影响月报本身）
+    progress("更新长期记忆", 70)
+    try:
+        _refresh_student_memory(student, month_label, month_stats,
+                                kp_breakdown, score_history_str,
+                                db_path=db_path, task_id=task_id)
+    except Exception:
+        log.warning("L3 长期记忆刷新失败 student=%s", student_id, exc_info=True)
+
     progress("生成月度报告", 80)
+    memory = db.get_student_memory(student_id, db_path=db_path)
     mr_html = render_monthly_report(
         student=student, mistakes=mistakes,
         month_label=month_label, month_stats=month_stats,
-        ai_analysis=ai_analysis,
+        ai_analysis=ai_analysis, memory=memory,
     )
     mr_dir = os.path.join(stages.UPLOAD_DIR, str(student_id), "report_pdf")
     os.makedirs(mr_dir, exist_ok=True)

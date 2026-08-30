@@ -66,6 +66,9 @@ DEFAULT_MODEL = os.environ.get("LLM_MODEL", "deepseek-chat")
 CACHE_ENABLED = os.environ.get("LLM_CACHE_ENABLED", "false").lower() == "true"
 MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "3"))
 LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "120"))  # seconds per API attempt
+# 输出被 max_tokens 截断时的最大续写轮数（长 JSON 报告被截断时自动请求续写，
+# 而不是把半截 JSON 交给校验层反复重试）
+MAX_CONTINUATIONS = int(os.environ.get("LLM_MAX_CONTINUATIONS", "2"))
 CACHE_DIR = os.path.join(os.path.dirname(__file__), ".llm_cache")
 
 # Which backend to use
@@ -575,7 +578,44 @@ class LLMClient:
         text = response.content[0].text
         prompt_tokens = getattr(response.usage, "input_tokens", 0) if hasattr(response, "usage") else 0
         output_tokens = getattr(response.usage, "output_tokens", 0) if hasattr(response, "usage") else 0
+        text, prompt_tokens, output_tokens = self._continue_anthropic(
+            client, prompt, text, response, prompt_tokens, output_tokens)
         return self._parse_response(text), prompt_tokens, output_tokens
+
+    def _continue_anthropic(self, client, user_content, text: str, response,
+                            prompt_tokens: int, output_tokens: int,
+                            max_tokens: int = 4096,
+                            model: str = None) -> tuple[str, int, int]:
+        """Anthropic 输出被 max_tokens 截断时，用 assistant 预填充请求续写。
+
+        user_content 为原始首条消息内容（纯文本串或 vision 的内容块列表），
+        续写请求必须原样带上——vision 场景缺了图，续写就是凭空编。
+        续写轮数受 MAX_CONTINUATIONS 限制；单轮失败时按已拼接文本继续解析
+        （续写是尽力而为，不能让它把整次调用拖垮）。"""
+        use_model = model or self.model
+        rounds = 0
+        while getattr(response, "stop_reason", None) == "max_tokens" and rounds < MAX_CONTINUATIONS:
+            rounds += 1
+            try:
+                response = client.messages.create(
+                    model=use_model,
+                    max_tokens=max_tokens,
+                    timeout=120,
+                    messages=[
+                        {"role": "user", "content": user_content},
+                        {"role": "assistant", "content": text},
+                    ],
+                )
+            except Exception:
+                log.warning("LLM 续写请求失败，按已收到的截断文本继续解析", exc_info=True)
+                break
+            text += response.content[0].text
+            if hasattr(response, "usage"):
+                prompt_tokens += getattr(response.usage, "input_tokens", 0)
+                output_tokens += getattr(response.usage, "output_tokens", 0)
+        if rounds:
+            log.info("LLM 输出被 max_tokens 截断，已续写 %d 轮（上限 %d）", rounds, MAX_CONTINUATIONS)
+        return text, prompt_tokens, output_tokens
 
     def _call_openai_compatible(self, prompt: str) -> tuple[dict, int, int]:
         """Call OpenAI-compatible API (DeepSeek, Qwen, GLM, Moonshot, etc.)."""
@@ -583,7 +623,7 @@ class LLMClient:
         # max_retries=0: our own backoff loop in call() governs retries
         client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL or None,
                         timeout=LLM_TIMEOUT, max_retries=0)
-        response = client.chat.completions.create(
+        create_kwargs = dict(
             model=self.model,
             max_tokens=16384,  # 结构化 JSON 可能很长；4096 会被推理模型的思考占满
             temperature=0.3,
@@ -591,12 +631,48 @@ class LLMClient:
             # token 全耗在思考上，JSON 被截断 → 校验报 Required field missing）。
             # 流水线全部为结构化 JSON 任务，直接输出即可，与 _call_openai_vision 同源。
             extra_body={"thinking": {"type": "disabled"}},
-            messages=[{"role": "user", "content": prompt}],
         )
+        messages = [{"role": "user", "content": prompt}]
+        response = client.chat.completions.create(
+            **create_kwargs, messages=messages)
         text = response.choices[0].message.content or ""
         prompt_tokens = getattr(response.usage, "prompt_tokens", 0) if response.usage else 0
         output_tokens = getattr(response.usage, "completion_tokens", 0) if response.usage else 0
+        text, prompt_tokens, output_tokens = self._continue_openai(
+            client, create_kwargs, messages, text, response,
+            prompt_tokens, output_tokens)
         return self._parse_response(text), prompt_tokens, output_tokens
+
+    def _continue_openai(self, client, create_kwargs: dict, messages: list,
+                         text: str, response, prompt_tokens: int,
+                         output_tokens: int) -> tuple[str, int, int]:
+        """OpenAI 兼容端点输出被截断（finish_reason=length）时请求续写。
+
+        续写轮数受 MAX_CONTINUATIONS 限制；单轮失败时按已拼接文本继续解析。"""
+        rounds = 0
+        while (response.choices
+               and getattr(response.choices[0], "finish_reason", None) == "length"
+               and rounds < MAX_CONTINUATIONS):
+            rounds += 1
+            try:
+                response = client.chat.completions.create(
+                    **create_kwargs,
+                    messages=messages + [
+                        {"role": "assistant", "content": text},
+                        {"role": "user", "content":
+                            "你上一条回复在结尾处被截断了。请从截断处继续输出剩余内容："
+                            "不要重复任何已输出的文本，不要输出任何说明，直接衔接。"},
+                    ])
+            except Exception:
+                log.warning("LLM 续写请求失败，按已收到的截断文本继续解析", exc_info=True)
+                break
+            text += (response.choices[0].message.content or "")
+            if response.usage:
+                prompt_tokens += getattr(response.usage, "prompt_tokens", 0)
+                output_tokens += getattr(response.usage, "completion_tokens", 0)
+        if rounds:
+            log.info("LLM 输出被截断，已续写 %d 轮（上限 %d）", rounds, MAX_CONTINUATIONS)
+        return text, prompt_tokens, output_tokens
 
     def _call_vision_api(self, image_b64: str, mime_type: str, prompt: str,
                          model: str) -> tuple[dict, int, int]:
@@ -616,25 +692,26 @@ class LLMClient:
             kwargs["base_url"] = ANTHROPIC_BASE_URL
 
         client = anthropic.Anthropic(**kwargs)
+        vision_content = [
+            {"type": "image", "source": {
+                "type": "base64",
+                "media_type": mime_type,
+                "data": image_b64,
+            }},
+            {"type": "text", "text": prompt},
+        ]
         response = client.messages.create(
             model=model,
             max_tokens=4096,
             timeout=120,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {
-                        "type": "base64",
-                        "media_type": mime_type,
-                        "data": image_b64,
-                    }},
-                    {"type": "text", "text": prompt},
-                ],
-            }],
+            messages=[{"role": "user", "content": vision_content}],
         )
         text = response.content[0].text
         prompt_tokens = getattr(response.usage, "input_tokens", 0) if hasattr(response, "usage") else 0
         output_tokens = getattr(response.usage, "output_tokens", 0) if hasattr(response, "usage") else 0
+        text, prompt_tokens, output_tokens = self._continue_anthropic(
+            client, vision_content, text, response, prompt_tokens, output_tokens,
+            model=model)
         return self._parse_response(text), prompt_tokens, output_tokens
 
     def _call_openai_vision(self, image_b64: str, mime_type: str, prompt: str,
@@ -644,26 +721,31 @@ class LLMClient:
 
         client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL or None,
                         timeout=LLM_TIMEOUT, max_retries=0)
-        response = client.chat.completions.create(
+        create_kwargs = dict(
             model=model,
             max_tokens=8192,  # OCR text can be long; 4096 may truncate reasoning models
             temperature=0.3,
             # Disable chain-of-thought for OCR: MiniMax-M3 etc. emit <think> blocks that
             # waste tokens and can be truncated. OCR needs direct text output.
             extra_body={"thinking": {"type": "disabled"}},
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {
-                        "url": f"data:{mime_type};base64,{image_b64}",
-                    }},
-                ],
-            }],
         )
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {
+                    "url": f"data:{mime_type};base64,{image_b64}",
+                }},
+            ],
+        }]
+        response = client.chat.completions.create(
+            **create_kwargs, messages=messages)
         text = response.choices[0].message.content or ""
         prompt_tokens = getattr(response.usage, "prompt_tokens", 0) if response.usage else 0
         output_tokens = getattr(response.usage, "completion_tokens", 0) if response.usage else 0
+        text, prompt_tokens, output_tokens = self._continue_openai(
+            client, create_kwargs, messages, text, response,
+            prompt_tokens, output_tokens)
         return self._parse_response(text), prompt_tokens, output_tokens
 
     def _parse_response(self, text: str) -> dict:

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from bridge_common import _get_client
 from llm_prompts import (ESSAY_REVIEW_PROMPT, GRADING_PROMPT,
                          LEARNING_PLAN_PROMPT, MONTHLY_ANALYSIS_PROMPT,
-                         PLAN_UPDATE_PROMPT)
+                         PLAN_UPDATE_PROMPT, STUDENT_MEMORY_PROMPT)
 
 def grade_answers(questions: List[Dict], student_answers: List[Dict],
                   task_id: int = None) -> Dict[str, Any]:
@@ -119,12 +119,26 @@ def review_essay(question: str, essay: str, grade: str = "",
 
 
 def generate_learning_plan(student_info: Dict, diagnosis: Dict,
-                           profile: Dict = None, task_id: int = None) -> Dict[str, Any]:
+                           profile: Dict = None, task_id: int = None,
+                           memory: Optional[Dict] = None) -> Dict[str, Any]:
     """
     Generate personalized learning plan via LLM, incorporating student profile
-    (chat.md six-part dimensions) when available.
+    (chat.md six-part dimensions) and L3 long-term memory when available.
     """
     profile_json = json.dumps(profile or {}, ensure_ascii=False, indent=2)
+    if memory:
+        lines = []
+        if memory.get("learner_type"):
+            lines.append(f"- 学习者类型：{memory['learner_type']}")
+        if memory.get("memory_summary"):
+            lines.append(f"- 画像摘要：{memory['memory_summary']}")
+        if memory.get("recurring_causes"):
+            lines.append(f"- 反复出现的错因：{'、'.join(memory['recurring_causes'])}")
+        if memory.get("effective_methods"):
+            lines.append(f"- 已验证有效的做法：{'、'.join(memory['effective_methods'])}")
+        memory_section = "\n".join(lines) if lines else "（暂无）"
+    else:
+        memory_section = "（暂无）"
     prompt = LEARNING_PLAN_PROMPT.format(
         name=student_info.get("name", ""),
         grade=student_info.get("grade", "高二"),
@@ -133,6 +147,7 @@ def generate_learning_plan(student_info: Dict, diagnosis: Dict,
         target_score=student_info.get("target_score", "未设定"),
         diagnosis_json=json.dumps(diagnosis, ensure_ascii=False, indent=2),
         profile_json=profile_json,
+        memory_section=memory_section,
     )
     schema = {
         "diagnosis_report": {"type": "object", "required": False},
@@ -160,6 +175,7 @@ def generate_plan_update(student_id: int, week_start: str,
                          parent_tasks_json: str = "[]",
                          plan_choices_json: str = "{}",
                          current_modules_json: str = "[]",
+                         memory_summary: str = "",
                          task_id: int = None) -> Dict[str, Any]:
     """
     Generate AI Clinic content to update learning plan, incorporating
@@ -188,6 +204,7 @@ def generate_plan_update(student_id: int, week_start: str,
         parent_tasks_json=parent_tasks_json,
         plan_choices_json=plan_choices_json,
         current_modules_json=current_modules_json,
+        memory_summary=memory_summary or "（暂无）",
     )
     schema = {
         "ai_clinic": {"type": "string", "required": False},
@@ -228,6 +245,31 @@ def generate_monthly_analysis(
         "regression_points": {"type": "array", "required": False},
         "next_month_suggestions": {"type": "array", "required": False},
         "overall_assessment": {"type": "string", "required": False},
+    }
+    return _get_client().call(
+        prompt=prompt, schema=schema, task_id=task_id, call_type="plan"
+    )
+
+
+def update_student_memory(student_info: Dict, month_label: str,
+                          old_memory: Optional[Dict], month_facts: str,
+                          task_id: int = None) -> Dict[str, Any]:
+    """把本月学情合并进 L3 长期记忆（月度总结时调用）。
+
+    返回合并后的记忆 dict；memory_summary 为空视为生成失败，调用方应保留旧记忆。
+    """
+    prompt = STUDENT_MEMORY_PROMPT.format(
+        name=student_info.get("name", ""),
+        grade=student_info.get("grade", ""),
+        month_label=month_label,
+        old_memory_json=json.dumps(old_memory or {}, ensure_ascii=False, indent=2),
+        month_facts=month_facts,
+    )
+    schema = {
+        "memory_summary": {"type": "string", "required": True},
+        "learner_type": {"type": "string", "required": False},
+        "recurring_causes": {"type": "array", "required": False},
+        "effective_methods": {"type": "array", "required": False},
     }
     return _get_client().call(
         prompt=prompt, schema=schema, task_id=task_id, call_type="plan"

@@ -6,6 +6,8 @@
 >
 > **错因因果链**（2026-08-05）：诊断从"哪里不会"升级为"为什么不会、先补什么"。每道错题归因到受控五类（词汇/语法/句法/语篇/审题），聚合出核心瓶颈与传导链；方案与周报按"根因优先、非错误率优先"聚焦，跨周对比生成"卡点变化"进步叙事。
 >
+> **L3 长期记忆 + SM-2 复习**（2026-08-31）：三层记忆在此闭环——L1 批改原始记录、L2 周/月报告、L3 跨月沉淀的"什么类型的学习者、哪类错因反复出现、哪种讲法有效"（`student_memory` 表，月度总结时由 AI 合并刷新，方案生成时注入 prompt，月报展示"长期学习画像"）。错题本复习间隔 = Ebbinghaus 阶梯 × SM-2 个人难度系数（答对 +0.05 / 答错 -0.20），掌握判定仍是"连对 2 次"。
+>
 > 架构模式：**单租户自营**（非多租户 SaaS）。当前为 C 端最小闭环模式，学校/教师功能由 feature flag 封存（见 `FEATURE_FLAGS.md`）。
 
 ---
@@ -85,6 +87,7 @@ python app.py
 | 命令 | 说明 |
 |------|------|
 | `python app.py` | 启动 Flask 服务 |
+| `python app.py doctor` | 运行体检：LLM 配置与连通性、OCR 依赖、数据库完整性、任务积压、备份新鲜度、磁盘、生产配置（退出码 0/1 可接监控） |
 | `python app.py create-admin <用户名> <密码> <role>` | 创建账号（role: `admin` / `teacher`） |
 | `python app.py list-admins` | 列出所有账号 |
 | `python app.py reset-password <用户名> <新密码>` | 重置密码 |
@@ -120,7 +123,7 @@ StepLearn/
 │   ├── cycle_pipeline.py   #   统一 handler（onboarding + weekly）
 │   └── scheduler.py        #   调度器：周六条件周报/周一错题本/月度总结
 ├── pipeline_worker.py      # 任务队列 + worker 池（僵尸恢复/退额度/抽检）
-├── db/                     # SQLite 数据层包（唯一数据源，36 表）
+├── db/                     # SQLite 数据层包（唯一数据源，37 表）
 │   ├── __init__.py         #   门面：再导出全部符号（含 _now_iso）
 │   ├── core.py             #   连接/schema/迁移/时间/PRICING
 │   └── students/learning/subscriptions/operations/analytics/compliance.py
@@ -181,6 +184,7 @@ StepLearn/
 | `ANTHROPIC_BASE_URL` | 无 | 自定义 Anthropic 端点（Kimi：`https://api.kimi.com/coding/`） |
 | `LLM_API_KEY` / `LLM_BASE_URL` | 无 | OpenAI 兼容接口（DeepSeek/Qwen/GLM 等） |
 | `LLM_MODEL` | `deepseek-chat` | 默认文本模型 |
+| `LLM_MAX_CONTINUATIONS` | `2` | 输出被 max_tokens 截断时的自动续写轮数（长 JSON 报告防截断） |
 | `VISION_MODEL` | `LLM_MODEL` | OCR 视觉模型，生产建议显式设置 |
 | `OCR_BACKEND` | `auto` | `auto`=先 vision 后 Tesseract；`vision`/`tesseract` 强制 |
 | `LLM_CACHE_ENABLED` | `false` | 开发缓存开关 |

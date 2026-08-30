@@ -28,7 +28,8 @@ from llm_prompts import (CAUSE_CHAIN_PROMPT, ESSAY_REVIEW_PROMPT,
                          GRADING_PROMPT, LEARNING_PLAN_PROMPT,
                          MISTAKE_ANALYSIS_PROMPT, MONTHLY_ANALYSIS_PROMPT,
                          PLAN_UPDATE_PROMPT, QUESTION_GENERATION_PROMPT,
-                         SIMILAR_QUESTION_PROMPT, VISION_OCR_PROMPT)
+                         SIMILAR_QUESTION_PROMPT, STUDENT_MEMORY_PROMPT,
+                         VISION_OCR_PROMPT)
 # OCR
 from ocr_service import (_MIN_OCR_TEXT_LENGTH, _run_tesseract_ocr,
                          run_ocr, run_ocr_multimodal, run_ocr_parallel)
@@ -59,7 +60,7 @@ from question_gen import (_FILL_BLANK_TYPES, _INFLECTION_HINT_TYPES,
 # 批改与方案
 from llm_plans import (_normalize_plan_text_field, generate_learning_plan,
                        generate_monthly_analysis, generate_plan_update,
-                       grade_answers, review_essay)
+                       grade_answers, review_essay, update_student_memory)
 
 log = logging.getLogger(__name__)
 
