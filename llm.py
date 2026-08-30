@@ -84,6 +84,22 @@ OCR_BACKEND = os.environ.get("OCR_BACKEND", "auto").lower()  # auto | vision | t
 VISION_MODEL = os.environ.get("VISION_MODEL", "") or DEFAULT_MODEL
 VISION_MAX_IMAGE_SIZE = int(os.environ.get("VISION_MAX_IMAGE_SIZE", "2097152"))
 
+# 判卷/判定类调用走 temperature 0（确定性优先，见《错判归因报告》④）；
+# 生成类（出题/方案/作文评语）保持默认 0.3 保留多样性。
+TEMPERATURE_BY_CALL_TYPE = {
+    "analyze": 0.0,      # 错题提取与自动批改
+    "grade": 0.0,        # 练习批改
+    "cause_chain": 0.0,  # 错因归因
+    "ocr": 0.0,          # 视觉识别
+}
+DEFAULT_TEMPERATURE = 0.3
+
+
+def _temperature_for(call_type: str) -> float:
+    return TEMPERATURE_BY_CALL_TYPE.get((call_type or "").split("/")[0],
+                                        DEFAULT_TEMPERATURE)
+
+
 # Pricing per 1M tokens (USD)
 PRICING = {
     # Anthropic
@@ -429,7 +445,7 @@ class LLMClient:
         for attempt in range(retries + 1):
             try:
                 start_ms = int(time.time() * 1000)
-                result, prompt_tokens, output_tokens = self._call_api(prompt)
+                result, prompt_tokens, output_tokens = self._call_api(prompt, call_type)
                 duration_ms = int(time.time() * 1000) - start_ms
 
                 # Validate output
@@ -516,7 +532,7 @@ class LLMClient:
                 start_ms = int(time.time() * 1000)
                 result, prompt_tokens, output_tokens = self._call_vision_api(
                     image_b64=image_b64, mime_type=mime_type,
-                    prompt=prompt, model=model,
+                    prompt=prompt, model=model, call_type=call_type,
                 )
                 duration_ms = int(time.time() * 1000) - start_ms
 
@@ -553,14 +569,14 @@ class LLMClient:
             f"Vision LLM call failed after {retries} retries. Last error: {last_error}"
         )
 
-    def _call_api(self, prompt: str) -> tuple[dict, int, int]:
+    def _call_api(self, prompt: str, call_type: str = "") -> tuple[dict, int, int]:
         """Make the actual API call. Returns (parsed_result, prompt_tokens, output_tokens)."""
         if BACKEND == "anthropic":
-            return self._call_anthropic(prompt)
+            return self._call_anthropic(prompt, call_type)
         else:
-            return self._call_openai_compatible(prompt)
+            return self._call_openai_compatible(prompt, call_type)
 
-    def _call_anthropic(self, prompt: str) -> tuple[dict, int, int]:
+    def _call_anthropic(self, prompt: str, call_type: str = "") -> tuple[dict, int, int]:
         """Call Anthropic API (supports custom base URL for Kimi etc.)."""
         import anthropic
 
@@ -568,10 +584,12 @@ class LLMClient:
         if ANTHROPIC_BASE_URL:
             kwargs["base_url"] = ANTHROPIC_BASE_URL
 
+        temperature = _temperature_for(call_type)
         client = anthropic.Anthropic(**kwargs)
         response = client.messages.create(
             model=self.model,
             max_tokens=4096,
+            temperature=temperature,
             timeout=120,  # 2-minute timeout
             messages=[{"role": "user", "content": prompt}],
         )
@@ -579,13 +597,15 @@ class LLMClient:
         prompt_tokens = getattr(response.usage, "input_tokens", 0) if hasattr(response, "usage") else 0
         output_tokens = getattr(response.usage, "output_tokens", 0) if hasattr(response, "usage") else 0
         text, prompt_tokens, output_tokens = self._continue_anthropic(
-            client, prompt, text, response, prompt_tokens, output_tokens)
+            client, prompt, text, response, prompt_tokens, output_tokens,
+            temperature=temperature)
         return self._parse_response(text), prompt_tokens, output_tokens
 
     def _continue_anthropic(self, client, user_content, text: str, response,
                             prompt_tokens: int, output_tokens: int,
                             max_tokens: int = 4096,
-                            model: str = None) -> tuple[str, int, int]:
+                            model: str = None,
+                            temperature: float = None) -> tuple[str, int, int]:
         """Anthropic 输出被 max_tokens 截断时，用 assistant 预填充请求续写。
 
         user_content 为原始首条消息内容（纯文本串或 vision 的内容块列表），
@@ -594,17 +614,19 @@ class LLMClient:
         （续写是尽力而为，不能让它把整次调用拖垮）。"""
         use_model = model or self.model
         rounds = 0
+        create_kwargs = dict(max_tokens=max_tokens, timeout=120)
+        if temperature is not None:
+            create_kwargs["temperature"] = temperature
         while getattr(response, "stop_reason", None) == "max_tokens" and rounds < MAX_CONTINUATIONS:
             rounds += 1
             try:
                 response = client.messages.create(
                     model=use_model,
-                    max_tokens=max_tokens,
-                    timeout=120,
                     messages=[
                         {"role": "user", "content": user_content},
                         {"role": "assistant", "content": text},
                     ],
+                    **create_kwargs,
                 )
             except Exception:
                 log.warning("LLM 续写请求失败，按已收到的截断文本继续解析", exc_info=True)
@@ -617,7 +639,7 @@ class LLMClient:
             log.info("LLM 输出被 max_tokens 截断，已续写 %d 轮（上限 %d）", rounds, MAX_CONTINUATIONS)
         return text, prompt_tokens, output_tokens
 
-    def _call_openai_compatible(self, prompt: str) -> tuple[dict, int, int]:
+    def _call_openai_compatible(self, prompt: str, call_type: str = "") -> tuple[dict, int, int]:
         """Call OpenAI-compatible API (DeepSeek, Qwen, GLM, Moonshot, etc.)."""
         from openai import OpenAI
         # max_retries=0: our own backoff loop in call() governs retries
@@ -626,7 +648,7 @@ class LLMClient:
         create_kwargs = dict(
             model=self.model,
             max_tokens=16384,  # 结构化 JSON 可能很长；4096 会被推理模型的思考占满
-            temperature=0.3,
+            temperature=_temperature_for(call_type),
             # 关闭思维链：MiniMax-M3 等推理模型先输出 <think> 再出答案（实测 4095/4096
             # token 全耗在思考上，JSON 被截断 → 校验报 Required field missing）。
             # 流水线全部为结构化 JSON 任务，直接输出即可，与 _call_openai_vision 同源。
@@ -675,15 +697,15 @@ class LLMClient:
         return text, prompt_tokens, output_tokens
 
     def _call_vision_api(self, image_b64: str, mime_type: str, prompt: str,
-                         model: str) -> tuple[dict, int, int]:
+                         model: str, call_type: str = "ocr") -> tuple[dict, int, int]:
         """Dispatch vision call to the configured backend."""
         if BACKEND == "anthropic":
-            return self._call_anthropic_vision(image_b64, mime_type, prompt, model)
+            return self._call_anthropic_vision(image_b64, mime_type, prompt, model, call_type)
         else:
-            return self._call_openai_vision(image_b64, mime_type, prompt, model)
+            return self._call_openai_vision(image_b64, mime_type, prompt, model, call_type)
 
     def _call_anthropic_vision(self, image_b64: str, mime_type: str, prompt: str,
-                               model: str) -> tuple[dict, int, int]:
+                               model: str, call_type: str = "ocr") -> tuple[dict, int, int]:
         """Call Anthropic Messages API with an image (supports Kimi-compatible endpoints)."""
         import anthropic
 
@@ -691,6 +713,7 @@ class LLMClient:
         if ANTHROPIC_BASE_URL:
             kwargs["base_url"] = ANTHROPIC_BASE_URL
 
+        temperature = _temperature_for(call_type)
         client = anthropic.Anthropic(**kwargs)
         vision_content = [
             {"type": "image", "source": {
@@ -703,6 +726,7 @@ class LLMClient:
         response = client.messages.create(
             model=model,
             max_tokens=4096,
+            temperature=temperature,
             timeout=120,
             messages=[{"role": "user", "content": vision_content}],
         )
@@ -711,11 +735,11 @@ class LLMClient:
         output_tokens = getattr(response.usage, "output_tokens", 0) if hasattr(response, "usage") else 0
         text, prompt_tokens, output_tokens = self._continue_anthropic(
             client, vision_content, text, response, prompt_tokens, output_tokens,
-            model=model)
+            model=model, temperature=temperature)
         return self._parse_response(text), prompt_tokens, output_tokens
 
     def _call_openai_vision(self, image_b64: str, mime_type: str, prompt: str,
-                            model: str) -> tuple[dict, int, int]:
+                            model: str, call_type: str = "ocr") -> tuple[dict, int, int]:
         """Call OpenAI-compatible vision API (DeepSeek, Qwen, GLM, etc.)."""
         from openai import OpenAI
 
@@ -724,7 +748,7 @@ class LLMClient:
         create_kwargs = dict(
             model=model,
             max_tokens=8192,  # OCR text can be long; 4096 may truncate reasoning models
-            temperature=0.3,
+            temperature=_temperature_for(call_type),
             # Disable chain-of-thought for OCR: MiniMax-M3 etc. emit <think> blocks that
             # waste tokens and can be truncated. OCR needs direct text output.
             extra_body={"thinking": {"type": "disabled"}},

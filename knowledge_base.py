@@ -369,6 +369,16 @@ def _filter_real_mistakes(mistakes: List[Dict]) -> List[Dict]:
             continue
         nu = _normalize_answer(raw_u)
         nc = _normalize_answer(raw_c)
+        # 字母前缀命中（B2，《错判归因报告》）：学生答单字母，标准答案是同字母
+        # 的"字母. 内容"形式（实测 user='e' vs correct='e. dealing with...' 被判错）
+        # → 学生选对了字母选项，不构成错题
+        _mu = _re.fullmatch(r"\(?([A-Ha-h])\)?[.、)）：:]?", str(raw_u or '').strip())
+        _mp = _re.match(r"^\(?([A-Ha-h])\)?[.、)）：:]\s*(.+)$", str(raw_c or '').strip(), _re.DOTALL)
+        if _mu and _mp and _mu.group(1).upper() == _mp.group(1).upper():
+            continue
+        # 标准答案带字母前缀而学生作答是内容：剥前缀再比（'e. xxx' 的实质就是 xxx）
+        if _mp:
+            nc = _normalize_answer(_mp.group(2))
         user_display = None
         # 括号格式（OCR/LLM 常见）："b (false)"、"a (high)"、"c(so that)"
         # → 提取 (字母, 内容)；支持纯字母作答与括号格式答案的字母比对

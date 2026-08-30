@@ -104,6 +104,9 @@ def _merge_chunk_results(results: List[Dict]) -> Dict[str, Any]:
     by_type: Dict[str, int] = {}
     weak_counter: Dict[str, int] = {}
     assessments = []
+    printed_key: Dict[str, str] = {}
+    answered_total = 0
+    has_answered = False
     for r in results:
         if not isinstance(r, dict):
             continue
@@ -115,6 +118,15 @@ def _merge_chunk_results(results: List[Dict]) -> Dict[str, Any]:
             weak_counter[kp] = weak_counter.get(kp, 0) + 1
         if s.get("overall_assessment"):
             assessments.append(str(s["overall_assessment"]).strip())
+        # 印刷答案键与覆盖度逐块合并（新字段落库前不能丢）
+        if isinstance(s.get("printed_answer_key"), dict):
+            printed_key.update(s["printed_answer_key"])
+        if s.get("answered_count") is not None:
+            try:
+                answered_total += int(s["answered_count"])
+                has_answered = True
+            except (TypeError, ValueError):
+                pass
     summary = {
         "total_mistakes": len(mistakes),
         "by_type": by_type,
@@ -122,6 +134,10 @@ def _merge_chunk_results(results: List[Dict]) -> Dict[str, Any]:
             weak_counter.items(), key=lambda x: -x[1])][:5],
         "overall_assessment": "；".join(assessments)[:500],
     }
+    if printed_key:
+        summary["printed_answer_key"] = printed_key
+    if has_answered:
+        summary["answered_count"] = answered_total
     return {"mistakes": mistakes, "summary": summary}
 
 
@@ -190,6 +206,43 @@ def _analyze_chunked(ocr_text: str, hints: str, task_id: int = None) -> Dict[str
     return merged
 
 
+def _apply_printed_answer_key(result: Dict) -> None:
+    """卷面印刷参考答案（如有）是权威 correct_answer：覆盖模型自定答案。
+
+    覆盖后交给 _filter_real_mistakes 的归一化比对——学生作答命中印刷答案
+    的"错题"会被自动剔除（模型判错、答案键判对的场景，见《错判归因报告》①）。
+    """
+    if not isinstance(result, dict) or not isinstance(result.get("summary"), dict):
+        return
+    summary = result["summary"]
+    key_map = summary.get("printed_answer_key")
+    if not isinstance(key_map, dict) or not key_map:
+        return
+    normalized = {}
+    for k, v in key_map.items():
+        try:
+            qn = int(str(k).strip())
+        except (TypeError, ValueError):
+            continue
+        if v is None or not str(v).strip():
+            continue
+        normalized[qn] = str(v).strip()
+    if not normalized:
+        summary["printed_answer_key"] = {}
+        return
+    applied = 0
+    for m in result.get("mistakes") or []:
+        try:
+            qn = int(m.get("question_number"))
+        except (TypeError, ValueError):
+            continue
+        if qn in normalized:
+            m["correct_answer"] = normalized[qn]
+            m["answer_source"] = "printed_key"
+            applied += 1
+    summary["printed_key_applied"] = applied
+
+
 def _postprocess_mistakes(result: Dict) -> None:
     """兜底：剔除"答对却被当成错题"的条目，并归一化答案/错因/知识点。
 
@@ -197,9 +250,19 @@ def _postprocess_mistakes(result: Dict) -> None:
     """
     if not isinstance(result, dict) or not isinstance(result.get('mistakes'), list):
         return
+    # 印刷参考答案优先于模型自定答案（须在比对过滤前覆盖）
+    _apply_printed_answer_key(result)
     before = len(result['mistakes'])
     result['mistakes'] = _filter_real_mistakes(result['mistakes'])
     dropped = before - len(result['mistakes'])
+    # 覆盖度遥测：answered_count 由模型输出（判对+判错的作答题数），
+    # 仅规范为 int，供任务产物展示"识别作答 X 题、判错 Y 题"
+    summary = result.get("summary")
+    if isinstance(summary, dict) and summary.get("answered_count") is not None:
+        try:
+            summary["answered_count"] = int(summary["answered_count"])
+        except (TypeError, ValueError):
+            summary["answered_count"] = None
     # 错因归一化：LLM 未输出受控 error_cause 时按题型加权+关键词兜底映射
     # （未作答/缺做 → 空串，不进错因统计）
     for m in result['mistakes']:

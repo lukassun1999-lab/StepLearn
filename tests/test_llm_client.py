@@ -32,7 +32,7 @@ def _fake_openai_factory(raw_text: str, captures: list):
     return FakeOpenAI
 
 
-def _call_text(monkeypatch, raw_text):
+def _call_text(monkeypatch, raw_text, call_type=""):
     """用 fake OpenAI 驱动 _call_openai_compatible，返回 (result, kwargs)。"""
     import openai
     import llm as llm_mod
@@ -40,7 +40,7 @@ def _call_text(monkeypatch, raw_text):
     fake = _fake_openai_factory(raw_text, captures)
     monkeypatch.setattr(openai, "OpenAI", fake)
     c = llm_mod.get_client()
-    result, _, _ = c._call_openai_compatible("test prompt")
+    result, _, _ = c._call_openai_compatible("test prompt", call_type)
     return result, captures[0]
 
 
@@ -56,3 +56,17 @@ def test_text_call_has_large_output_budget(monkeypatch):
     """输出预算足够大：长试卷的错题 JSON + 解释可能远超 4096 token。"""
     _, kwargs = _call_text(monkeypatch, '{"ok": true}')
     assert kwargs["max_tokens"] >= 8192, f"max_tokens={kwargs['max_tokens']} 会被推理/长 JSON 截断"
+
+
+def test_judgment_calls_use_zero_temperature(monkeypatch):
+    """判卷/判定类调用必须 temperature=0（确定性优先，见《错判归因报告》④）。"""
+    for call_type in ("analyze", "grade", "cause_chain"):
+        _, kwargs = _call_text(monkeypatch, '{"ok": true}', call_type)
+        assert kwargs["temperature"] == 0.0, f"{call_type} 应为确定性判定任务"
+
+
+def test_generation_calls_keep_default_temperature(monkeypatch):
+    """生成类调用保留 0.3（出题/方案需要多样性）。"""
+    for call_type in ("generate", "plan", "essay_review", ""):
+        _, kwargs = _call_text(monkeypatch, '{"ok": true}', call_type)
+        assert kwargs["temperature"] == 0.3

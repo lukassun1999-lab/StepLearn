@@ -50,6 +50,13 @@ MISTAKE_ANALYSIS_PROMPT = """分析以下英语试卷 OCR 文本，**只提取�
 - 试卷段落里印刷的示例答案、参考答案标注（如 "Key: 1-5 BCADC"）**不是学生作答**，一律忽略；
 - 若 OCR 文本中没有「（答题卡）」段落，则默认学生答案直接书写在试卷上，按下方规则从试卷文本中识别学生作答。
 
+【印刷参考答案（最高优先级答案源）】
+若 OCR 文本中包含试卷印刷的参考答案（如 "参考答案"、"Key:"、"答案：1-5 BCADC"、逐题标注的答案）：
+- 这些是该题**权威的正确答案**，逐题展开后直接采用为 correct_answer，**不要**自己重新判定该题答案；
+- 它们是答案不是学生作答——学生作答仍从答题卡/试卷书写处读取（遵守上方规则）；
+- 采用印刷答案的错题输出 answer_source 为 "printed_key"；自行判定答案的错题输出 "ai_inferred"；
+- summary.printed_answer_key 逐题输出你采用到的印刷答案（如 {{"3":"B","5":"C"}}），**禁止**输出 "1-5 BCADC" 之类的范围形式；卷面没有印刷答案则输出空对象 {{}}。
+
 【重要规则】
 1. 只把"学生答案确实与正确答案不同"的题放进 mistakes。学生选对/填对的题一律不要放进来。
 2. 比较时忽略选项字母前缀。例如学生答 "D. started a school"、正确答案 "started a school"，二者内容相同 → 学生答对了，**不要**算错题。同理 "A. cold"="cold"、"C, photographer"="photographer" 都算答对。
@@ -74,7 +81,9 @@ MISTAKE_ANALYSIS_PROMPT = """分析以下英语试卷 OCR 文本，**只提取�
 10. 每道错题输出 passage 字段：该题所属**阅读短文/对话的完整原文**（从 OCR 文本中原样提取，保留段落与题号不混入；若题目本身无短文——如语法填空/单项选择/单句完形——passage 必须为空字符串 ""）。
 
 返回格式:
-{{"mistakes":[{{"question_number":1,"question_text":"完整题干（含全部选项）","question_type":"语法填空","correct_answer":"full of","user_answer":"fill of","error_cause":"vocab","cause_evidence":"拼写错误：full 写成 fill","passage":"","explanation":"本题考查...","knowledge_points":["非谓语动词"],"difficulty":2}}],"summary":{{"total_mistakes":0,"by_type":{{"语法填空":2}},"top_weak_points":["非谓语动词"],"overall_assessment":"..."}}}}"""
+{{"mistakes":[{{"question_number":1,"question_text":"完整题干（含全部选项）","question_type":"语法填空","correct_answer":"full of","user_answer":"fill of","answer_source":"printed_key","error_cause":"vocab","cause_evidence":"拼写错误：full 写成 fill","passage":"","explanation":"本题考查...","knowledge_points":["非谓语动词"],"difficulty":2}}],"summary":{{"total_mistakes":0,"by_type":{{"语法填空":2}},"top_weak_points":["非谓语动词"],"overall_assessment":"...","printed_answer_key":{{}},"answered_count":0}}}}
+
+summary 字段说明: printed_answer_key=卷面印刷参考答案（无则空对象）；answered_count=学生实际作答的题数（判对+判错都算，未作答不算）——用于覆盖率统计。"""
 
 
 CAUSE_CHAIN_PROMPT = """分析学生的错因因果链，返回JSON（不要markdown代码块）。
