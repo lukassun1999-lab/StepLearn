@@ -895,7 +895,7 @@ function renderReports(d) {
       <div style="margin-top:12px;padding:12px;background:var(--bg);border-radius:6px;">
         <div style="font-weight:600;font-size:.9rem;">${r.title || '学情分析报告'}</div>
         <div class="meta">${r.created_at.slice(0,10)} · ${r.mistakes_count}道错题 · ${r.weak_points_count}个薄弱点</div>
-        <button class="btn btn-primary" style="margin-top:8px;" onclick="toggleReportPreview(${i}, ${r.report_file_id})">📄 查看报告</button>
+        <button class="btn btn-primary report-btn" id="report-btn-${i}" style="margin-top:8px;" onclick="toggleReportPreview(${i}, ${r.report_file_id})">📄 查看报告</button>
         <div class="report-preview" id="report-preview-${i}" style="display:none;margin-top:10px;">
           <iframe style="width:100%;height:62vh;border:1px solid var(--border);border-radius:8px;background:#fff;" sandbox="allow-same-origin"></iframe>
           <div style="display:flex;gap:8px;margin-top:8px;">
@@ -916,8 +916,12 @@ function toggleReportPreview(i, fileId) {
   if (!box) return;
   const show = box.style.display === 'none';
   document.querySelectorAll('.report-preview').forEach(b => b.style.display = 'none');
+  // 按钮文字随状态变化：否则默认已展开时点击会「收起」，用户以为点不开
+  document.querySelectorAll('.report-btn').forEach(b => { b.textContent = '📄 查看报告'; });
   if (!show) return;
   box.style.display = 'block';
+  const btn = document.getElementById('report-btn-' + i);
+  if (btn) btn.textContent = '📄 收起报告';
   const frame = box.querySelector('iframe');
   if (!frame.dataset.loaded) {
     frame.dataset.loaded = '1';
