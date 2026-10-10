@@ -57,8 +57,9 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .card .meta { color:var(--sub); font-size:.88rem; }
 .btn { display:inline-block; padding:10px 20px; border:none; border-radius:var(--radius); cursor:pointer; font-size:.95rem; font-weight:600; text-decoration:none; transition:all .15s; min-height:44px; }
 .btn:hover { transform:translateY(-1px); box-shadow:var(--shadow); }
-.btn-primary { background:var(--accent); color:#fff; }
-.btn-primary:hover { background:var(--accent-hover); }
+.btn-primary { background:var(--accent); color:#fff;  box-shadow:0 4px 0 var(--accent-hover); }
+.btn-primary:hover { background:var(--accent-hover); ; box-shadow:0 4px 0 var(--accent-hover); }
+.btn-primary:active { transform:translateY(3px); box-shadow:none; }
 .btn-outline:hover { background:var(--bg-alt); }
 .badge { display:inline-block; padding:4px 12px; border-radius:100px; font-size:.8rem; font-weight:600; }
 .badge-green { background:var(--green-light); color:var(--green); }
@@ -1653,8 +1654,8 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     font-size:.95rem; font-weight:600; cursor:pointer; transition:all .15s;
     text-align:center; text-decoration:none;
   }
-  .btn-primary { background:var(--accent); color:#fff; margin-bottom:8px; }
-  .btn-primary:hover { background:var(--accent-hover); }
+  .btn-primary { background:var(--accent); color:#fff; margin-bottom:8px;  box-shadow:0 4px 0 var(--accent-hover); }
+  .btn-primary:hover { background:var(--accent-hover); ; box-shadow:0 4px 0 var(--accent-hover); }
   .btn-secondary { background:var(--card); color:var(--accent); border:1.5px solid var(--accent); }
   .btn:disabled { opacity:.5; pointer-events:none; }
 

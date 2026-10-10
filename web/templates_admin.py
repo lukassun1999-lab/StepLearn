@@ -72,8 +72,9 @@ tr:last-child td { border-bottom:none; }
 @media (max-width:640px) { .form-row { grid-template-columns:1fr; } }
 .btn { padding:8px 20px; border:none; border-radius:var(--radius); cursor:pointer; font-size:.875rem; font-weight:600; transition:all .15s ease; min-height:36px; }
 .btn:hover { transform:translateY(-1px); box-shadow:var(--shadow); }
-.btn-primary { background:var(--accent); color:#fff; }
-.btn-primary:hover { background:var(--accent-hover); }
+.btn-primary { background:var(--accent); color:#fff;  box-shadow:0 4px 0 var(--accent-hover); }
+.btn-primary:hover { background:var(--accent-hover); ; box-shadow:0 4px 0 var(--accent-hover); }
+.btn-primary:active { transform:translateY(3px); box-shadow:none; }
 .btn-outline:hover { background:var(--bg-alt); border-color:var(--accent); }
 .btn-sm { padding:4px 12px; font-size:.8rem; }
 .btn-group { display:flex; gap:8px; margin-top:16px; }

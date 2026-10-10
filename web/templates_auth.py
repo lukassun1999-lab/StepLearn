@@ -34,8 +34,9 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .btn { width:100%; padding:11px; border:none; border-radius:var(--radius); cursor:pointer; font-size:.95rem; font-weight:600; transition:all .15s; }
 .btn:hover { transform:translateY(-1px); box-shadow:var(--shadow); }
 .btn:disabled { opacity:.6; cursor:not-allowed; transform:none; }
-.btn-primary { background:var(--accent); color:#fff; }
-.btn-primary:hover { background:var(--accent-hover); }
+.btn-primary { background:var(--accent); color:#fff;  box-shadow:0 4px 0 var(--accent-hover); }
+.btn-primary:hover { background:var(--accent-hover); ; box-shadow:0 4px 0 var(--accent-hover); }
+.btn-primary:active { transform:translateY(3px); box-shadow:none; }
 .error { color:var(--red); font-size:.8rem; margin-top:10px; text-align:center; display:none; }
 .links { text-align:center; margin-top:18px; font-size:.8rem; color:var(--sub); }
 .links a { color:var(--accent); text-decoration:none; font-weight:600; }
