@@ -154,6 +154,11 @@ def ocr_to_text(file_ids, student_id, task_id, db_path,
         """
         from document_parser import is_document, parse_document
 
+        # 答题卡段落显式声明"这是学生作答"：避免其中出现"参考答案"等字样时
+        # 被判题 prompt 当成标准答案（实测用户用参考答案文件模拟学生作答 → 判 0 错题）
+        sheet_note = ("【说明：本段落为学生在答题卡上的实际作答，不是标准答案/参考答案】\n"
+                      if label else "")
+
         # 每个原始文件对应若干待 vision 的图片（图片 1 个，扫描型 PDF 多页）
         jobs = []  # [(idx, [image_paths])]
         parts = [None] * len(ids)
@@ -169,7 +174,8 @@ def ocr_to_text(file_ids, student_id, task_id, db_path,
                                        "doc_pages", str(fid))
                 text, images = parse_document(path, out_dir=out_dir)
                 if text:
-                    parts[idx] = f"--- 第 {idx + 1} 页 {label}---\n{text}"
+                    parts[idx] = (f"--- 第 {idx + 1} 页 {label}---\n"
+                                  + sheet_note + text)
                     continue
                 if images:
                     jobs.append((idx, images))
@@ -188,7 +194,7 @@ def ocr_to_text(file_ids, student_id, task_id, db_path,
             texts = [r["text"] for r in rs if r.get("ok") and r.get("text")]
             if texts:
                 parts[idx] = (f"--- 第 {idx + 1} 页 {label}---\n"
-                              + "\n".join(texts))
+                              + sheet_note + "\n".join(texts))
             else:
                 parts[idx] = f"--- 第 {idx + 1} 页 {label}---\n[系统提示] OCR未能识别该页"
         for i in range(len(ids)):
