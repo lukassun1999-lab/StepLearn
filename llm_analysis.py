@@ -232,6 +232,27 @@ def _analyze_chunked(ocr_text: str, hints: str, task_id: int = None) -> Dict[str
     return merged
 
 
+# 听力相关题型关键字：无音频材料，判定无参考价值
+_LISTENING_KEYWORDS = ("听力", "听短文", "听对话", "听录音")
+
+
+def _drop_listening(mistakes: List[Dict]) -> List[Dict]:
+    """剔除听力类错题。
+
+    用户明确要求"听力部分不做检查"：系统没有音频材料，无法核对学生听到的内容。
+    实测 LLM 会把听力题判为错题且 correct_answer 为空（因为它也不知道答案），
+    这类结果对家长毫无价值，故在代码层确定性剔除。
+    """
+    keep = []
+    for m in mistakes:
+        qt = str(m.get("question_type") or "")
+        if any(k in qt for k in _LISTENING_KEYWORDS):
+            log.info("剔除听力题：题号=%s 题型=%s", m.get("question_number"), qt)
+            continue
+        keep.append(m)
+    return keep
+
+
 def _mark_unverified(mistakes: List[Dict], paper_text: str) -> List[Dict]:
     """给"题干在试卷原文中查不到"的错题打上 question_verified=False（不删除）。
 
@@ -319,6 +340,14 @@ def _postprocess_mistakes(result: Dict) -> None:
     before = len(result['mistakes'])
     result['mistakes'] = _filter_real_mistakes(result['mistakes'])
     dropped = before - len(result['mistakes'])
+    # 听力题一律不判（无音频材料，判了没有参考价值）。
+    # 代码层硬过滤：LLM 常不遵守 prompt 的听力排除规则（实测 20 道听力题全部
+    # 被判为错题且正确答案为空白），确定性规则比依赖模型自觉可靠。
+    n_before = len(result['mistakes'])
+    result['mistakes'] = _drop_listening(result['mistakes'])
+    if len(result['mistakes']) != n_before:
+        log.info("剔除听力类错题 %d 道（无音频材料，不参与检查）",
+                 n_before - len(result['mistakes']))
     # 防臆造（可疑标记，不删除）：题干在试卷原文中查不到的错题打上
     # question_verified=False，供下游/人工核对。
     # 为什么不直接删除：实测会误杀真实错题（语法填空等题干形态特殊，
