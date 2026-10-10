@@ -109,6 +109,16 @@ PRICING = {
     # DeepSeek
     "deepseek-chat":         {"input": 0.27, "output": 1.10},
     "deepseek-reasoner":     {"input": 0.55, "output": 2.19},
+    # DeepSeek-V4.1-Flash（model id: deepseek-flash）
+    # 官方价（人民币 / 百万 tokens，分时段 + 分缓存命中）：
+    #   输入(缓存命中)   空闲 0.02  高峰 0.04
+    #   输入(缓存未命中) 空闲 1.00  高峰 2.00
+    #   输出             空闲 4.00  高峰 8.00
+    # 高峰 = 工作日(非节假日) 9:00-12:00 / 14:00-18:00，其余时段(含周末)半价。
+    # 此处按「缓存未命中 + 高峰」保守折算 USD（汇率 ~7.3，与 deepseek-chat 同档），
+    # 即输入 2 元→0.27、输出 8 元→1.10。真实成本通常显著低于此值：
+    # 系统 prompt 命中缓存时输入近乎免费，且空闲时段再半价。
+    "deepseek-flash":        {"input": 0.27, "output": 1.10},
     # Qwen
     "qwen-plus":             {"input": 0.80, "output": 2.00},
     "qwen-max":              {"input": 2.40, "output": 9.60},
