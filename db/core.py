@@ -563,8 +563,9 @@ def init_db(db_path: str = DB_PATH) -> None:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (mistake_id) REFERENCES mistakes(id)
         );
-        CREATE INDEX IF NOT EXISTS idx_practice_records_question
-            ON practice_records(question_id);
+        -- 注：question_id 索引不在此处创建——老库的 practice_records 尚未补列，
+        -- 在此 CREATE INDEX 会报 "no such column" 导致启动失败。
+        -- 统一由 _migrate_db 在补列之后创建。
 
         CREATE TABLE IF NOT EXISTS practice_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
