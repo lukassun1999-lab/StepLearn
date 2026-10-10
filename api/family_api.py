@@ -372,22 +372,29 @@ def api_public_practice_submit(code):
             "SELECT student_id FROM mistakes WHERE id = ?", [source_mistake_id]
         ).fetchone()
         if owner and owner["student_id"] == student_id:
-            too_soon = conn.execute("""
+            # 防刷按「题目」去重（question_id），不是按「错题」去重：
+            # 一个错题会派生多道练习，若按 mistake_id 去重，第 2 道之后的
+            # 练习都会被当成重复提交而不记录——学生做了却没留痕。
+            _qid = question_id if question_id else None
+            _dedup_key = "question_id" if _qid else "mistake_id"
+            _dedup_val = _qid if _qid else source_mistake_id
+            too_soon = conn.execute(f"""
                 SELECT 1 FROM practice_records
-                WHERE mistake_id = ? AND created_at > datetime('now', '-30 seconds')
+                WHERE {_dedup_key} = ? AND created_at > datetime('now', '-30 seconds')
                 LIMIT 1
-            """, [source_mistake_id]).fetchone()
-            counted_today = conn.execute("""
+            """, [_dedup_val]).fetchone()
+            counted_today = conn.execute(f"""
                 SELECT 1 FROM practice_records
-                WHERE mistake_id = ? AND date(created_at, 'localtime') = date('now', 'localtime')
+                WHERE {_dedup_key} = ? AND date(created_at, 'localtime') = date('now', 'localtime')
                 LIMIT 1
-            """, [source_mistake_id]).fetchone()
+            """, [_dedup_val]).fetchone()
             if not too_soon and not counted_today:
                 record_practice(
                     mistake_id=source_mistake_id,
                     user_answer=student_answer,
                     is_correct=is_correct,
                     feedback=q["explanation"] or "",
+                    question_id=_qid,
                 )
                 if is_correct:
                     # 攻克 = 连续答对达 2 次（与错题本徽标/统计同口径）。

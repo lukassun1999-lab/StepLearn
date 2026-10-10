@@ -291,7 +291,8 @@ def _next_review_at(stage: int, from_time: datetime = None,
 
 
 def record_practice(mistake_id: int, user_answer: str, is_correct: bool,
-                    feedback: str = "", db_path: str = DB_PATH) -> bool:
+                    feedback: str = "", question_id: int = None,
+                    db_path: str = DB_PATH) -> bool:
     conn = get_connection(db_path)
     row = conn.execute("SELECT * FROM mistakes WHERE id = ?", [mistake_id]).fetchone()
     if not row:
@@ -300,11 +301,12 @@ def record_practice(mistake_id: int, user_answer: str, is_correct: bool,
 
     now = _now_iso()
 
-    # 插入练习记录
+    # 插入练习记录（同时记 question_id，供按「题」去重的防刷逻辑使用）
     conn.execute("""
-        INSERT INTO practice_records (mistake_id, user_answer, is_correct, feedback)
-        VALUES (?, ?, ?, ?)
-    """, [mistake_id, user_answer, int(is_correct), feedback])
+        INSERT INTO practice_records
+            (mistake_id, question_id, user_answer, is_correct, feedback)
+        VALUES (?, ?, ?, ?, ?)
+    """, [mistake_id, question_id, user_answer, int(is_correct), feedback])
 
     # Ebbinghaus scheduling + SM-2 ease adjustment
     cur_stage = row["review_stage"] or 0

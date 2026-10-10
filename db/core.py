@@ -100,6 +100,16 @@ def _migrate_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE admin_users ADD COLUMN school_id INTEGER")
         conn.commit()
 
+    # 练习记录关联到具体题目：防刷应按「题」去重，而不是按「错题」去重。
+    # 否则同一错题的第 2 道练习会被误判为重复提交而不记录（学生做了却没留痕）。
+    pr_cols = [c["name"] for c in
+               conn.execute("PRAGMA table_info(practice_records)").fetchall()]
+    if pr_cols and "question_id" not in pr_cols:
+        conn.execute("ALTER TABLE practice_records ADD COLUMN question_id INTEGER")
+        conn.execute("""CREATE INDEX IF NOT EXISTS idx_practice_records_question
+                        ON practice_records(question_id)""")
+        conn.commit()
+
     # Add subscription quota columns if missing
     sub_cols = conn.execute("PRAGMA table_info(subscriptions)").fetchall()
     sub_col_names = [c["name"] for c in sub_cols]
@@ -546,12 +556,15 @@ def init_db(db_path: str = DB_PATH) -> None:
         CREATE TABLE IF NOT EXISTS practice_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             mistake_id INTEGER NOT NULL,
+            question_id INTEGER,
             user_answer TEXT,
             is_correct INTEGER,
             feedback TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (mistake_id) REFERENCES mistakes(id)
         );
+        CREATE INDEX IF NOT EXISTS idx_practice_records_question
+            ON practice_records(question_id);
 
         CREATE TABLE IF NOT EXISTS practice_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
