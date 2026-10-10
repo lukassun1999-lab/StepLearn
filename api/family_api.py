@@ -3,6 +3,7 @@
 """家庭端 API 蓝图：学生/家长/公开页（P2-12 自 app.py 拆出）。"""
 
 import json
+import logging
 import os
 import uuid
 from datetime import date
@@ -12,9 +13,12 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import *  # noqa: F401,F403
 from domain.grading import is_answer_correct
+from web.legal import CONSENT_VERSION
 from web.shared import (UPLOAD_DIR, _extract_options, _resolve_file_path,
                         _resolve_student_by_code, admin_required,
                         login_required)
+
+log = logging.getLogger(__name__)
 
 family_api_bp = Blueprint("family_api", __name__)
 
@@ -46,6 +50,21 @@ def api_register():
         return jsonify({"error": "请选择年级"}), 400
     if textbook_version not in _VALID_TEXTBOOKS:
         return jsonify({"error": "请选择教材版本"}), 400
+    # 监护人同意（P0-6）：注册页必须主动勾选，不默认勾选、不捆绑
+    if data.get('consent_agreed') is not True:
+        return jsonify({"error": "请先阅读并勾选同意《用户服务协议》和《隐私政策》"}), 400
+    # 年龄识别（P0-6）：出生年份决定是否需要"不满14周岁单独同意"
+    birth_year = _parse_birth_year(data.get('birth_year'))
+    if birth_year is None:
+        return jsonify({"error": "请选择孩子的出生年份（用于判断是否需要监护人单独同意）"}), 400
+    # 偏保守：按最小可能年龄判定，"可能已满14"也算未满 → 多要一次同意不会漏保护
+    needs_children_consent_now = _is_under_children_age(birth_year)
+    if needs_children_consent_now and data.get('children_consent_agreed') is not True:
+        return jsonify({
+            "error": "孩子可能未满十四周岁，其个人信息属敏感个人信息，"
+                     "需监护人单独同意《隐私政策》第 5 条（未成年人个人信息专门章节）",
+            "code": "children_consent_required",
+        }), 400
 
     school_id = None
     class_id = None
@@ -69,6 +88,7 @@ def api_register():
             class_id=class_id,
             grade=grade,
             textbook_version=textbook_version,
+            birth_year=birth_year,
         )
     except ValueError as e:
         return jsonify({"error": str(e)}), 409
@@ -77,6 +97,23 @@ def api_register():
     session['user_name'] = name
     session['user_role'] = 'student'
     session['student_id'] = student_id
+    # 注册页勾选同意 → 记录监护人同意（版本化，供 PIPL 审计与撤回）；
+    # 不满 14 周岁另记一条**单独同意**（独立记录、独立可撤回，便于举证）
+    try:
+        record_parent_consent(
+            student_id, consented_by=f"注册人·{name}",
+            ip_address=request.remote_addr or "",
+            notes="学生注册页勾选同意（未成年人由监护人同意）",
+            consent_version=CONSENT_VERSION, consent_type=CONSENT_TYPE_DATA)
+        if needs_children_consent_now:
+            record_parent_consent(
+                student_id, consented_by=f"注册人·{name}",
+                ip_address=request.remote_addr or "",
+                notes="不满14周岁单独同意（注册页单独勾选，《隐私政策》第5条）",
+                consent_version=CONSENT_VERSION,
+                consent_type=CONSENT_TYPE_CHILDREN)
+    except Exception:
+        log.warning("注册时写入监护人同意失败 student=%s", student_id, exc_info=True)
     log_audit(session.get('user_id'), 'student_register', f"学生注册: {name} ({phone})",
               details=f"class_id={cls['id'] if cls else None}")
     # P2-9：注册后直接进入家庭端学习中心
@@ -421,6 +458,173 @@ def api_public_practice_submit(code):
         resp["mastery"] = mastery_info
     return jsonify(resp)
 
+@family_api_bp.route('/api/public/<code>/report', methods=['POST'])
+def api_public_report(code):
+    """家长/学生对一道错题提交「这题有问题」（P0-1）。
+
+    落 ai_corrections 且 status='pending'：**不直接改数据、不进提示词池**，
+    必须经运营端采纳（`/api/reports/<id>/adopt`）才生效。免登录端点，
+    服务端强制校验错题归属，防止跨学生写入。
+
+    请求体：{mistake_id, issue, note?, suggested_answer?}
+    issue 取值见 db.PARENT_REPORT_ISSUES（wrong_grading / wrong_answer /
+    wrong_explanation / wrong_knowledge_point）。
+    """
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+
+    data = request.get_json(silent=True) or {}
+    try:
+        mistake_id = int(data.get("mistake_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "mistake_id required"}), 400
+
+    result = create_parent_report(
+        student_id=student_id,
+        mistake_id=mistake_id,
+        issue=(data.get("issue") or "").strip(),
+        note=(data.get("note") or "").strip()[:500],
+        suggested_value=(data.get("suggested_answer") or "").strip()[:200],
+    )
+    if not result["ok"]:
+        status_map = {"mistake_not_found": 404, "rate_limited": 429,
+                      "no_task_context": 409}
+        msg_map = {"unknown_issue": "请选择一个问题类型",
+                   "mistake_not_found": "错题不存在",
+                   "rate_limited": "今天反馈的次数已达上限，明天再试",
+                   "no_task_context": "该错题暂不支持反馈"}
+        return jsonify({"error": msg_map.get(result["error"], "反馈失败"),
+                        "code": result["error"]}), status_map.get(result["error"], 400)
+
+    return jsonify({"ok": True, "report_id": result["report_id"],
+                    "duplicate": result["duplicate"]}), 201
+
+
+@family_api_bp.route('/api/public/<code>/badges', methods=['GET'])
+def api_public_badges(code):
+    """学生的徽章与成就（P0-2）。
+
+    徽章规则（多少枚解锁什么成就、哪个成就兑换什么学习用具）**暂未配置**，
+    此时 badges 只体现累计数量，`milestones_configured` / `rewards_configured`
+    为 0 —— 界面据此提示"规则完善中"，不展示假的进度。
+    """
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+    return jsonify({
+        "badges": get_badges(student_id),
+        "achievements": get_student_achievements(student_id),
+    })
+
+
+def _is_under_children_age(birth_year) -> bool:
+    """按最小可能年龄判断是否未满 14 周岁（偏保守，见 db.age_from_birth_year）。"""
+    return (birth_year is not None
+            and (date.today().year - birth_year) < CHILDREN_CONSENT_AGE)
+
+
+def _parse_birth_year(value):
+    """出生年份校验：1900 ~ 当前年-3（更小的不属本产品受众）。非法/缺失返回 None。"""
+    try:
+        by = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    current = date.today().year
+    return by if 1900 <= by <= current - 3 else None
+
+
+@family_api_bp.route('/api/public/<code>/consent', methods=['GET'])
+def api_public_consent(code):
+    """监护人同意状态 + 是否需要"不满14周岁单独同意"（家庭端同意交互，P0-6）。
+
+    `required` 取环境变量 CONSENT_REQUIRED：商用置 true 时未同意禁止上传。
+    `needs_children_consent` 由出生年份判定（偏保守，见 db.age_from_birth_year）。
+    """
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+    student = get_student(student_id) or {}
+    birth_year = student.get("birth_year")
+    missing = missing_consent_types(student_id)
+    return jsonify({
+        "has_consent": not missing,
+        "required": os.environ.get("CONSENT_REQUIRED") == "true",
+        "version": CONSENT_VERSION,
+        "birth_year": birth_year,
+        "age": age_from_birth_year(birth_year),
+        "needs_children_consent": needs_children_consent(student_id),
+        "required_types": required_consent_types(student_id),
+        "missing_types": missing,
+        "documents": [{"slug": slug, "title": title, "url": f"/{slug}"}
+                      for slug, title in _consent_documents()],
+    })
+
+
+@family_api_bp.route('/api/public/<code>/consent', methods=['POST'])
+def api_public_consent_submit(code):
+    """家长自助同意：一般同意 + （不满14周岁）**单独同意**。
+
+    两者必须分别显式确认：单独同意不允许与其他条款捆绑（PIPL 第31条）。
+    `agreed` / `children_agreed` 都必须为布尔 true（不接受 "true" 字符串）。
+    """
+    student_id, err = _resolve_student_by_code(code)
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+
+    # 补录出生年份（已有则不覆盖）：决定是否需要单独同意
+    if not (get_student(student_id) or {}).get("birth_year"):
+        birth_year = _parse_birth_year(data.get("birth_year"))
+        if birth_year is not None:
+            set_student_birth_year(student_id, birth_year)
+
+    if data.get("agreed") is not True:
+        return jsonify({"error": "请先阅读并勾选同意《用户服务协议》和《隐私政策》"}), 400
+
+    missing = missing_consent_types(student_id)
+    needs_children = (CONSENT_TYPE_CHILDREN in missing)
+    if needs_children and data.get("children_agreed") is not True:
+        return jsonify({
+            "error": "孩子未满十四周岁，其个人信息属敏感个人信息，"
+                     "需监护人单独同意《隐私政策》第 5 条（未成年人个人信息专门章节）",
+            "code": "children_consent_required",
+        }), 400
+
+    consented_by = (data.get("consented_by") or "").strip()[:50] or "家长（学习中心自助同意）"
+    contact = (data.get("contact") or "").strip()[:50]
+    recorded = []
+    if CONSENT_TYPE_DATA in missing:
+        record_parent_consent(
+            student_id, consented_by=consented_by, contact=contact,
+            ip_address=request.remote_addr or "",
+            notes="家庭端学习中心自助勾选同意",
+            consent_version=CONSENT_VERSION, consent_type=CONSENT_TYPE_DATA)
+        recorded.append(CONSENT_TYPE_DATA)
+    if needs_children:
+        record_parent_consent(
+            student_id, consented_by=consented_by, contact=contact,
+            ip_address=request.remote_addr or "",
+            notes="不满14周岁单独同意（《隐私政策》第5条 未成年人专门章节）",
+            consent_version=CONSENT_VERSION, consent_type=CONSENT_TYPE_CHILDREN)
+        recorded.append(CONSENT_TYPE_CHILDREN)
+
+    log_audit(actor_type='parent', action='parent_consent_selfserve',
+              actor_id=str(student_id), target_type='student',
+              target_id=str(student_id),
+              details={'types': recorded, 'version': CONSENT_VERSION})
+    return jsonify({"ok": True, "version": CONSENT_VERSION,
+                    "recorded_types": recorded,
+                    "missing_types": missing_consent_types(student_id)}), 201
+
+
+def _consent_documents():
+    """同意时需并列展示的文档（含免责声明，供家长按需查看）。"""
+    from web.legal import CONSENT_DOC_SLUGS, LEGAL_DOCS
+    slugs = list(CONSENT_DOC_SLUGS) + ["ai-disclaimer"]
+    return [(s, LEGAL_DOCS[s][1]) for s in slugs if s in LEGAL_DOCS]
+
+
 @family_api_bp.route('/api/public/<code>/mistake-books', methods=['GET'])
 def api_public_mistake_books(code):
     """按分析日期分组的错题本：如「20260804错题本」。
@@ -546,11 +750,14 @@ def api_public_upload(code):
         return jsonify({"error": "no file uploaded"}), 400
     # 答题卡（可选）：学生用答题卡作答时上传，AI 从答题卡读作答、试卷读题目
     answer_sheets = request.files.getlist('answer_sheet')
+    # 标准答案（可选）：老师周末发来的原题+标准答案 → 作为权威答案源，判题不再靠模型自判
+    answer_keys = request.files.getlist('answer_key')
 
     from domain import upload as upload_mod
     try:
         task_id, file_ids = upload_mod.family_upload(
             student_id, files, answer_sheet_files=answer_sheets,
+            answer_key_files=answer_keys,
             uploader_role="parent",
             task_type="weekly", stage="grade_only")
     except upload_mod.UploadError as e:
@@ -690,6 +897,23 @@ def api_parent_diagnose():
 
     grade = (request.form.get('grade') or '').strip() or '高二'
     existing_code = (request.form.get('access_code') or '').strip()
+    # 监护人同意（P0-6）：首访页勾选后随表单提交；CONSENT_REQUIRED=true 时未勾选禁止建档
+    consent_agreed = (request.form.get('consent_agreed') or '').lower() == 'true'
+    children_agreed = (request.form.get('children_consent_agreed') or '').lower() == 'true'
+    consent_required = os.environ.get("CONSENT_REQUIRED") == "true"
+    birth_year = _parse_birth_year(request.form.get('birth_year'))
+    if not existing_code and consent_required:
+        if not consent_agreed:
+            return jsonify({"error": "请监护人阅读并勾选同意《用户服务协议》和《隐私政策》后继续"}), 403
+        if birth_year is None:
+            return jsonify({"error": "请选择孩子的出生年份（用于判断是否需要监护人单独同意）"}), 400
+        # 不满 14 周岁（按最小可能年龄判定）必须本次**单独同意**，否则不建档
+        if _is_under_children_age(birth_year) and not children_agreed:
+            return jsonify({
+                "error": "孩子可能未满十四周岁，其个人信息属敏感个人信息，"
+                         "需监护人单独同意《隐私政策》第 5 条（未成年人个人信息专门章节）",
+                "code": "children_consent_required",
+            }), 403
 
     import secrets
 
@@ -709,7 +933,39 @@ def api_parent_diagnose():
             "name": student_name,
             "grade": grade,
             "access_code": access_code,
+            "birth_year": birth_year,
         })
+
+    # 出生年份：新档已带；已有档缺失时补录（不覆盖已有值）
+    if birth_year is not None and not (get_student(sid) or {}).get("birth_year"):
+        try:
+            set_student_birth_year(sid, birth_year)
+        except Exception:
+            log.warning("补录出生年份失败 student=%s", sid, exc_info=True)
+
+    # 记录监护人同意（须在 family_upload 的 PIPL 门禁之前，否则新档会被门禁拦下）
+    if consent_agreed and not has_parent_consent(sid, consent_type=CONSENT_TYPE_DATA):
+        try:
+            record_parent_consent(
+                sid, consented_by="家长（首访学情体检页勾选）",
+                ip_address=request.remote_addr or "",
+                notes="首访页勾选同意（未成年人由监护人同意）",
+                consent_version=CONSENT_VERSION, consent_type=CONSENT_TYPE_DATA)
+        except Exception:
+            log.warning("首访页写入监护人同意失败 student=%s", sid, exc_info=True)
+
+    # 不满 14 周岁：单独同意（与一般同意分开记录；条款详见《隐私政策》第 5 条）
+    if children_agreed and needs_children_consent(sid) \
+            and not has_parent_consent(sid, consent_type=CONSENT_TYPE_CHILDREN):
+        try:
+            record_parent_consent(
+                sid, consented_by="家长（首访学情体检页单独勾选）",
+                ip_address=request.remote_addr or "",
+                notes="不满14周岁单独同意（首访页单独勾选，《隐私政策》第5条）",
+                consent_version=CONSENT_VERSION,
+                consent_type=CONSENT_TYPE_CHILDREN)
+        except Exception:
+            log.warning("首访页写入儿童单独同意失败 student=%s", sid, exc_info=True)
 
     # P2-10：统一上传服务（存文件 → 额度闸门 → 建任务）。
     # 新用户建档时已自动获得 trial 订阅 1 次额度，闸门在此统一执行。
@@ -717,9 +973,12 @@ def api_parent_diagnose():
     task_type = "weekly" if existing_code else "onboarding"
     # 答题卡（可选）：学生用答题卡作答时上传，AI 从答题卡读作答、试卷读题目
     answer_sheets = request.files.getlist('answer_sheet')
+    # 标准答案（可选）：老师发来的标准答案 → 权威答案源
+    answer_keys = request.files.getlist('answer_key')
     try:
         task_id, _file_ids = upload_mod.family_upload(
             sid, files, answer_sheet_files=answer_sheets,
+            answer_key_files=answer_keys,
             uploader_role="parent",
             task_type=task_type, stage="full",
             extra_input={"grade": grade, "subject": "英语"})

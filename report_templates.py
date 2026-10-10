@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 报告 HTML 模板
@@ -599,7 +599,7 @@ def render_diagnostic_report(
 </div>
 
 <div class="footer">
-  <p>拾阶而上 · AI 驱动个性化学习 · 按周付费，随时可停</p>
+  <p>拾阶而上 · AI 驱动个性化学习 · 按月/按年付费，随时可停</p>
   <p>报告生成时间：{date.today().isoformat()}</p>
 </div>"""
 
@@ -1157,7 +1157,8 @@ def render_weekly_report(student_name: str, week_start: str, week_end: str,
                          comparison: dict = None,
                          learning_style_detail: dict = None,
                          action_plan: dict = None,
-                         cause_trend: dict = None) -> str:
+                         cause_trend: dict = None,
+                         review_progress: dict = None) -> str:
     """Generate parent weekly report as a growth narrative (成长叙事)."""
 
     # ── Derive narrative data ──
@@ -1324,6 +1325,78 @@ def render_weekly_report(student_name: str, week_start: str, week_end: str,
           </div>
         </div>"""
 
+    # ── 记忆进度（遗忘曲线阶梯；数据由 db.get_review_progress 提供，纯渲染）──
+    memory_html = ""
+    if review_progress and review_progress.get("total"):
+        rp = review_progress
+        curve = rp.get("curve") or []
+        total = rp.get("total", 0)
+        mastered = rp.get("mastered", 0)
+        active = rp.get("active", 0)
+        newly = rp.get("newly_mastered", 0)
+        mastered_pct = int(mastered / total * 100) if total else 0
+
+        max_count = max([c.get("count", 0) for c in curve] + [1])
+        bars = ""
+        for c in curve:
+            cnt = c.get("count", 0)
+            height = int(cnt / max_count * 80) + (4 if cnt else 2)
+            if cnt == 0:
+                fill = "var(--border)"
+            elif c.get("stage", 0) <= 1:
+                fill = "var(--red)"       # 刚错/低阶：最脆弱
+            elif c.get("stage", 0) <= 4:
+                fill = "var(--blue)"      # 巩固中
+            else:
+                fill = "var(--green)"     # 接近巩固完成
+            bars += f"""
+              <div style="flex:1;text-align:center;min-width:0;">
+                <div style="font-size:.7rem;color:var(--sub);margin-bottom:3px;">{cnt}</div>
+                <div style="height:{height}px;background:{fill};border-radius:4px 4px 0 0;margin:0 3px;"></div>
+                <div style="font-size:.68rem;color:var(--mute);margin-top:4px;">{c.get('label', '')}</div>
+              </div>"""
+
+        if rp.get("due_now"):
+            risk_html = f"""<div style="background:var(--red-light);border-radius:10px;padding:10px 12px;font-size:.82rem;color:var(--red);">
+              ⏰ 有 <strong>{rp["due_now"]}</strong> 道题到了复习时间还没练——遗忘就是从这里开始的，建议本周补上。
+            </div>"""
+        elif rp.get("regressed"):
+            risk_html = f"""<div style="background:var(--accent-light);border-radius:10px;padding:10px 12px;font-size:.82rem;color:var(--accent-hover);">
+              🔁 有 <strong>{rp["regressed"]}</strong> 道题练过多次仍不稳定，建议放慢速度、多加一轮巩固。
+            </div>"""
+        else:
+            risk_html = """<div style="background:var(--green-light);border-radius:10px;padding:10px 12px;font-size:.82rem;color:var(--green);">
+              ✅ 复习节奏正常，没有逾期未练的题。
+            </div>"""
+
+        memory_html = f"""
+        <div class="section">
+          <h2>🧠 记忆进度</h2>
+          <p style="color:var(--sub);font-size:.85em;margin-bottom:12px;">
+            错题按 1小时 → 1天 → 2天 → 4天 → 7天 → 15天 → 30天 → 60天 的节奏巩固，
+            每过一阶就忘得更慢一点。下面是还在复习队列里的错题分布：
+          </p>
+          <div class="card">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+              <div style="flex:1;min-width:96px;background:var(--green-light);border-radius:12px;padding:12px;text-align:center;">
+                <div style="font-size:1.5em;font-weight:700;color:var(--green);">{newly}</div>
+                <div style="font-size:.75rem;color:var(--sub);">本周新攻克</div>
+              </div>
+              <div style="flex:1;min-width:96px;background:var(--bg);border-radius:12px;padding:12px;text-align:center;">
+                <div style="font-size:1.5em;font-weight:700;color:var(--text);">{mastered}</div>
+                <div style="font-size:.75rem;color:var(--sub);">已掌握（占 {mastered_pct}%）</div>
+              </div>
+              <div style="flex:1;min-width:96px;background:var(--accent-light);border-radius:12px;padding:12px;text-align:center;">
+                <div style="font-size:1.5em;font-weight:700;color:var(--accent);">{active}</div>
+                <div style="font-size:.75rem;color:var(--sub);">待复习</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:2px;height:110px;margin-bottom:14px;">{bars}
+            </div>
+            {risk_html}
+          </div>
+        </div>"""
+
     body = f"""
 <div class="header">
   <h1>📈 本周拾阶而上</h1>
@@ -1337,6 +1410,8 @@ def render_weekly_report(student_name: str, week_start: str, week_end: str,
 {new_mistakes_html}
 
 {cause_html}
+
+{memory_html}
 
 <div class="section">
   <h2>📊 成长轨迹</h2>
@@ -1441,7 +1516,7 @@ def render_share_poster(student: dict, stats: dict) -> str:
 
   <div style="margin-top:24px; font-size:.75em; opacity:.7;">
     <p>拾阶而上 · AI 驱动个性化学习</p>
-    <p>按周付费 · 随时可停 · invite好友一起学</p>
+    <p>按月/按年付费 · 随时可停 · invite好友一起学</p>
   </div>
 </div>"""
 

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """拾阶而上 — Flask 应用装配层（P2-12 蓝图拆分）。
 
 路由与模板已拆出：
@@ -261,7 +261,8 @@ def _cli_clear_students():
         'ai_corrections', 'ai_feedback_patterns',
         'mistakes', 'learning_plans', 'plan_updates',
         'weekly_records', 'payments', 'files', 'check_ins',
-        'achievements', 'metacognitive_reviews', 'referrals',
+        'achievements', 'badges', 'reward_redemptions',
+        'metacognitive_reviews', 'referrals',
         'parent_consents', 'deletion_requests', 'score_history',
         'subscriptions', 'student_profiles',
         'sms_codes', 'questions',

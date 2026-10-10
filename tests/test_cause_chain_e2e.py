@@ -65,7 +65,7 @@ def _run_week(db, sid, file_id, week_start, mistakes, monkeypatch):
     """跑一周完整链路（grade_only），返回 output。"""
     from pipeline import cycle_pipeline, stages
 
-    def fake_analyze(ocr_text, task_id=None):
+    def fake_analyze(ocr_text, task_id=None, answer_key_text=None):
         return {"mistakes": mistakes, "summary": {
             "total_mistakes": len(mistakes), "by_type": {},
             "top_weak_points": [], "overall_assessment": "test",
@@ -124,3 +124,9 @@ def test_weekly_report_cause_trend_e2e(env):
     assert "补上来了" in html
     assert "词汇" in html and "语法" in html
     assert "上周核心卡点" in html and "本周核心卡点" in html
+
+    # 记忆进度（P1-5）：周报经 node_weekly_report 拿到复习队列数据，
+    # 渲染出遗忘曲线阶梯 —— 证明 db.get_review_progress → stages → render 接线可用
+    assert "记忆进度" in html
+    assert "本周新攻克" in html
+    assert "1小时" in html and "60天" in html

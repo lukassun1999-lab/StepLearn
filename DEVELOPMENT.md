@@ -255,7 +255,7 @@ learning ← analytics；operations 对 students/learning 的个别引用走
 ## 8. 开发约定
 
 ### 测试
-- `python -m pytest tests/`（289 用例）；fixture 见 `tests/conftest.py`
+- `python -m pytest tests/`（503 用例）；fixture 见 `tests/conftest.py`
 - **conftest 关键约定**：`test_db_path` 在 fixture 内设置 `WEEKEND_ENGLISH_DB` 后才 import db。**所有测试必须在函数内惰性导入 db/domain/pipeline 模块**，模块顶层导入会让 DB_PATH 绑定到生产库（曾造成测试数据污染事故）。
 - demo 模式测试用 `demo_mode` fixture；会话级共享测试库，注意测试间数据隔离（唯一知识点名等）。
 

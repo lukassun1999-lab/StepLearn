@@ -318,8 +318,9 @@ def create_student(data: Dict[str, Any], db_path: str = DB_PATH) -> int:
     conn = get_connection(db_path)
     cur = conn.execute("""
         INSERT INTO students (name, grade, school_type, english_score, target_score,
-            parent_name, parent_wechat, parent_phone, notes, access_code, parent_access_code)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            parent_name, parent_wechat, parent_phone, notes, access_code,
+            parent_access_code, birth_year)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, [
         data["name"], data.get("grade", "高二"), data.get("school_type", "住校"),
         data.get("english_score"), data.get("target_score"),
@@ -327,6 +328,7 @@ def create_student(data: Dict[str, Any], db_path: str = DB_PATH) -> int:
         data.get("notes"),
         data.get("access_code") or _generate_access_code(conn, "students", "access_code"),
         data.get("parent_access_code") or _generate_access_code(conn, "students", "parent_access_code"),
+        data.get("birth_year"),
     ])
     student_id = cur.lastrowid
 
@@ -352,19 +354,49 @@ def create_student(data: Dict[str, Any], db_path: str = DB_PATH) -> int:
     return student_id
 
 
+def set_student_birth_year(student_id: int, birth_year, db_path: str = DB_PATH) -> bool:
+    """只更新出生年份（用于首访/学习中心的补录；不改动其他字段）。
+
+    不复用 update_student：后者按固定列全量赋值（要求 data["name"]），
+    用它补录会因缺字段而失败或误清空。
+    """
+    conn = get_connection(db_path)
+    try:
+        cur = conn.execute("UPDATE students SET birth_year = ? WHERE id = ?",
+                           [birth_year, student_id])
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
 def update_student(student_id: int, data: Dict[str, Any], db_path: str = DB_PATH) -> bool:
     conn = get_connection(db_path)
     try:
+        # NOT NULL 列（name/grade/school_type）缺省时保留原值：
+        # 局部更新（如只改出生年份/家长同意）不应因缺字段报 IntegrityError。
+        # 可空字段仍按传入值覆盖，保持"全量赋值"的原语义。
+        cur = conn.execute(
+            "SELECT name, grade, school_type FROM students WHERE id = ?",
+            [student_id]).fetchone()
+        if not cur:
+            return False
         conn.execute("""
             UPDATE students SET name=?, grade=?, school_type=?, english_score=?,
                 target_score=?, parent_name=?, parent_wechat=?, parent_phone=?, notes=?
             WHERE id=?
         """, [
-            data["name"], data.get("grade"), data.get("school_type"),
+            data.get("name") or cur["name"],
+            data.get("grade") or cur["grade"],
+            data.get("school_type") or cur["school_type"],
             data.get("english_score"), data.get("target_score"),
             data.get("parent_name"), data.get("parent_wechat"), data.get("parent_phone"),
             data.get("notes"), student_id
         ])
+        # birth_year 单独处理：只在显式传入时更新，避免未传时被清空
+        if "birth_year" in data:
+            conn.execute("UPDATE students SET birth_year=? WHERE id=?",
+                         [data.get("birth_year"), student_id])
         plan = data.get("plan")
         if plan:
             if plan not in PRICING:
@@ -746,6 +778,7 @@ def delete_class(class_id: int, db_path: str = DB_PATH) -> None:
 def register_student(phone: str, password_hash: str, name: str,
                      school_id: int, class_id: int,
                      grade: str = None, textbook_version: str = None,
+                     birth_year: int = None,
                      db_path: str = DB_PATH) -> int:
     """Register a new student account with phone login."""
     conn = get_connection(db_path)
@@ -757,10 +790,11 @@ def register_student(phone: str, password_hash: str, name: str,
     parent_access_code = _generate_access_code(conn, "students", "parent_access_code")
     cur = conn.execute("""
         INSERT INTO students (name, grade, phone, password_hash, school_id, class_id,
-                              access_code, parent_access_code, textbook_version, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+                              access_code, parent_access_code, textbook_version,
+                              birth_year, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
     """, [name, grade or "高二", phone, password_hash, school_id, class_id,
-          access_code, parent_access_code, textbook_version])
+          access_code, parent_access_code, textbook_version, birth_year])
     student_id = cur.lastrowid
     conn.execute(
         "INSERT INTO subscriptions (student_id, plan, start_date) VALUES (?, 'trial', ?)",

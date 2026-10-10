@@ -158,6 +158,38 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
   <button class="btn btn-green" style="width:100%;" onclick="generatePoster()">📸 生成海报</button>
 </div>
 
+<!-- 监护人同意门禁（P0-6）：未同意且开启硬门禁时，先同意才能上传 -->
+<div class="card" id="consent-gate" style="display:none;margin-bottom:18px;border:1.5px solid var(--accent);">
+  <div style="font-size:1.05rem;font-weight:800;margin-bottom:6px;">📋 请先确认监护人同意</div>
+  <div style="font-size:.85rem;color:var(--sub);line-height:1.7;margin-bottom:10px;">
+    孩子的学习数据需经其监护人同意后处理。请阅读
+    <a href="/terms" target="_blank" rel="noopener">《用户服务协议》</a>与
+    <a href="/privacy" target="_blank" rel="noopener">《隐私政策》</a>后确认；<br>
+    若使用者为不满十四周岁的未成年人，请确认您是其父母或其他监护人。
+  </div>
+  <div id="consent-birth-wrap" style="display:none;margin-bottom:10px;text-align:left;">
+    <label for="birth-year-center" style="font-size:.85rem;font-weight:600;">孩子出生年份 <span style="color:var(--red);">*</span></label>
+    <select id="birth-year-center" onchange="updateChildrenConsentCenter()" style="width:100%;margin-top:6px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;font-size:.85rem;">
+      <option value="">请选择出生年份</option>
+    </select>
+    <div style="font-size:.75rem;color:var(--sub);margin-top:4px;">仅用于判断是否需要监护人单独同意。</div>
+  </div>
+  <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;line-height:1.6;text-align:left;">
+    <input type="checkbox" id="consent-agree-center" style="width:auto;margin-top:3px;flex:0 0 auto;">
+    <span>我已阅读并同意上述条款，并确认已取得监护人同意</span>
+  </label>
+  <!-- 不满14周岁单独同意：独立勾选，不与一般同意捆绑（PIPL 第31条） -->
+  <label id="children-consent-row-center" style="display:none;align-items:flex-start;gap:8px;margin-top:10px;padding:10px 12px;background:var(--accent-light);border-radius:10px;font-size:.85rem;line-height:1.6;text-align:left;">
+    <input type="checkbox" id="children-consent-center" style="width:auto;margin-top:3px;flex:0 0 auto;">
+    <span><strong>单独同意（不满十四周岁）</strong>：孩子不满十四周岁，其个人信息属敏感个人信息。
+      本人作为监护人，单独同意按
+      <a href="/privacy" target="_blank" rel="noopener">《隐私政策》第 5 条</a>（未成年人个人信息专门章节）
+      处理其个人信息。</span>
+  </label>
+  <div id="consent-center-err" style="display:none;margin-top:8px;font-size:.82rem;color:var(--red);"></div>
+  <button class="btn btn-primary" style="width:100%;margin-top:10px;min-height:44px;" onclick="agreeConsent()">同意并继续</button>
+</div>
+
 <!-- Parent Upload Card -->
 <div class="card" id="upload-card" style="margin-bottom:18px;border:2px dashed var(--border);text-align:center;cursor:pointer;transition:all .2s;" onclick="document.getElementById('parentFileInput').click()">
   <div style="font-size:3em;margin-bottom:10px;">📷</div>
@@ -178,6 +210,15 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
   <div style="font-size:.85rem;color:var(--sub);line-height:1.6;">孩子在答题卡上作答时上传，AI 判得更准<br>不传 = 答案直接写在试卷上</div>
   <div id="sheet-file-names" style="display:none;margin-top:8px;font-size:.85rem;color:var(--green);font-weight:600;"></div>
   <input type="file" id="parentSheetInput" accept="image/*,.pdf,.docx" capture="environment" multiple style="display:none;" onchange="handleParentSheetUpload(this)">
+</div>
+
+<!-- 标准答案（选填，强烈建议）：老师发的原题+标准答案，作为权威答案源 -->
+<div class="card" id="answerkey-card" style="margin-bottom:18px;border:1.5px solid var(--green);text-align:center;cursor:pointer;transition:all .2s;background:var(--green-light);" onclick="document.getElementById('parentKeyInput').click()">
+  <div style="font-size:2em;margin-bottom:6px;">✅</div>
+  <div style="font-weight:800;font-size:1.02rem;margin-bottom:4px;">标准答案（选填，强烈建议）</div>
+  <div style="font-size:.85rem;color:var(--sub);line-height:1.6;">老师发的标准答案传这里：判对错以它为准，不再靠 AI 猜<br>有标准答案的卷子，判题准得多</div>
+  <div id="key-file-names" style="display:none;margin-top:8px;font-size:.85rem;color:var(--green);font-weight:600;"></div>
+  <input type="file" id="parentKeyInput" accept="image/*,.pdf,.docx" capture="environment" multiple style="display:none;" onchange="handleParentKeyUpload(this)">
 </div>
 
 <!-- Poster Modal -->
@@ -723,6 +764,11 @@ async function handleParentUpload(input) {
   if (sheetInput && sheetInput.files && sheetInput.files.length) {
     for (const f of sheetInput.files) formData.append('answer_sheet', f);
   }
+  // 标准答案（老师提供）：作为权威答案源，判对错以它为准
+  const keyInput = document.getElementById('parentKeyInput');
+  if (keyInput && keyInput.files && keyInput.files.length) {
+    for (const f of keyInput.files) formData.append('answer_key', f);
+  }
 
   await new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
@@ -778,6 +824,21 @@ function handleParentSheetUpload(input) {
   toast('答题卡已选：' + (files.length === 1 ? files[0] : files.length + ' 个文件'));
 }
 
+// 标准答案（选填，强烈建议）：老师发的标准答案 → 判对错以它为准
+function handleParentKeyUpload(input) {
+  const names = document.getElementById('key-file-names');
+  if (!input.files || !input.files.length) {
+    names.style.display = 'none';
+    return;
+  }
+  const files = Array.from(input.files).map(f => f.name);
+  const shown = files.slice(0, 3);
+  const more = files.length > 3 ? ` 等 ${files.length} 个文件` : '';
+  names.textContent = '✓ 已选标准答案：' + shown.join('、') + more + '，判题将以它为准';
+  names.style.display = 'block';
+  toast('标准答案已选：' + (files.length === 1 ? files[0] : files.length + ' 个文件'));
+}
+
 async function pollTaskProgress(taskId) {
   const fillBar = document.getElementById('upload-fill');
   const statusText = document.getElementById('upload-status');
@@ -800,6 +861,10 @@ async function pollTaskProgress(taskId) {
         const partialNote = (cs.failed > 0)
           ? `<div style="margin-top:6px;font-size:.85rem;color:var(--accent);background:var(--accent-light);border-radius:12px;padding:8px 12px;">⚠️ 有 ${cs.failed}/${cs.total} 个章节分析未成功，结果可能不完整，可重新上传试试</div>`
           : '';
+        // OCR 降级告警：视觉识别失败退回本地识别时必须显式告知，避免静默劣化
+        const ocrNote = out.ocr_warning
+          ? `<div style="margin-top:6px;font-size:.85rem;color:var(--accent);background:var(--accent-light);border-radius:12px;padding:8px 12px;">⚠️ ${escapeHtml(out.ocr_warning)}</div>`
+          : '';
         // 完成态 = 结果摘要 + 一步直达：报告（错哪了）→ 练习（针对性练）
         const doneMsg = mCount === 0
           ? '🎉 这份卷子没有识别到错题，掌握得不错！如需更多练习请联系老师'
@@ -809,6 +874,7 @@ async function pollTaskProgress(taskId) {
         resultDiv.innerHTML = `
           <div style="font-weight:600;">${doneMsg}</div>
           ${partialNote}
+          ${ocrNote}
           <div style="display:flex;gap:8px;margin-top:10px;">
             <button class="btn btn-primary" style="flex:1;" onclick="event.stopPropagation(); switchTab('reports', null)">📄 查看报告</button>
             <button class="btn btn-outline" style="flex:1;" onclick="event.stopPropagation(); switchTab('practice', null)">🚀 去练习</button>
@@ -878,6 +944,11 @@ function resetUploadAfterFailure() {
   if (sheetInput) { sheetInput.value = ''; }
   const sheetNames = document.getElementById('sheet-file-names');
   if (sheetNames) { sheetNames.style.display = 'none'; }
+  // 标准答案选择一并清空
+  const keyInput2 = document.getElementById('parentKeyInput');
+  if (keyInput2) { keyInput2.value = ''; }
+  const keyNames = document.getElementById('key-file-names');
+  if (keyNames) { keyNames.style.display = 'none'; }
   document.getElementById('upload-card').scrollIntoView({behavior:'smooth'});
 }
 
@@ -1036,8 +1107,20 @@ function mistakeItemHtml(m) {
         </div>
         ${m.explanation ? `<div style="background:var(--accent-light);border-radius:12px;padding:8px 12px;margin-top:6px;font-size:.85rem;line-height:1.7;">📖 ${escapeHtml(m.explanation)}</div>` : ''}
       </div>
-      <div style="margin-top:8px;">
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-primary" style="font-size:.8rem;padding:8px 14px;min-height:44px;" onclick="goPractice()">📝 去练习</button>
+        <button class="btn btn-outline" style="font-size:.8rem;padding:8px 14px;min-height:44px;" onclick="toggleReportPanel(${m.id})">🙋 这题有问题</button>
+      </div>
+      <div id="report-${m.id}" data-issue="" style="display:none;margin-top:10px;background:var(--bg);border-radius:12px;padding:12px;">
+        <div style="font-size:.8rem;color:var(--sub);margin-bottom:8px;">选一个问题类型（我们会人工核对，确认后才修改）</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+          ${REPORT_ISSUES.map(i => `<button type="button" data-issue-btn="${i.key}" style="background:var(--bg-alt);color:var(--text);border:none;border-radius:999px;padding:8px 12px;font-size:.78rem;cursor:pointer;" onclick="pickReportIssue(${m.id}, '${i.key}')">${i.label}</button>`).join('')}
+        </div>
+        <div id="report-answer-wrap-${m.id}" style="display:none;margin-bottom:8px;">
+          <input id="report-answer-${m.id}" placeholder="你认为正确答案是？" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;font-size:.85rem;">
+        </div>
+        <textarea id="report-note-${m.id}" rows="2" placeholder="补充说明（选填）" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;font-size:.85rem;margin-bottom:8px;"></textarea>
+        <button id="report-submit-${m.id}" class="btn btn-primary" style="width:100%;font-size:.85rem;min-height:44px;" onclick="submitReport(${m.id})">提交反馈</button>
       </div>
     </div>`;
 }
@@ -1056,6 +1139,70 @@ function toggleMistakeBook(bookDate, el) {
 function goPractice() {
   switchTab('practice', null);
   setTimeout(() => toast('已进入练习——做完即时反馈，连续答对 2 次即掌握'), 500);
+}
+
+// ── 「这题有问题」上报（P0-1）──────────────────────
+// key 必须与后端 db.PARENT_REPORT_ISSUES 一致（改一处要同步另一处）
+const REPORT_ISSUES = [
+  {key: 'wrong_grading', label: '孩子其实做对了'},
+  {key: 'wrong_answer', label: '正确答案不对'},
+  {key: 'wrong_explanation', label: '解析有问题'},
+  {key: 'wrong_knowledge_point', label: '知识点归类不对'},
+];
+
+function toggleReportPanel(mistakeId) {
+  const el = document.getElementById('report-' + mistakeId);
+  if (el) el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+}
+
+function pickReportIssue(mistakeId, issue) {
+  const box = document.getElementById('report-' + mistakeId);
+  if (!box) return;
+  box.dataset.issue = issue;
+  box.querySelectorAll('[data-issue-btn]').forEach(b => {
+    const on = b.dataset.issueBtn === issue;
+    b.style.background = on ? 'var(--accent)' : 'var(--bg-alt)';
+    b.style.color = on ? '#fff' : 'var(--text)';
+  });
+  const ansWrap = document.getElementById('report-answer-wrap-' + mistakeId);
+  if (ansWrap) ansWrap.style.display = (issue === 'wrong_answer') ? 'block' : 'none';
+}
+
+async function submitReport(mistakeId) {
+  const box = document.getElementById('report-' + mistakeId);
+  const issue = (box && box.dataset.issue) || '';
+  if (!issue) { toast('请先选择一个问题类型', 'error'); return; }
+  const noteEl = document.getElementById('report-note-' + mistakeId);
+  const ansEl = document.getElementById('report-answer-' + mistakeId);
+  const btn = document.getElementById('report-submit-' + mistakeId);
+  if (btn) { btn.disabled = true; btn.textContent = '提交中...'; }
+  try {
+    const r = await fetch(`/api/public/${CODE}/report`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        mistake_id: mistakeId,
+        issue: issue,
+        note: noteEl ? noteEl.value.trim() : '',
+        suggested_answer: ansEl ? ansEl.value.trim() : '',
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      toast(d.error || '提交失败', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '提交反馈'; }
+      return;
+    }
+    if (box) {
+      box.innerHTML = '<div style="font-size:.85rem;color:var(--green);line-height:1.7;">✅ 已收到你的反馈'
+        + (d.duplicate ? '（这条已反馈过，我们已记录）' : '')
+        + '。我们会人工核对，确认后会更新这道题。</div>';
+    }
+    toast('感谢反馈，我们会人工核对');
+  } catch (e) {
+    toast('网络异常，请稍后再试', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '提交反馈'; }
+  }
 }
 
 async function renderTimeline() {
@@ -1235,13 +1382,39 @@ async function renderAchievements() {
   const div = document.getElementById('page-achievements');
   div.innerHTML = '<div class="card"><p style="text-align:center;color:var(--sub);">加载中...</p></div>';
   try {
-    const r = await fetch('/api/public/' + CODE + '/achievements');
-    if (!r.ok) { div.innerHTML = '<div class="card"><div class="empty">暂无成就数据</div></div>'; return; }
-    const data = await r.json();
+    const [achRes, badgeRes] = await Promise.all([
+      fetch('/api/public/' + CODE + '/achievements'),
+      fetch('/api/public/' + CODE + '/badges'),
+    ]);
+    if (!achRes.ok) { div.innerHTML = '<div class="card"><div class="empty">暂无成就数据</div></div>'; return; }
+    const data = await achRes.json();
+    const badgeData = badgeRes.ok ? (await badgeRes.json()).badges : null;
     const earned = data.earned_count || 0;
     const total = data.total_count || 0;
 
-    let html = `<div class="card">
+    let html = '';
+
+    // ── 徽章（P0-2）：事件驱动、可累计；兑换规则未配置时只显示数量 ──
+    if (badgeData && badgeData.badges && badgeData.badges.length) {
+      html += `<div class="card" style="margin-bottom:14px;">
+        <h3>🎖 徽章 <span style="font-size:.7em;color:var(--sub);font-weight:normal;">共 ${badgeData.total_count} 枚</span></h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));gap:10px;margin-top:12px;">`;
+      for (const b of badgeData.badges) {
+        html += `<div class="ach-card ach-earned">
+          <div class="ach-icon">${b.icon}</div>
+          <div class="ach-title">${escapeHtml(b.title)} ×${b.count}</div>
+          <div class="ach-desc">${escapeHtml(b.description || '')}</div>
+          ${b.next_milestone ? `<div class="ach-progress-text">距解锁还差 ${b.next_milestone.remaining} 枚</div>` : ''}
+        </div>`;
+      }
+      html += `</div>`;
+      if (!badgeData.milestones_configured) {
+        html += `<div style="font-size:.78rem;color:var(--sub);margin-top:10px;">🎁 徽章兑换规则正在完善中，先默默攒着</div>`;
+      }
+      html += `</div>`;
+    }
+
+    html += `<div class="card">
       <h3>🏆 成就墙 <span style="font-size:.7em;color:var(--sub);font-weight:normal;">${earned}/${total} 已解锁</span></h3>
       <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));gap:10px;margin-top:12px;">`;
 
@@ -1522,6 +1695,89 @@ window.addEventListener('hashchange', () => {
   if (h && VALID_TABS.includes(h)) switchTab(h);
 });
 loadData();
+loadConsentGate();
+
+// ── 监护人同意门禁（P0-6）────────────────────────────
+// CONSENT_REQUIRED=true 且尚无有效同意时，先同意才能上传（服务端同样强制）。
+// 出生年份缺失时必须补录 —— 不满 14 周岁还需**单独同意**（独立勾选）。
+async function loadConsentGate() {
+  try {
+    // 出生年份下拉（近 20 年）
+    const sel = document.getElementById('birth-year-center');
+    if (sel && !sel.options.length) {
+      const now = new Date().getFullYear();
+      for (let y = now - 3; y >= now - 20; y--) {
+        const o = document.createElement('option');
+        o.value = String(y); o.textContent = y + ' 年';
+        sel.appendChild(o);
+      }
+    }
+    const r = await fetch('/api/public/' + CODE + '/consent');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.required && !d.has_consent) {
+      document.getElementById('consent-gate').style.display = 'block';
+      document.getElementById('upload-card').style.display = 'none';
+      // 档案里没有出生年份 → 需要家长补录（决定是否要求单独同意）
+      if (!d.birth_year) {
+        document.getElementById('consent-birth-wrap').style.display = 'block';
+      } else if (d.needs_children_consent) {
+        document.getElementById('children-consent-row-center').style.display = 'flex';
+      }
+    }
+  } catch (e) { /* 门禁状态取不到时不阻塞正常使用 */ }
+}
+
+function updateChildrenConsentCenter() {
+  const sel = document.getElementById('birth-year-center');
+  const row = document.getElementById('children-consent-row-center');
+  if (!sel || !row) return;
+  const y = parseInt(sel.value, 10);
+  const need = !isNaN(y) && (new Date().getFullYear() - y) < 14;
+  row.style.display = need ? 'flex' : 'none';
+  if (!need) document.getElementById('children-consent-center').checked = false;
+}
+
+async function agreeConsent() {
+  const cb = document.getElementById('consent-agree-center');
+  const err = document.getElementById('consent-center-err');
+  const showErr = (msg) => { err.textContent = msg; err.style.display = 'block'; };
+  if (!cb.checked) { showErr('请先勾选同意后再继续'); return; }
+
+  const birthWrap = document.getElementById('consent-birth-wrap');
+  const yearVisible = birthWrap && birthWrap.style.display !== 'none';
+  const yearEl = document.getElementById('birth-year-center');
+  const birthYear = yearVisible ? parseInt(yearEl.value, 10) : null;
+  if (yearVisible && isNaN(birthYear)) { showErr('请选择孩子的出生年份'); return; }
+
+  const childrenRow = document.getElementById('children-consent-row-center');
+  const childrenNeed = childrenRow && childrenRow.style.display !== 'none';
+  const childrenAgreed = childrenNeed
+    ? document.getElementById('children-consent-center').checked : false;
+  if (childrenNeed && !childrenAgreed) { showErr('孩子不满十四周岁，请勾选「单独同意」'); return; }
+
+  err.style.display = 'none';
+  try {
+    const payload = {agreed: true, children_agreed: childrenAgreed};
+    if (!isNaN(birthYear)) payload.birth_year = birthYear;
+    const r = await fetch('/api/public/' + CODE + '/consent', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const d = await r.json();
+      showErr(d.error || '提交失败，请稍后重试');
+      return;
+    }
+  } catch (e) {
+    showErr('网络异常，请稍后重试');
+    return;
+  }
+  document.getElementById('consent-gate').style.display = 'none';
+  document.getElementById('upload-card').style.display = 'block';
+  toast('已记录监护人同意，感谢确认');
+}
 </script>
 </body>
 </html>'''
@@ -1758,7 +2014,39 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     </div>
     <input type="file" id="sheetInput" accept="image/*,.pdf,.docx" capture="environment" multiple />
     <div class="preview-list" id="sheetPreviewList"></div>
+    <div class="upload-zone" id="keyZone" style="margin-top:12px;border-style:solid;border-color:var(--green);"
+         onclick="document.getElementById('keyInput').click()">
+      <span class="icon">✅</span>
+      <div class="title">标准答案（选填，强烈建议）</div>
+      <div class="hint">老师发的原题+标准答案，答案传这里：判对错以它为准，不再靠 AI 猜；<br>有标准答案的卷子判得准得多</div>
+      <img class="preview" id="keyPreviewImg" />
+    </div>
+    <input type="file" id="keyInput" accept="image/*,.pdf,.docx" capture="environment" multiple />
+    <div class="preview-list" id="keyPreviewList"></div>
     <button class="btn btn-primary" id="startBtn" style="display:none;width:100%;margin-top:12px;">🚀 开始分析（<span id="photoCount">0</span> 张）</button>
+    <!-- 监护人同意 + 年龄识别（P0-6）：必须主动勾选；不满14周岁另需「单独同意」 -->
+    <div style="text-align:left;margin-top:14px;">
+      <label for="birth-year-parent" style="font-size:.82rem;font-weight:600;">孩子出生年份 <span style="color:#d93a46;">*</span></label>
+      <select id="birth-year-parent" onchange="updateChildrenConsentParent()" style="width:100%;margin-top:6px;padding:8px 10px;border:1px solid var(--border,#e8e6e1);border-radius:10px;font-size:.85rem;">
+        <option value="">请选择出生年份</option>
+      </select>
+      <div style="font-size:.75rem;color:var(--sub);margin-top:4px;">仅用于判断是否需要监护人单独同意。</div>
+    </div>
+    <label style="display:flex;align-items:flex-start;gap:8px;margin-top:10px;font-size:.82rem;line-height:1.6;color:var(--sub);text-align:left;">
+      <input type="checkbox" id="consent-agree-parent" style="width:auto;margin-top:3px;flex:0 0 auto;">
+      <span>我已阅读并同意
+        <a href="/terms" target="_blank" rel="noopener">《用户服务协议》</a>与
+        <a href="/privacy" target="_blank" rel="noopener">《隐私政策》</a>。
+        若使用者为不满十四周岁的未成年人，本人确认是其父母或其他监护人。</span>
+    </label>
+    <!-- 不满14周岁单独同意：独立勾选，不与一般同意捆绑（PIPL 第31条） -->
+    <label id="children-consent-row-parent" style="display:none;align-items:flex-start;gap:8px;margin-top:8px;padding:10px 12px;background:#E6F8F4;border-radius:10px;font-size:.82rem;line-height:1.6;text-align:left;">
+      <input type="checkbox" id="children-consent-parent" style="width:auto;margin-top:3px;flex:0 0 auto;">
+      <span><strong>单独同意（不满十四周岁）</strong>：本人作为监护人，单独同意按
+        <a href="/privacy" target="_blank" rel="noopener">《隐私政策》第 5 条</a>（未成年人个人信息专门章节）
+        处理孩子的个人信息。</span>
+    </label>
+    <div id="consent-err" style="display:none;margin-top:8px;font-size:.82rem;color:#d93a46;text-align:left;"></div>
   </div>
 
   <!-- Result (one-time diagnosis) -->
@@ -1805,7 +2093,10 @@ PARENT_PAGE = r'''<!DOCTYPE html>
   // ── 多图选择 + 压缩 + 确认上传（微信手机场景优化）──
   let pickedFiles = [];   // [{file, url}] 试卷
   let pickedSheets = [];  // [{file, url}] 答题卡（选填）
+  let pickedKeys = [];    // [{file, url}] 标准答案（选填，老师提供 → 权威答案源）
   let pickedGrade = '高二';
+  let pickedBirthYear = null;       // 出生年份（年龄识别：判断是否需单独同意）
+  let pickedChildrenAgreed = false; // 不满14周岁的单独同意是否已勾选
 
   document.getElementById('gradeOpts').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-g]');
@@ -1830,6 +2121,22 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     renderSheetPreviews();
   });
 
+  document.getElementById('keyInput').addEventListener('change', async (e) => {
+    const list = Array.from(e.target.files || []);
+    if (!list.length) return;
+    for (const f of list) pickedKeys.push({ file: f, url: URL.createObjectURL(f) });
+    document.getElementById('keyInput').value = '';
+    renderKeyPreviews();
+  });
+
+  // 已选张数汇总（试卷 + 答题卡 + 标准答案）
+  function updatePhotoCount() {
+    const parts = [String(pickedFiles.length)];
+    if (pickedSheets.length) parts.push(`+${pickedSheets.length}答题卡`);
+    if (pickedKeys.length) parts.push(`+${pickedKeys.length}标准答案`);
+    document.getElementById('photoCount').textContent = parts.join('');
+  }
+
   function renderPreviews() {
     const box = document.getElementById('previewList');
     const btn = document.getElementById('startBtn');
@@ -1838,8 +2145,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
         <img src="${p.url}" alt="试卷照片 ${i+1}">
         <button type="button" class="rm" onclick="removePhoto(${i})">✕</button>
       </div>`).join('');
-    document.getElementById('photoCount').textContent =
-      pickedFiles.length + (pickedSheets.length ? `+${pickedSheets.length}答题卡` : '');
+    updatePhotoCount();
     btn.style.display = pickedFiles.length ? 'block' : 'none';
   }
 
@@ -1850,8 +2156,17 @@ PARENT_PAGE = r'''<!DOCTYPE html>
         <img src="${p.url}" alt="答题卡 ${i+1}">
         <button type="button" class="rm" onclick="removeSheetPhoto(${i})">✕</button>
       </div>`).join('');
-    document.getElementById('photoCount').textContent =
-      pickedFiles.length + (pickedSheets.length ? `+${pickedSheets.length}答题卡` : '');
+    updatePhotoCount();
+  }
+
+  function renderKeyPreviews() {
+    const box = document.getElementById('keyPreviewList');
+    box.innerHTML = pickedKeys.map((p, i) => `
+      <div class="preview-item">
+        <img src="${p.url}" alt="标准答案 ${i+1}">
+        <button type="button" class="rm" onclick="removeKeyPhoto(${i})">✕</button>
+      </div>`).join('');
+    updatePhotoCount();
   }
 
   function removePhoto(i) {
@@ -1864,6 +2179,12 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     URL.revokeObjectURL(pickedSheets[i].url);
     pickedSheets.splice(i, 1);
     renderSheetPreviews();
+  }
+
+  function removeKeyPhoto(i) {
+    URL.revokeObjectURL(pickedKeys[i].url);
+    pickedKeys.splice(i, 1);
+    renderKeyPreviews();
   }
 
   // 手机照片压缩：长边 ≤1600px、JPEG q0.8（原片 3-8MB → 数百 KB，
@@ -1897,10 +2218,58 @@ PARENT_PAGE = r'''<!DOCTYPE html>
 
   document.getElementById('startBtn').addEventListener('click', async () => {
     if (!pickedFiles.length) return;
+    // 监护人同意 + 年龄识别（P0-6）：先勾选、并给出出生年份；服务端同样强制
+    const agreeEl = document.getElementById('consent-agree-parent');
+    const cErr = document.getElementById('consent-err');
+    const showErr = (msg, focusEl) => {
+      cErr.textContent = msg;
+      cErr.style.display = 'block';
+      (focusEl || agreeEl).scrollIntoView({behavior:'smooth', block:'center'});
+    };
+    if (!agreeEl.checked) {
+      showErr('请先阅读并勾选同意《用户服务协议》和《隐私政策》');
+      return;
+    }
+    const byEl = document.getElementById('birth-year-parent');
+    const birthYear = parseInt(byEl ? byEl.value : '', 10);
+    if (isNaN(birthYear)) {
+      showErr('请选择孩子的出生年份', byEl);
+      return;
+    }
+    const childrenNeed = (new Date().getFullYear() - birthYear) < 14;
+    if (childrenNeed && !document.getElementById('children-consent-parent').checked) {
+      showErr('孩子不满十四周岁，请勾选「单独同意」后再开始');
+      return;
+    }
+    cErr.style.display = 'none';
+    pickedBirthYear = birthYear;
+    pickedChildrenAgreed = childrenNeed;
     const compressed = [];
     for (const p of pickedFiles) compressed.push(await compressImage(p.file));
     diagnose(compressed, pickedGrade);
   });
+
+  // 出生年份选项 + 单独同意显隐（首访页）
+  (function initBirthYearsParent(){
+    const sel = document.getElementById('birth-year-parent');
+    if (!sel) return;
+    const now = new Date().getFullYear();
+    for (let y = now - 3; y >= now - 20; y--) {
+      const o = document.createElement('option');
+      o.value = String(y); o.textContent = y + ' 年';
+      sel.appendChild(o);
+    }
+  })();
+
+  function updateChildrenConsentParent() {
+    const sel = document.getElementById('birth-year-parent');
+    const row = document.getElementById('children-consent-row-parent');
+    if (!sel || !row) return;
+    const y = parseInt(sel.value, 10);
+    const need = !isNaN(y) && (new Date().getFullYear() - y) < 14;
+    row.style.display = need ? 'flex' : 'none';
+    if (!need) document.getElementById('children-consent-parent').checked = false;
+  }
 
   function showUploadMode() {
     uploadSection.style.display = 'block';
@@ -1919,8 +2288,11 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     pickedFiles = [];
     pickedSheets.forEach(p => URL.revokeObjectURL(p.url));
     pickedSheets = [];
+    pickedKeys.forEach(p => URL.revokeObjectURL(p.url));
+    pickedKeys = [];
     renderPreviews();
     renderSheetPreviews();
+    renderKeyPreviews();
     document.getElementById('startBtn').style.display = 'none';
     document.getElementById('steps').style.display = 'flex';
     setStep(1);
@@ -1945,6 +2317,13 @@ PARENT_PAGE = r'''<!DOCTYPE html>
     const formData = new FormData();
     files.forEach(f => formData.append('file', f));
     pickedSheets.forEach(p => formData.append('answer_sheet', p.file));
+    // 标准答案（老师提供）：权威答案源
+    pickedKeys.forEach(p => formData.append('answer_key', p.file));
+    // 监护人同意：随建档请求提交，服务端在建档后写入 parent_consents（版本化）
+    formData.append('consent_agreed', 'true');
+    // 年龄识别：出生年份 +（不满14周岁）单独同意，均由服务端复核
+    if (pickedBirthYear) formData.append('birth_year', String(pickedBirthYear));
+    formData.append('children_consent_agreed', pickedChildrenAgreed ? 'true' : 'false');
     formData.append('grade', grade || '高二');
     if (savedCode) formData.append('access_code', savedCode);
 
@@ -2155,6 +2534,11 @@ PARENT_PAGE = r'''<!DOCTYPE html>
       : (data.weak_points || []);
 
     let html = '<div class="title">🩺 孩子的英语学习体检单</div>';
+
+    // OCR 降级告警：识别质量下降要显式说，不能让家长以为结果就是准的
+    if (data.ocr_warning) {
+      html += `<div style="font-size:.85rem;color:var(--accent);background:var(--accent-light);border-radius:12px;padding:10px 12px;margin-bottom:10px;">⚠️ ${escapeHtml(data.ocr_warning)}</div>`;
+    }
 
     // Score
     html += `<div class="score-box">

@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import sqlite3
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from db.core import DB_PATH, PROJECT_ROOT, _now_iso, get_connection
@@ -16,55 +17,135 @@ from db.core import DB_PATH, PROJECT_ROOT, _now_iso, get_connection
 # Compliance & Operations
 # ═══════════════════════════════════════════════════
 
+# ── 同意类型（PIPL 第28/31条：不满 14 周岁属敏感个人信息，需"单独同意"）──
+# 与一般处理同意**分开记录**：单独同意必须独立、具体、不与其他条款捆绑。
+CONSENT_TYPE_DATA = "data_processing"              # 一般个人信息处理同意
+CONSENT_TYPE_CHILDREN = "children_sensitive_info"  # 不满14周岁的单独同意
+CHILDREN_CONSENT_AGE = 14
+
+
+def age_from_birth_year(birth_year) -> Optional[int]:
+    """按出生年份估算年龄（只收年份 → 取**最小可能年龄**，偏保守）。
+
+    只知年份时真实年龄有两年区间（如 2026 年、2012 年生 → 13 或 14 岁）。
+    此处取「今年年份 − 出生年份」，即"可能已满 14"也按未满处理 ——
+    **宁可多要一次单独同意，也不漏掉敏感个人信息的保护**。
+    出生年份缺失/非法返回 None（不臆测年龄）。
+    """
+    try:
+        by = int(birth_year)
+    except (TypeError, ValueError):
+        return None
+    if by < 1900 or by > date.today().year:
+        return None
+    return date.today().year - by
+
+
+def needs_children_consent(student_id: int, db_path: str = DB_PATH) -> bool:
+    """该学生是否"不满十四周岁"、需单独同意。出生年份缺失时返回 False。"""
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute("SELECT birth_year FROM students WHERE id = ?",
+                           [student_id]).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return False
+    age = age_from_birth_year(row["birth_year"])
+    return age is not None and age < CHILDREN_CONSENT_AGE
+
+
+def required_consent_types(student_id: int, db_path: str = DB_PATH) -> List[str]:
+    """该学生当前需要哪些同意（顺序即展示顺序）。"""
+    types = [CONSENT_TYPE_DATA]
+    if needs_children_consent(student_id, db_path):
+        types.append(CONSENT_TYPE_CHILDREN)
+    return types
+
+
+def missing_consent_types(student_id: int, db_path: str = DB_PATH) -> List[str]:
+    """尚未取得（或已撤回）的同意类型。空列表 = 已齐备。"""
+    conn = get_connection(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT consent_type FROM parent_consents "
+            "WHERE student_id = ? AND withdrawn_at IS NULL", [student_id]).fetchall()
+    finally:
+        conn.close()
+    have = {(r["consent_type"] or CONSENT_TYPE_DATA) for r in rows}
+    return [t for t in required_consent_types(student_id, db_path) if t not in have]
+
+
 def record_parent_consent(student_id: int, consented_by: str, contact: str = "",
                             ip_address: str = "", notes: str = "",
                             consent_version: str = "v1",
+                            consent_type: str = CONSENT_TYPE_DATA,
                             db_path: str = DB_PATH) -> int:
     """Record parent consent for student data processing.
 
     consent_version：同意书版本号，政策变更后新记录携带新版本，
     便于审计「该学生同意的是哪一版条款」。
+    consent_type：`data_processing`（一般同意）或
+    `children_sensitive_info`（不满 14 周岁的**单独同意**，独立记录以便举证）。
     """
     conn = get_connection(db_path)
     try:
         cur = conn.execute("""
             INSERT INTO parent_consents
-                (student_id, consented_by, contact, ip_address, notes, consent_version)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, [student_id, consented_by, contact, ip_address, notes, consent_version])
+                (student_id, consent_type, consented_by, contact, ip_address,
+                 notes, consent_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, [student_id, consent_type or CONSENT_TYPE_DATA, consented_by,
+              contact, ip_address, notes, consent_version])
         conn.commit()
         return cur.lastrowid
     finally:
         conn.close()
 
 
-def has_parent_consent(student_id: int, db_path: str = DB_PATH) -> bool:
-    """Check if parent consent exists for a student（已撤回的同意不算数）。"""
+def has_parent_consent(student_id: int, db_path: str = DB_PATH,
+                       consent_type: str = None) -> bool:
+    """是否存在有效（未撤回）同意。
+
+    consent_type=None → 任一类型即算有同意（兼容既有调用）；
+    传入具体类型 → 只查该类型（用于不满 14 周岁的单独同意校验）。
+    """
+    sql = ("SELECT id FROM parent_consents "
+           "WHERE student_id = ? AND withdrawn_at IS NULL")
+    params: List[Any] = [student_id]
+    if consent_type:
+        sql += " AND consent_type = ?"
+        params.append(consent_type)
+    sql += " LIMIT 1"
     conn = get_connection(db_path)
     try:
-        row = conn.execute(
-            "SELECT id FROM parent_consents "
-            "WHERE student_id = ? AND withdrawn_at IS NULL LIMIT 1",
-            [student_id]
-        ).fetchone()
-        return row is not None
+        return conn.execute(sql, params).fetchone() is not None
     finally:
         conn.close()
 
 
 def get_students_without_consent(db_path: str = DB_PATH) -> List[Dict[str, Any]]:
-    """Get active students without parent consent."""
+    """待授权学生：缺任一必需同意（含不满 14 周岁的单独同意）。
+
+    返回行附带 `missing_consents`（缺失类型列表）与 `needs_children_consent`，
+    供运营端区分"完全没同意"与"只缺儿童单独同意"。
+    """
     conn = get_connection(db_path)
     rows = conn.execute("""
         SELECT s.* FROM students s
         WHERE s.status = 'active'
-          AND NOT EXISTS (
-              SELECT 1 FROM parent_consents pc WHERE pc.student_id = s.id
-          )
         ORDER BY s.created_at DESC
     """).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        missing = missing_consent_types(d["id"], db_path)
+        if missing:
+            d["missing_consents"] = missing
+            d["needs_children_consent"] = CONSENT_TYPE_CHILDREN in missing
+            out.append(d)
+    return out
 
 
 def request_data_deletion(student_id: int, requested_by: str, reason: str = "",
@@ -129,6 +210,7 @@ def process_data_deletion(request_id: int, db_path: str = DB_PATH) -> bool:
             "ai_corrections", "ai_tasks",
             "files", "learning_plans", "plan_updates", "weekly_records",
             "score_history", "check_ins", "achievements",
+            "badges", "reward_redemptions",
             "metacognitive_reviews", "parent_consents",
             "subscriptions", "student_profiles",
             "cause_profiles", "cause_profile_history",

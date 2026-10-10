@@ -281,10 +281,16 @@ tr:last-child td { border-bottom:none; }
     <div class="form-row">
       <div class="form-group"><label>套餐</label><select id="onb-plan"><option value="trial" selected>体验（免费·3次）</option><option value="monthly">包月 ¥39/月</option><option value="yearly">包年 ¥399/年</option><option value="unlimited">超级账号（不限次）</option></select></div>
       <div class="form-group"><label>家长电话</label><input id="onb-parent-phone"></div>
+      <div class="form-group"><label>出生年份</label><input id="onb-birth-year" type="number" min="1900" max="2100" placeholder="如 2013" oninput="updateOpsChildrenConsent('onb')"></div>
     </div>
     <div class="form-group" style="display:flex;align-items:center;gap:8px;">
       <input type="checkbox" id="onb-parent-consent" style="width:auto;">
       <label for="onb-parent-consent" style="margin-bottom:0;font-weight:400;">家长已同意收集和使用学生学习数据</label>
+    </div>
+    <!-- 不满14周岁单独同意：独立勾选，不与上面的一般同意捆绑（PIPL 第31条） -->
+    <div class="form-group" id="onb-children-consent-wrap" style="display:none;align-items:flex-start;gap:8px;padding:10px 12px;background:var(--accent-light);border-radius:10px;">
+      <input type="checkbox" id="onb-children-consent" style="width:auto;margin-top:3px;">
+      <label for="onb-children-consent" style="margin-bottom:0;font-weight:400;">儿童个人信息单独同意（不满十四周岁，<strong>已单独取得家长同意</strong>）——《隐私政策》第 5 条</label>
     </div>
   </div>
   <div class="card" style="margin-bottom:24px;">
@@ -650,6 +656,11 @@ tr:last-child td { border-bottom:none; }
 
   <div class="stats" id="quality-stats" style="margin-bottom:16px;"></div>
 
+  <h3 style="font-size:1em;margin:16px 0 8px;">🙋 家长上报（待核对）<span id="report-count" style="font-size:.85em;color:var(--sub);font-weight:400;"></span></h3>
+  <div id="report-pending-list" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px;">
+    <div style="color:var(--sub);text-align:center;padding:24px;">加载中...</div>
+  </div>
+
   <h3 style="font-size:1em;margin:16px 0 8px;">待抽检</h3>
   <div id="quality-pending-list" style="display:flex;flex-direction:column;gap:12px;">
     <div style="color:var(--sub);text-align:center;padding:24px;">加载中...</div>
@@ -1009,6 +1020,7 @@ tr:last-child td { border-bottom:none; }
         <div class="form-group"><label>套餐</label><select id="f-plan"><option value="trial">体验（3次）</option><option value="monthly">包月</option><option value="yearly">包年</option><option value="unlimited">超级账号</option></select></div>
       </div>
       <div class="form-row">
+        <div class="form-group"><label>出生年份</label><input id="f-birth-year" type="number" min="1900" max="2100" placeholder="如 2013" oninput="updateOpsChildrenConsent('f')"></div>
         <div class="form-group"><label>英语成绩</label><input id="f-english-score" type="number" step="0.5"></div>
         <div class="form-group"><label>目标分数</label><input id="f-target-score" type="number" step="0.5"></div>
       </div>
@@ -1027,6 +1039,11 @@ tr:last-child td { border-bottom:none; }
       <div class="form-group" style="display:flex;align-items:center;gap:8px;">
         <input type="checkbox" id="f-parent-consent" style="width:auto;">
         <label for="f-parent-consent" style="margin-bottom:0;font-weight:400;">家长已同意收集和使用学生学习数据（未成年人合规授权）</label>
+      </div>
+      <!-- 不满14周岁单独同意：独立勾选，不与上面的一般同意捆绑（PIPL 第31条） -->
+      <div class="form-group" id="f-children-consent-wrap" style="display:none;align-items:flex-start;gap:8px;padding:10px 12px;background:var(--accent-light);border-radius:10px;">
+        <input type="checkbox" id="f-children-consent" style="width:auto;margin-top:3px;">
+        <label for="f-children-consent" style="margin-bottom:0;font-weight:400;">儿童个人信息单独同意（不满十四周岁，<strong>已单独取得家长同意</strong>）——《隐私政策》第 5 条</label>
       </div>
       <div class="form-group"><label>备注</label><textarea id="f-notes"></textarea></div>
     </div>
@@ -1843,10 +1860,15 @@ async function loadStudents() {
     let statusBadgeClass = s.sub_status || 'active';
     if (s.sub_status !== 'expired' && days !== null && days >= 0 && days <= 7) statusBadgeClass = 'expiring';
     const costText = s.month_cost ? `$${s.month_cost.toFixed(4)}` : '-';
-    const consentBadge = s.has_consent
+    // 同意状态三态（P0-6）：已授权 / 缺儿童单独同意（不满14周岁）/ 待授权
+    const missingConsents = s.missing_consents || (s.has_consent ? [] : ['data_processing']);
+    const missChildren = missingConsents.includes('children_sensitive_info');
+    const consentBadge = missingConsents.length === 0
       ? '<span style="color:var(--green);font-size:.85em;">✅ 已授权</span>'
-      : '<span style="color:var(--accent);font-size:.85em;">⚠️ 待授权</span>';
-    const consentBtn = s.has_consent
+      : (missChildren
+          ? '<span style="color:var(--accent);font-size:.85em;">⚠️ 缺儿童单独同意</span>'
+          : '<span style="color:var(--accent);font-size:.85em;">⚠️ 待授权</span>');
+    const consentBtn = missingConsents.length === 0
       ? ''
       : `<button class="btn btn-sm btn-outline" onclick="recordConsentFromStudent(${s.id}, '${escapeHtml(s.name)}')" style="margin-top:4px;">补授权</button>`;
     tbody.innerHTML += `<tr style="${rowStyle}">
@@ -2127,6 +2149,10 @@ function openStudentModal() {
   renderTimeMapSlots();
   document.getElementById('f-student-id').value='';
   document.getElementById('f-parent-consent').checked = false;
+  // 年龄识别：重置出生年份与儿童单独同意（P0-6）
+  document.getElementById('f-birth-year').value = '';
+  document.getElementById('f-children-consent').checked = false;
+  document.getElementById('f-children-consent-wrap').style.display = 'none';
   switchProfileTab('basic');
 }
 function closeStudentModal() { document.getElementById('student-modal').classList.remove('show'); }
@@ -2197,6 +2223,10 @@ async function editStudent(id) {
   document.getElementById('f-parent-phone').value = s.parent_phone||'';
   document.getElementById('f-notes').value = s.notes||'';
   document.getElementById('f-parent-consent').checked = !!s.has_consent;
+  // 年龄识别：回填出生年份；不满14周岁显示单独同意并回填其状态（P0-6）
+  document.getElementById('f-birth-year').value = s.birth_year||'';
+  updateOpsChildrenConsent('f');
+  document.getElementById('f-children-consent').checked = !!s.has_children_consent;
 
   // English situation
   document.getElementById('f-recent-scores').value = Array.isArray(profile.recent_scores) ? profile.recent_scores.join(',') : (profile.recent_scores||'');
@@ -2273,6 +2303,9 @@ async function saveStudent() {
     notes: document.getElementById('f-notes').value,
     plan: document.getElementById('f-plan').value,
     parent_consent: document.getElementById('f-parent-consent').checked,
+    // 年龄识别：勾选「家长已同意」时服务端要求必须填出生年份；不满14周岁还需单独同意
+    birth_year: document.getElementById('f-birth-year').value || null,
+    children_consent: document.getElementById('f-children-consent').checked,
   };
 
   const profileData = {
@@ -2418,6 +2451,19 @@ async function recordPayment() {
   }
 }
 
+// 年龄识别（P0-6）：出生年份 → 不满14周岁才显示「儿童个人信息单独同意」
+// （独立勾选，不与一般家长同意捆绑；服务端同样强制）
+function updateOpsChildrenConsent(prefix) {
+  const yearEl = document.getElementById(prefix + '-birth-year');
+  const wrap = document.getElementById(prefix + '-children-consent-wrap');
+  const box = document.getElementById(prefix + '-children-consent');
+  if (!yearEl || !wrap || !box) return;
+  const y = parseInt(yearEl.value, 10);
+  const need = !isNaN(y) && (new Date().getFullYear() - y) < 14;
+  wrap.style.display = need ? 'flex' : 'none';
+  if (!need) box.checked = false;
+}
+
 // ── Onboarding Pipeline ──
 async function startOnboarding() {
   const name = document.getElementById('onb-name').value.trim();
@@ -2436,6 +2482,9 @@ async function startOnboarding() {
     plan: document.getElementById('onb-plan').value,
     parent_phone: document.getElementById('onb-parent-phone').value,
     parent_consent: document.getElementById('onb-parent-consent').checked,
+    // 年龄识别：勾选「家长已同意」时服务端要求必须填出生年份（避免 <14 绕过单独同意）
+    birth_year: document.getElementById('onb-birth-year').value || null,
+    children_consent: document.getElementById('onb-children-consent').checked,
   };
   const sr = await fetch('/api/students', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(studentData)});
   if (!sr.ok) { toast('创建学生失败', 'error'); return; }
@@ -3027,6 +3076,7 @@ async function saveBudget() {
 // ── Quality Sampling ──
 async function loadQualityPage() {
   await loadQualityStats();
+  await loadParentReports();
   await loadQuality();
 }
 
@@ -3101,6 +3151,89 @@ async function reviewSafetyCheck(checkId, status) {
   });
   if (r.ok) {
     toast(status === 'clean' ? '已标记为合格' : '已标记问题');
+    loadQualityPage();
+  } else {
+    const d = await r.json();
+    toast(d.error || '操作失败', 'error');
+  }
+}
+
+// ── 家长上报（P0-1 → P0-3）────────────────────────
+// 采纳 = 应用修正 + 写入 ai_feedback_patterns（回流到后续批改 prompt）；
+// 驳回 = 不改数据、不进提示词池。未经验证的上报绝不自动进池。
+const REPORT_FIELD_LABELS = {
+  is_correct: '孩子其实做对了（判错）',
+  correct_answer: '正确答案不对',
+  explanation: '解析有问题',
+  knowledge_points: '知识点归类不对',
+};
+
+async function loadParentReports() {
+  const list = document.getElementById('report-pending-list');
+  const r = await fetch('/api/reports/pending');
+  if (!r.ok) {
+    list.innerHTML = '<div style="color:var(--sub);text-align:center;padding:24px;">加载失败</div>';
+    return;
+  }
+  const d = await r.json();
+  const badge = document.getElementById('report-count');
+  if (badge) badge.textContent = d.count ? `（${d.count} 条待核对）` : '';
+  list.innerHTML = '';
+  if (!d.reports || d.reports.length === 0) {
+    list.innerHTML = '<div style="color:var(--sub);text-align:center;padding:24px;">🎉 暂无家长上报</div>';
+    return;
+  }
+  d.reports.forEach(rep => {
+    const issueLabel = REPORT_FIELD_LABELS[rep.target_field] || rep.target_field;
+    const isGrading = rep.target_field === 'is_correct';
+    const fixRow = isGrading
+      ? '<div style="font-size:.85em;color:var(--green);margin-bottom:10px;">采纳后将把这道题标记为已掌握（撤销该错题），不再进入后续练习。</div>'
+      : `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+           <span style="font-size:.8em;color:var(--sub);">确认后的正确值：</span>
+           <input id="report-fix-${rep.id}" value="${escapeHtml(rep.corrected_value || '')}" style="flex:1;min-width:200px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:.85em;">
+         </div>`;
+    list.innerHTML += `
+      <div class="card" style="border:1px solid var(--border);border-radius:12px;padding:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+          <div><strong>#${rep.id} ${issueLabel}</strong> <span style="font-size:.8em;color:var(--sub);">${escapeHtml(rep.student_name || '未知学生')}${rep.question_type ? ' · ' + escapeHtml(rep.question_type) : ''}</span></div>
+          <span style="font-size:.75em;color:var(--sub);">${fmtDate(rep.created_at)}</span>
+        </div>
+        <div style="background:var(--bg);padding:12px;border-radius:6px;font-size:.9em;margin-bottom:10px;line-height:1.5;">${escapeHtml((rep.question || '（题干未记录）').slice(0, 300))}</div>
+        ${rep.reason ? `<div style="font-size:.85em;color:var(--sub);margin-bottom:8px;">家长说明：${escapeHtml(rep.reason)}</div>` : ''}
+        <div style="font-size:.82em;color:var(--sub);margin-bottom:10px;">原值：${escapeHtml(String(rep.original_value == null ? '（无）' : rep.original_value))}</div>
+        ${fixRow}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-sm btn-green" onclick="adoptReport(${rep.id})">✅ 采纳（回流到 AI）</button>
+          <button class="btn btn-sm btn-outline" onclick="rejectReport(${rep.id})">🚫 驳回</button>
+        </div>
+      </div>`;
+  });
+}
+
+async function adoptReport(id) {
+  const input = document.getElementById('report-fix-' + id);
+  const r = await fetch('/api/reports/' + id + '/adopt', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({corrected_value: input ? input.value.trim() : ''})
+  });
+  if (r.ok) {
+    toast('已采纳——该问题类型会回流到后续批改');
+    loadQualityPage();
+  } else {
+    const d = await r.json();
+    toast(d.error || '操作失败', 'error');
+  }
+}
+
+async function rejectReport(id) {
+  const r = await fetch('/api/reports/' + id + '/reject', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({})
+  });
+  if (r.ok) {
+    toast('已驳回');
     loadQualityPage();
   } else {
     const d = await r.json();

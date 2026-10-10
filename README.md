@@ -8,6 +8,14 @@
 >
 > **L3 长期记忆 + SM-2 复习**（2026-08-31）：三层记忆在此闭环——L1 批改原始记录、L2 周/月报告、L3 跨月沉淀的"什么类型的学习者、哪类错因反复出现、哪种讲法有效"（`student_memory` 表，月度总结时由 AI 合并刷新，方案生成时注入 prompt，月报展示"长期学习画像"）。错题本复习间隔 = Ebbinghaus 阶梯 × SM-2 个人难度系数（答对 +0.05 / 答错 -0.20），掌握判定仍是"连对 2 次"。
 >
+> **三输入判题**（2026-10-10）：上传入口分三组——**试卷**（题目来源）、**答题卡**（学生作答）、**标准答案**（老师周末发来的原题+答案，权威答案源）。标准答案独立解析成逐题答案键注入判题（`answer_source="answer_key"`），判对错以它为准，不再靠模型自判；范围形式（`1-5: BCADC`）自动展开为逐题。
+>
+> **监护人同意 + 法律文本**（2026-10-10）：注册页须主动勾选、首访页与学习中心有同意门禁，同意按 `web/legal.py::CONSENT_VERSION` 版本化写入 `parent_consents`；三份法律文本随仓库部署在 `legal/`，经 `/terms`、`/privacy`、`/ai-disclaimer` 对外提供。
+>
+> **年龄识别 + 单独同意**（2026-10-10）：只收**出生年份**判定是否不满 14 周岁（保守口径），未满者需监护人**独立勾选单独同意**，按独立同意类型 `children_sensitive_info` 单独落库；门禁对"缺一般同意"与"缺单独同意"给出不同提示。
+>
+> **OCR 降级告警**（2026-10-10）：视觉识别失败退回 Tesseract 时不再静默——原因一路上提至日志、任务进度文案与 `output_data.ocr_warning`，家长端显式提示"识别可能不准，建议重传"。
+>
 > 架构模式：**单租户自营**（非多租户 SaaS）。当前为 C 端最小闭环模式，学校/教师功能由 feature flag 封存（见 `FEATURE_FLAGS.md`）。
 
 ---
@@ -29,7 +37,7 @@
 
 - **Cycle 状态机**：每个「学生 × 周 × 类型（diagnostic/weekly）」是一个学习周期，状态线性推进：`created → paper_received → ocr_done → graded → analyzed → report_ready → exercised → reported`。
 - **声明式流水线**：一条链、多个恢复点。运营端三按钮（批改试卷 / 矩阵分析 / 生成周报）= 链上三个恢复点；家长上传 = 从 `ocr` 一次跑完。
-- **质量回路**（替代已删除的审核闸门）：AI 结果直通家长；随机抽检（safety-checks）+ 老师逐条纠错（corrections，纠错模式自动回流到后续 prompt）。
+- **质量回路**（替代已删除的审核闸门）：AI 结果直通家长；三条回路——随机抽检（safety-checks）、老师逐条纠错（corrections）、**家长上报**（家庭端错题卡「这题有问题」→ 运营核对后采纳/驳回）。纠错与采纳的模式自动回流到后续 prompt；采纳另记一枚徽章（徽章 → 成就 → 兑换学习用具，规则待配置，接口已就位）。
 
 ---
 
@@ -123,7 +131,7 @@ StepLearn/
 │   ├── cycle_pipeline.py   #   统一 handler（onboarding + weekly）
 │   └── scheduler.py        #   调度器：周六条件周报/周一错题本/月度总结
 ├── pipeline_worker.py      # 任务队列 + worker 池（僵尸恢复/退额度/抽检）
-├── db/                     # SQLite 数据层包（唯一数据源，37 表）
+├── db/                     # SQLite 数据层包（唯一数据源，39 表）
 │   ├── __init__.py         #   门面：再导出全部符号（含 _now_iso）
 │   ├── core.py             #   连接/schema/迁移/时间/PRICING
 │   └── students/learning/subscriptions/operations/analytics/compliance.py
@@ -137,10 +145,10 @@ StepLearn/
 ├── llm_analysis.py         #   错题提取/错因因果链分析
 ├── question_gen.py         #   题目生成
 ├── llm_plans.py            #   批改/方案/月度总结
-├── report_templates.py     # HTML/PDF 报告渲染（含错因画像/卡点变化板块）
+├── report_templates.py     # HTML/PDF 报告渲染（含错因画像/卡点变化/记忆进度板块）
 ├── ocr_wrapper.js          # Tesseract.js 包装脚本
 ├── tessdata/               # OCR 语言包（.traineddata.gz）
-├── tests/                  # pytest 测试（289 用例）
+├── tests/                  # pytest 测试（503 用例）
 ├── assets/fonts/           # 自带 CJK 字体（Noto Sans SC，OFL 许可；PDF 导出中文必需，Linux 无需装系统字体）
 ├── uploads/<student_id>/   # 学生上传文件与产出报告
 ├── backups/                # 自动备份（每日 03:00）
@@ -217,6 +225,7 @@ StepLearn/
 - [`错因因果链实施方案.md`](错因因果链实施方案.md)：受控错因分类 + 因果链画像的设计与实施记录
 - [`错因校准报告.md`](错因校准报告.md)：首轮运营校准（83 条真实错题回测）
 - [`错判归因报告.md`](错判归因报告.md)：判卷误判分桶归因（分桶工具 `scripts/grading_bucket_analysis.py`，存量清洗 `scripts/cleanup_legacy_misjudged.py`）
+- [`朱总架构建议消化与落地方案.md`](朱总架构建议消化与落地方案.md)：外部技术顾问建议的消化、现状对照与 P0/P1/P2 落地清单（权威答案库 / 错误上报回路 / 拓科预埋）
 
 ---
 

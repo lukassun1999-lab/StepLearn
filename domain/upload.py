@@ -70,16 +70,19 @@ def save_files(student_id, files, file_type: str = "test_paper",
 
 
 def family_upload(student_id, files, *, answer_sheet_files=None,
+                  answer_key_files=None,
                   uploader_role: str = "parent",
                   task_type: str = "weekly", stage: str = "grade_only",
                   is_staff: bool = False, extra_input: dict = None,
                   db_path: str = None):
     """家庭端统一上传：存文件 → 额度闸门 → 建任务入队。
 
-    试卷（files）与答题卡（answer_sheet_files）分开存储：
-    - 试卷存 test_paper，答题卡存 answer_sheet，OCR 时按组拼接段落，
-      LLM 从试卷读题目、从答题卡读学生作答（双输入判题）。
-    - 答题卡缺省（未传）→ 答案直接书写在试卷上，走原单输入逻辑。
+    三组输入分开存储（三输入判题）：
+    - 试卷存 test_paper：题目来源；
+    - 答题卡存 answer_sheet：学生的实际作答（缺省 → 作答写在试卷上）；
+    - **标准答案存 answer_key**：老师给的标准答案，作为**权威答案源**注入判题
+      （见 pipeline/stages.py node_analyze → llm_analysis.parse_answer_key）。
+      标准答案是**辅助输入**，不能单独提交（没有试卷就无从判题）。
 
     Returns:
         (task_id, file_ids)
@@ -89,10 +92,16 @@ def family_upload(student_id, files, *, answer_sheet_files=None,
     db_path = db_path or db.DB_PATH
 
     # PIPL 门禁：CONSENT_REQUIRED=true 时，无有效监护人同意不得处理学生数据。
+    # 不满 14 周岁者还需**单独同意**（PIPL 第28/31条）——单独同意缺失时给出可操作提示。
     # 默认关闭（个人使用不打断）；商用上线置 true 强制合规。
-    if (os.environ.get("CONSENT_REQUIRED") == "true"
-            and not db.has_parent_consent(student_id, db_path=db_path)):
-        raise UploadError("尚未获得监护人数据处理同意，请联系老师完成同意登记后再上传", 403)
+    if os.environ.get("CONSENT_REQUIRED") == "true":
+        missing = db.missing_consent_types(student_id, db_path=db_path)
+        if db.CONSENT_TYPE_CHILDREN in missing:
+            raise UploadError(
+                "孩子未满十四周岁，需监护人单独同意后方可处理其学习数据；"
+                "请在页面上完成「不满十四周岁单独同意」后重试", 403)
+        if missing:
+            raise UploadError("尚未获得监护人数据处理同意，请联系老师完成同意登记后再上传", 403)
 
     file_ids = save_files(student_id, files, uploader_role=uploader_role,
                           db_path=db_path)
@@ -100,12 +109,18 @@ def family_upload(student_id, files, *, answer_sheet_files=None,
         student_id, answer_sheet_files or [],
         file_type="answer_sheet", uploader_role=uploader_role,
         db_path=db_path)
+    key_ids = save_files(
+        student_id, answer_key_files or [],
+        file_type="answer_key", uploader_role=uploader_role,
+        db_path=db_path)
     if not file_ids and not sheet_ids:
         raise UploadError("没有有效的文件", 400)
 
     input_data = {"file_ids": file_ids}
     if sheet_ids:
         input_data["answer_sheet_file_ids"] = sheet_ids
+    if key_ids:
+        input_data["answer_key_file_ids"] = key_ids
     if task_type == "weekly":
         input_data["stage"] = stage
     if extra_input:

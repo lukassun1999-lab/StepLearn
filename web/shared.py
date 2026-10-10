@@ -198,8 +198,8 @@ _LEGACY_DOC_HINT = ('.doc 是旧格式，无法直接读取，'
                     '请用 Word 另存为 .docx 后再上传')
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 单文件 20MB
 # file_type 兼作目录名，只允许小写字母/下划线（防路径穿越）
-_ALLOWED_FILE_TYPES = {'test_paper', 'answer_sheet', 'exercise', 'report',
-                       'poster', 'other'}
+_ALLOWED_FILE_TYPES = {'test_paper', 'answer_sheet', 'answer_key', 'exercise',
+                       'report', 'poster', 'other'}
 
 
 def _sanitize_file_type(file_type: str) -> str:

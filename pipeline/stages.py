@@ -55,8 +55,11 @@ class Ctx:
         self.student = None
         self.file_ids = []
         self.answer_sheet_file_ids = []   # 答题卡（双输入判题：试卷读题目、答题卡读作答）
+        self.answer_key_file_ids = []     # 标准答案（权威答案源，独立解析不进正文）
+        self.answer_key_text = ""
         self.ocr_text = ""
         self.ocr_confidence = 0.8
+        self.ocr_warning = ""         # OCR 降级告警（视觉失败退回本地识别等）
         self.analysis = None          # analyze_mistakes 原始返回
         self.mistakes = []            # 本次分析产出的错题（dict 形态）
         self.chunk_stats = None       # 分段分析执行情况 {total, ok, failed}（非分段为 None）
@@ -86,6 +89,10 @@ class Ctx:
         """答题卡 file_ids（双输入判题：试卷读题目、答题卡读作答）。"""
         return self.input_data.get("answer_sheet_file_ids") or []
 
+    def resolve_answer_key_file_ids(self):
+        """标准答案 file_ids（老师提供 → 权威答案源）。"""
+        return self.input_data.get("answer_key_file_ids") or []
+
     def build_output(self) -> dict:
         """按 kind 构造任务 output_data。"""
         from domain import cycle as cycle_mod
@@ -102,6 +109,8 @@ class Ctx:
             }
             if self.chunk_stats:
                 out["chunk_stats"] = self.chunk_stats
+            if self.ocr_warning:
+                out["ocr_warning"] = self.ocr_warning
             return out
         out = {
             "needs_review": False,
@@ -120,6 +129,8 @@ class Ctx:
             out["file_ids"] = self.file_ids
         if self.chunk_stats:
             out["chunk_stats"] = self.chunk_stats
+        if self.ocr_warning:
+            out["ocr_warning"] = self.ocr_warning
         return out
 
 
@@ -164,78 +175,119 @@ def expand_range_answers(text: str) -> str:
     return _RANGE_ANS_RE.sub(_repl, text)
 
 
+def _ocr_group_to_text(ids, label, student_id, task_id, db_path, note="",
+                       warnings=None):
+    """OCR 一组文件，返回 (按序 parts, 置信度合计, 文件数)。
+
+    label 写进每页段落头；note 追加在段落头之后（用于"本段是学生作答"这类显式声明）。
+    分流：pdf/docx 先走文档解析直接取文本（零成本、100% 准确）；
+    取不到文本（扫描型 PDF）才渲染成图片回退 vision；图片走原 vision 链路。
+    """
+    from document_parser import is_document, parse_document
+    from skills_bridge import run_ocr_parallel
+
+    # 每个原始文件对应若干待 vision 的图片（图片 1 个，扫描型 PDF 多页）
+    jobs = []  # [(idx, [image_paths])]
+    parts = [None] * len(ids)
+
+    for idx, fid in enumerate(ids):
+        try:
+            path = get_image_path(student_id, fid, db_path)
+        except Exception:
+            log.warning("文件缺失跳过 file_id=%s", fid, exc_info=True)
+            continue
+        if is_document(path):
+            out_dir = os.path.join(UPLOAD_DIR, str(student_id),
+                                   "doc_pages", str(fid))
+            text, images = parse_document(path, out_dir=out_dir)
+            if text:
+                parts[idx] = (f"--- 第 {idx + 1} 页 {label}---\n"
+                              + note + text)
+                continue
+            if images:
+                jobs.append((idx, images))
+                continue
+            log.warning("文档解析无结果 file_id=%s", fid)
+            continue
+        jobs.append((idx, [path]))
+
+    flat = [p for _, ps in jobs for p in ps]
+    results = run_ocr_parallel(flat, task_id=task_id) if flat else []
+
+    k = 0
+    for idx, ps in jobs:
+        rs = results[k:k + len(ps)]
+        k += len(ps)
+        texts = [r["text"] for r in rs if r.get("ok") and r.get("text")]
+        if texts:
+            parts[idx] = (f"--- 第 {idx + 1} 页 {label}---\n"
+                          + note + "\n".join(texts))
+        else:
+            parts[idx] = f"--- 第 {idx + 1} 页 {label}---\n[系统提示] OCR未能识别该页"
+    for i in range(len(ids)):
+        if parts[i] is None:
+            parts[i] = f"--- 第 {i + 1} 页 {label}---\n[系统提示] OCR未能识别该页"
+    # 降级留痕（P0）：视觉识别失败退回本地 OCR（或整页失败）必须能被上层看见，
+    # 否则家长只会拿到更差的结果而无人知道原因。
+    if warnings is not None:
+        group = label or "试卷"
+        fell_back = sum(1 for r in results if r.get("vision_fallback_reason"))
+        failed = sum(1 for r in results if not r.get("ok"))
+        if fell_back:
+            warnings.append(
+                f"{group}有 {fell_back} 页视觉识别失败，已退回本地 OCR，"
+                f"识别准确率可能下降（建议重新上传更清晰的照片）")
+        if failed:
+            warnings.append(f"{group}有 {failed} 页两种 OCR 均未识别成功，该页内容缺失")
+    return parts, sum(r.get("confidence", 0.0) or 0.0 for r in results), len(ids)
+
+
 def ocr_to_text(file_ids, student_id, task_id, db_path,
-                answer_sheet_file_ids=None):
+                answer_sheet_file_ids=None, warnings=None):
     """并行 OCR 全部页并按页序拼接。返回 (text, avg_confidence)。
 
     试卷（file_ids）与答题卡（answer_sheet_file_ids）分组拼接，段落标注
     （试卷）/（答题卡），供判题 LLM 区分题目来源与学生作答来源。
     缺页/识别失败不中断，以占位提示替代（与历史行为一致）。
+
+    注意：**标准答案不并入本函数**——它走 extract_answer_key_text 单独解析成
+    答案键再注入判题（见 llm_analysis.parse_answer_key）。混进正文会污染
+    `_extract_paper_text` 的防臆造校验（答案文件里也含题号）。
     """
-    from skills_bridge import run_ocr_parallel
-
-    def _ocr_group(ids, label):
-        """OCR 一组文件，返回按序 parts 列表（含段落标注）。
-
-        分流：pdf/docx 先走文档解析直接取文本（零成本、100% 准确）；
-        取不到文本（扫描型 PDF）才渲染成图片回退 vision；图片走原 vision 链路。
-        """
-        from document_parser import is_document, parse_document
-
-        # 答题卡段落显式声明"这是学生作答"：避免其中出现"参考答案"等字样时
-        # 被判题 prompt 当成标准答案（实测用户用参考答案文件模拟学生作答 → 判 0 错题）
-        sheet_note = ("【说明：本段落为学生在答题卡上的实际作答，不是标准答案/参考答案】\n"
-                      if label else "")
-
-        # 每个原始文件对应若干待 vision 的图片（图片 1 个，扫描型 PDF 多页）
-        jobs = []  # [(idx, [image_paths])]
-        parts = [None] * len(ids)
-
-        for idx, fid in enumerate(ids):
-            try:
-                path = get_image_path(student_id, fid, db_path)
-            except Exception:
-                log.warning("文件缺失跳过 file_id=%s", fid, exc_info=True)
-                continue
-            if is_document(path):
-                out_dir = os.path.join(UPLOAD_DIR, str(student_id),
-                                       "doc_pages", str(fid))
-                text, images = parse_document(path, out_dir=out_dir)
-                if text:
-                    parts[idx] = (f"--- 第 {idx + 1} 页 {label}---\n"
-                                  + sheet_note + text)
-                    continue
-                if images:
-                    jobs.append((idx, images))
-                    continue
-                log.warning("文档解析无结果 file_id=%s", fid)
-                continue
-            jobs.append((idx, [path]))
-
-        flat = [p for _, ps in jobs for p in ps]
-        results = run_ocr_parallel(flat, task_id=task_id) if flat else []
-
-        k = 0
-        for idx, ps in jobs:
-            rs = results[k:k + len(ps)]
-            k += len(ps)
-            texts = [r["text"] for r in rs if r.get("ok") and r.get("text")]
-            if texts:
-                parts[idx] = (f"--- 第 {idx + 1} 页 {label}---\n"
-                              + sheet_note + "\n".join(texts))
-            else:
-                parts[idx] = f"--- 第 {idx + 1} 页 {label}---\n[系统提示] OCR未能识别该页"
-        for i in range(len(ids)):
-            if parts[i] is None:
-                parts[i] = f"--- 第 {i + 1} 页 {label}---\n[系统提示] OCR未能识别该页"
-        return parts, sum(r.get("confidence", 0.0) or 0.0 for r in results), len(ids)
+    # 答题卡段落显式声明"这是学生作答"：避免其中出现"参考答案"等字样时
+    # 被判题 prompt 当成标准答案（实测用户用参考答案文件模拟学生作答 → 判 0 错题）
+    sheet_note = ("【说明：本段落为学生在答题卡上的实际作答，不是标准答案/参考答案】\n"
+                  if answer_sheet_file_ids else "")
 
     sheet_ids = answer_sheet_file_ids or []
-    sheet_parts, sheet_conf, sheet_n = _ocr_group(sheet_ids, "（答题卡）")
-    parts, conf_sum, n = _ocr_group(file_ids, "")
+    sheet_parts, sheet_conf, sheet_n = _ocr_group_to_text(
+        sheet_ids, "（答题卡）", student_id, task_id, db_path, note=sheet_note,
+        warnings=warnings)
+    parts, conf_sum, n = _ocr_group_to_text(
+        file_ids, "", student_id, task_id, db_path, warnings=warnings)
     confidence = (conf_sum + sheet_conf) / (n + sheet_n) if (n + sheet_n) else 0.3
     # 范围作答（41-45: ABBAC）展开为逐题，避免判题 LLM 配对失败而臆造作答
     return expand_range_answers("\n\n".join(parts + sheet_parts)), confidence
+
+
+# 标准答案段落显式声明：这份文件是老师给的权威答案，且不是学生作答
+_ANSWER_KEY_NOTE = "【说明：本段落是老师提供的试卷标准答案，是权威答案来源】\n"
+
+
+def extract_answer_key_text(ids, student_id, task_id, db_path):
+    """单独提取「标准答案」文件文本。返回 (text, confidence)。
+
+    与试卷/答题卡分开处理：结果不进 ocr_text，而是解析成 {题号: 答案} 注入
+    `summary.printed_answer_key`（走既有权威通道 `_apply_printed_answer_key`）。
+    范围形式（1-5 BCADC）先展开为逐题，显著提升后续提取的可靠性。
+    """
+    if not ids:
+        return "", 0.0
+    parts, conf_sum, n = _ocr_group_to_text(
+        ids, "（标准答案）", student_id, task_id, db_path, note=_ANSWER_KEY_NOTE)
+    confidence = conf_sum / n if n else 0.0
+    text = "\n\n".join(p for p in parts if p)
+    return expand_range_answers(text), confidence
 
 
 _OCR_EMPTY_PLACEHOLDER = (
@@ -253,19 +305,40 @@ def node_ocr(ctx: Ctx):
         raise ValueError("缺少试卷照片（file_id/file_ids）")
     ctx.progress("OCR识别试卷", 15)
     sheet_ids = ctx.resolve_answer_sheet_file_ids()
+    ocr_warnings = []
     text, confidence = ocr_to_text(
         file_ids, ctx.student_id, ctx.task_id, ctx.db_path,
-        answer_sheet_file_ids=sheet_ids)
+        answer_sheet_file_ids=sheet_ids, warnings=ocr_warnings)
     if not text.strip() or len(text.strip()) < 50:
         text = _OCR_EMPTY_PLACEHOLDER
         confidence = confidence or 0.3
+    # OCR 降级告警：去重保序后落到日志、任务进度文案与 output_data，
+    # 让家长端能看到"这卷子识别不准，建议重传"，而不是无声变差。
+    if ocr_warnings:
+        ctx.ocr_warning = "；".join(dict.fromkeys(ocr_warnings))
+        log.warning("OCR 降级告警 student=%s: %s", ctx.student_id, ctx.ocr_warning)
+        ctx.progress(f"OCR识别试卷（{ctx.ocr_warning}）", 20)
+    # 标准答案（老师提供）：独立解析成答案键 → 后续作为权威答案源注入判题。
+    # 解析失败按"无标准答案"处理，不阻断主链路。
+    key_ids = ctx.resolve_answer_key_file_ids()
+    answer_key_text = ""
+    if key_ids:
+        try:
+            answer_key_text, _ = extract_answer_key_text(
+                key_ids, ctx.student_id, ctx.task_id, ctx.db_path)
+        except Exception:
+            log.warning("标准答案解析失败 file_ids=%s", key_ids, exc_info=True)
     ctx.file_ids = file_ids
     ctx.answer_sheet_file_ids = sheet_ids
+    ctx.answer_key_file_ids = key_ids
+    ctx.answer_key_text = answer_key_text
     ctx.ocr_text = text
     ctx.ocr_confidence = confidence
     # 持久化 OCR 中间产物，供断点续跑（免重复识别）
     persisted = dict(ctx.input_data)
     persisted["_ocr_text"] = text
+    if answer_key_text:
+        persisted["_answer_key_text"] = answer_key_text
     db.update_task(ctx.task_id, {
         "input_data": json.dumps(persisted, ensure_ascii=False),
     }, ctx.db_path)
@@ -282,7 +355,10 @@ def node_analyze(ctx: Ctx):
     teacher_notes = ctx.input_data.get("teacher_notes", "")
     if teacher_notes:
         ocr_text = f"{ocr_text}\n\n[老师意见]: {teacher_notes}"
-    analysis = analyze_mistakes(ocr_text, task_id=ctx.task_id)
+    analysis = analyze_mistakes(
+        ocr_text, task_id=ctx.task_id,
+        answer_key_text=(ctx.answer_key_text
+                         or ctx.input_data.get("_answer_key_text") or ""))
     mistakes = analysis.get("mistakes", [])
     ctx.chunk_stats = (analysis.get("summary") or {}).get("chunk_stats")
 
@@ -713,6 +789,15 @@ def node_weekly_report(ctx: Ctx):
     except Exception:
         cause_trend = None
 
+    # 记忆进度（遗忘曲线阶梯；纯统计，失败不阻断周报 —— 与 cause_trend 同策略）
+    review_progress = None
+    try:
+        review_progress = db.get_review_progress(
+            ctx.student_id, week_start=ctx.week_start, week_end=week_end,
+            db_path=ctx.db_path)
+    except Exception:
+        log.warning("复习进度统计失败 student=%s", ctx.student_id, exc_info=True)
+
     wr_html = render_weekly_report(
         student_name=ctx.student["name"],
         week_start=ctx.week_start,
@@ -725,6 +810,7 @@ def node_weekly_report(ctx: Ctx):
         learning_style_detail=learning_style_detail,
         action_plan=action_plan,
         cause_trend=cause_trend,
+        review_progress=review_progress,
     )
     wr_dir = os.path.join(UPLOAD_DIR, str(ctx.student_id), "weekly_pdf")
     os.makedirs(wr_dir, exist_ok=True)

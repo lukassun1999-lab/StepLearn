@@ -90,6 +90,7 @@ TEMPERATURE_BY_CALL_TYPE = {
     "analyze": 0.0,      # 错题提取与自动批改
     "grade": 0.0,        # 练习批改
     "cause_chain": 0.0,  # 错因归因
+    "answer_key": 0.0,   # 标准答案解析（逐题提取，必须确定性）
     "ocr": 0.0,          # 视觉识别
 }
 DEFAULT_TEMPERATURE = 0.3

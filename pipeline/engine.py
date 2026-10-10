@@ -107,6 +107,9 @@ def run_chain(task: dict, db_path: str, kind: str,
                 start_node = resume_node
                 ctx.start_node = resume_node
                 ctx.ocr_text = ctx.input_data.get("_ocr_text") or ctx.ocr_text
+                # 标准答案解析结果同样免重复识别（analyze 节点的权威答案源）
+                ctx.answer_key_text = (ctx.input_data.get("_answer_key_text")
+                                       or ctx.answer_key_text)
 
     # ── 顺序执行链节点，每节点落库一次 Cycle 状态 ──
     for node in chain[chain.index(start_node):]:

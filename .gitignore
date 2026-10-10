@@ -26,6 +26,7 @@ __pycache__/
 .pytest_cache/
 .llm_cache/
 _tmp_*
+.tmp_test/
 
 # 运行日志
 logs/

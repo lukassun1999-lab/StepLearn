@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""清除历史上传的学生试卷与答题卡（AI 生成的报告/练习/周报/海报不受影响）。
+"""清除历史上传的学生试卷、答题卡与标准答案（AI 生成的报告/练习/周报/海报不受影响）。
 
 范围（"上传的学生试卷" = 学生拍照上传的原始作答材料）：
-  - files 表 file_type IN ('test_paper', 'answer_sheet') 的记录
-  - uploads/<student_id>/test_paper/ 与 answer_sheet/ 目录下的全部磁盘文件
+  - files 表 file_type IN ('test_paper', 'answer_sheet', 'answer_key') 的记录
+  - uploads/<student_id>/ 下 test_paper/ 与 answer_sheet/ 与 answer_key/ 目录的全部磁盘文件
     （含失败任务遗留的无 DB 记录孤儿文件）
 
 不在范围：report_pdf / exercise_pdf / weekly_pdf / poster（AI 产出，保留）；

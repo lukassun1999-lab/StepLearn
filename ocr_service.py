@@ -3,6 +3,7 @@
 """OCR 服务（vision LLM 为主、Tesseract 兜底），自 skills_bridge.py 拆出。"""
 
 import json
+import logging
 import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
@@ -11,6 +12,8 @@ from typing import Any, Dict, List
 from llm import OCR_BACKEND, VISION_MODEL, LLMClient
 from bridge_common import OCR_JS, OCR_WRAPPER
 from llm_prompts import VISION_OCR_PROMPT
+
+log = logging.getLogger(__name__)
 
 _MIN_OCR_TEXT_LENGTH = 1
 
@@ -108,10 +111,17 @@ def run_ocr_parallel(image_paths, task_id=None, max_workers=4, progress=None):
     def _one(i, path):
         try:
             r = run_ocr(path, task_id=task_id)
-            return i, {"text": (r.get("text") or "").strip(),
-                       "confidence": r.get("confidence", 0.0), "ok": True}
-        except Exception:
-            return i, {"text": "", "confidence": 0.0, "ok": False}
+            out = {"text": (r.get("text") or "").strip(),
+                   "confidence": r.get("confidence", 0.0), "ok": True}
+            # 视觉识别失败→退回 Tesseract 时必须把原因带上去，否则上层只能看到
+            # "识别结果变差"而不知道降级发生了（静默劣化，P0 修复）。
+            if r.get("vision_fallback_reason"):
+                out["vision_fallback_reason"] = r["vision_fallback_reason"]
+            return i, out
+        except Exception as e:
+            log.warning("OCR 彻底失败 path=%s", path, exc_info=True)
+            return i, {"text": "", "confidence": 0.0, "ok": False,
+                       "error": str(e)[:200]}
 
     results = [None] * n
     workers = max(1, min(max_workers, n))
@@ -146,8 +156,13 @@ def run_ocr(image_path: str, lang: str = "chi_sim+eng",
             if len(result.get("text", "").strip()) >= _MIN_OCR_TEXT_LENGTH:
                 return result
             vision_error = "Vision OCR returned insufficient text"
+            log.warning("视觉 OCR 返回内容过少，将退回 Tesseract image=%s", image_path)
         except Exception as e:
             vision_error = str(e)
+            # 显式告警：模型不支持图片 / 端点错误 / 额度不足等都会走到这里，
+            # 而默认 OCR_BACKEND=auto 会静默退回本地识别 → 必须留痕。
+            log.warning("视觉 OCR 失败，将退回 Tesseract image=%s reason=%s",
+                        image_path, vision_error)
 
     if use_tesseract:
         try:

@@ -296,12 +296,62 @@ button:disabled{opacity:.6;cursor:not-allowed;transform:none}
 <div class="code-ok" id="code-ok">✓ 班级码验证通过</div>
 {% endif %}
 
+<!-- 监护人同意 + 年龄识别（P0-6）：必须主动勾选；不满14周岁另需「单独同意」 -->
+<div style="text-align:left;margin:14px 0 4px;">
+  <label for="birth-year" style="font-size:.85rem;font-weight:600;">孩子出生年份 <span style="color:#d93a46;">*</span></label>
+  <select id="birth-year" onchange="updateChildrenConsent()" style="width:100%;margin-top:6px;">
+    <option value="">请选择出生年份</option>
+  </select>
+  <div style="font-size:.78rem;color:#6b6b6b;margin-top:4px;">仅用于判断是否需要监护人单独同意，不用于其它用途。</div>
+</div>
+<label style="display:flex;align-items:flex-start;gap:8px;margin:12px 0 6px;font-size:.85rem;line-height:1.6;font-weight:400;text-align:left;">
+  <input type="checkbox" id="consent-agree" style="width:auto;margin-top:3px;flex:0 0 auto;">
+  <span>我已阅读并同意
+    <a href="/terms" target="_blank" rel="noopener">《用户服务协议》</a>与
+    <a href="/privacy" target="_blank" rel="noopener">《隐私政策》</a>。
+    若使用者为不满十四周岁的未成年人，本人确认是其父母或其他监护人；
+    <a href="/ai-disclaimer" target="_blank" rel="noopener">《AI 生成内容免责声明》</a>请一并阅读。</span>
+</label>
+<!-- 不满14周岁单独同意：独立勾选，不与上面的一般同意捆绑（PIPL 第31条） -->
+<label id="children-consent-row" style="display:none;align-items:flex-start;gap:8px;margin:0 0 6px;padding:10px 12px;background:#E6F8F4;border-radius:10px;font-size:.85rem;line-height:1.6;font-weight:400;text-align:left;">
+  <input type="checkbox" id="children-consent" style="width:auto;margin-top:3px;flex:0 0 auto;">
+  <span><strong>单独同意（不满十四周岁）</strong>：孩子不满十四周岁，其个人信息属敏感个人信息。
+    本人作为监护人，单独同意按
+    <a href="/privacy" target="_blank" rel="noopener">《隐私政策》第 5 条</a>（未成年人个人信息专门章节）
+    收集与处理孩子的个人信息。</span>
+</label>
+
 <button id="btn" onclick="doRegister()">注 册</button>
 <div class="links">已有账号？<a href="/login">去登录</a></div>
 </div>
 <script>
 const hasSchoolFields = !!document.getElementById('school-input');
 let acTimer=null;
+
+// 出生年份选项：近 20 年（3 岁以下不属本产品受众，最多到 20 年前）
+(function initBirthYears(){
+  const sel=document.getElementById('birth-year');
+  if(!sel)return;
+  const now=new Date().getFullYear();
+  for(let y=now-3;y>=now-20;y--){
+    const o=document.createElement('option');
+    o.value=String(y);o.textContent=y+' 年';
+    sel.appendChild(o);
+  }
+})();
+
+// 不满 14 周岁 → 显示「单独同意」（与一般同意分开）
+function updateChildrenConsent(){
+  const sel=document.getElementById('birth-year');
+  const row=document.getElementById('children-consent-row');
+  if(!sel||!row)return;
+  const y=parseInt(sel.value,10);
+  const need=!isNaN(y)&&(new Date().getFullYear()-y)<14;
+  row.style.display=need?'flex':'none';
+  if(!need)document.getElementById('children-consent').checked=false;
+}
+</script>
+<script>
 
 if (hasSchoolFields) {
   const schoolInput=document.getElementById('school-input');
@@ -366,9 +416,23 @@ async function doRegister(){
   if(!grade){err.textContent='请选择年级';err.style.display='block';return;}
   if(!textbookVersion){err.textContent='请选择教材版本';err.style.display='block';return;}
   if(hasSchoolFields&&!classCode){err.textContent='请输入班级码';err.style.display='block';return;}
+  // 监护人同意必须先勾选（服务端同样校验，双保险）
+  if(!document.getElementById('consent-agree').checked){
+    err.textContent='请先阅读并勾选同意《用户服务协议》和《隐私政策》';err.style.display='block';return;
+  }
+  // 年龄识别：出生年份必选；不满 14 周岁还需「单独同意」
+  const byEl=document.getElementById('birth-year');
+  const birthYear=parseInt(byEl?byEl.value:'',10);
+  if(isNaN(birthYear)){err.textContent='请选择孩子的出生年份';err.style.display='block';return;}
+  const childrenNeed=(new Date().getFullYear()-birthYear)<14;
+  if(childrenNeed&&!document.getElementById('children-consent').checked){
+    err.textContent='孩子不满十四周岁，请勾选「单独同意」后再注册';err.style.display='block';return;
+  }
   const btn=document.getElementById('btn');btn.disabled=true;btn.textContent='注册中...';
   try{
-    const body={name,phone,password:pwd,grade,textbook_version:textbookVersion};
+    const body={name,phone,password:pwd,grade,textbook_version:textbookVersion,
+                consent_agreed:true,birth_year:birthYear,
+                children_consent_agreed:childrenNeed};
     if(classCode)body.class_code=classCode;
     const r=await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await r.json();

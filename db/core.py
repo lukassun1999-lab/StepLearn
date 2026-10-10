@@ -147,7 +147,8 @@ def _migrate_db(conn: sqlite3.Connection) -> None:
             conn.commit()
     # Add school/class/auth columns to students for student self-registration
     for col, col_type in [("school_id", "INTEGER"), ("class_id", "INTEGER"),
-                          ("phone", "TEXT"), ("password_hash", "TEXT")]:
+                          ("phone", "TEXT"), ("password_hash", "TEXT"),
+                          ("birth_year", "INTEGER")]:
         if col not in student_col_names:
             conn.execute(f"ALTER TABLE students ADD COLUMN {col} {col_type}")
             conn.commit()
@@ -347,6 +348,7 @@ def init_db(db_path: str = DB_PATH) -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             grade TEXT NOT NULL DEFAULT '高二',
+            birth_year INTEGER,               -- 仅收出生年份（最小必要）：判定是否不满14周岁 → 单独同意
             school_type TEXT NOT NULL DEFAULT '住校',
             english_score REAL,
             target_score REAL,
@@ -747,7 +749,7 @@ def init_db(db_path: str = DB_PATH) -> None:
             FOREIGN KEY (task_id) REFERENCES ai_tasks(id)
         );
 
-        -- ── 老师纠错记录 ─────────────────────────
+        -- ── 纠错记录（老师纠错 + 家长上报）──────
         CREATE TABLE IF NOT EXISTS ai_corrections (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_id INTEGER NOT NULL,
@@ -759,7 +761,7 @@ def init_db(db_path: str = DB_PATH) -> None:
             corrected_value TEXT NOT NULL,
             reason TEXT,
             reviewed_by TEXT,
-            status TEXT DEFAULT 'applied',    -- 'applied' | 'reverted'
+            status TEXT DEFAULT 'applied',    -- 'applied' | 'reverted' | 'pending'(家长上报待审) | 'rejected'
             resolved_by_task_id INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (task_id) REFERENCES ai_tasks(id),
@@ -884,6 +886,36 @@ def init_db(db_path: str = DB_PATH) -> None:
             earned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (student_id) REFERENCES students(id),
             UNIQUE(student_id, achievement_key)
+        );
+
+        -- ── 徽章（事件驱动、可累计；规则见 db/learning.py BADGE_CATALOG）──
+        -- 与 achievements（数据驱动、一次性解锁）分工不同：
+        -- 徽章是"某类行为发生一次得一枚"，同一 key 累加 count。
+        CREATE TABLE IF NOT EXISTS badges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL,
+            badge_key TEXT NOT NULL,
+            count INTEGER DEFAULT 0,
+            first_earned_at TIMESTAMP,
+            last_earned_at TIMESTAMP,
+            FOREIGN KEY (student_id) REFERENCES students(id),
+            UNIQUE(student_id, badge_key)
+        );
+
+        -- ── 成就兑换学习用具（规则见 db/learning.py REWARD_CATALOG）──
+        -- 规则未配置前不会产生单据（request_reward_redemption 返回 not_configured）。
+        CREATE TABLE IF NOT EXISTS reward_redemptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL,
+            achievement_key TEXT NOT NULL,
+            reward_key TEXT NOT NULL,
+            reward_title TEXT,
+            status TEXT DEFAULT 'requested',   -- 'requested' | 'fulfilled' | 'cancelled'
+            note TEXT,
+            handled_by TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP,
+            FOREIGN KEY (student_id) REFERENCES students(id)
         );
 
         -- ── 学校与班级 ─────────────────────────────

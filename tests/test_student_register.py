@@ -1,4 +1,12 @@
-"""学生注册流程测试：年级 + 教材版本选择。"""
+"""学生注册流程测试：年级 + 教材版本选择。
+
+注：注册页自 P0-6 起必须主动勾选同意《用户服务协议》《隐私政策》
+（服务端校验 consent_agreed），且需提供**出生年份**用于年龄识别，
+故默认 payload 带上这两个字段；未勾选/缺出生年份被拒的用例见
+tests/test_consent_flow.py 与 tests/test_age_consent.py。
+"""
+
+from datetime import date
 
 
 def _register_payload(**overrides):
@@ -8,6 +16,8 @@ def _register_payload(**overrides):
         "password": "secret123",
         "grade": "初二",
         "textbook_version": "人教版",
+        "consent_agreed": True,
+        "birth_year": date.today().year - 16,   # 已满14周岁：只需一般同意
     }
     payload.update(overrides)
     return payload

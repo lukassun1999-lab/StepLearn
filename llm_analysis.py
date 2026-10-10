@@ -12,7 +12,8 @@ from knowledge_base import (CAUSE_KEYS, CAUSE_LABELS, _filter_real_mistakes,
                             _is_unanswered, _normalize_error_cause,
                             _statistical_cause_profile, get_knowledge_framework,
                             normalize_knowledge_points)
-from llm_prompts import CAUSE_CHAIN_PROMPT, MISTAKE_ANALYSIS_PROMPT
+from llm_prompts import (ANSWER_KEY_EXTRACT_PROMPT, CAUSE_CHAIN_PROMPT,
+                         MISTAKE_ANALYSIS_PROMPT)
 
 log = logging.getLogger(__name__)
 
@@ -164,11 +165,72 @@ def _extract_paper_text(ocr_text: str) -> str:
     return ocr_text[:start] if start > 0 else ocr_text[:idx]
 
 
-def analyze_mistakes(ocr_text: str, task_id: int = None) -> Dict[str, Any]:
+_ANSWER_KEY_SCHEMA = {"answers": {"type": "object", "required": True}}
+
+
+def parse_answer_key(answer_key_text: str, task_id: int = None) -> Dict[int, str]:
+    """把老师提供的标准答案文本解析为 {题号(int): 答案(str)}。
+
+    失败/为空一律返回 {}（等价于"无标准答案"，判题退回模型自判，行为与历史一致）。
+    """
+    if not (answer_key_text or "").strip():
+        return {}
+    try:
+        prompt = ANSWER_KEY_EXTRACT_PROMPT.format(answer_key_text=answer_key_text)
+        result = _get_client().call(
+            prompt=prompt, schema=_ANSWER_KEY_SCHEMA, task_id=task_id,
+            call_type="answer_key")
+    except Exception:
+        log.warning("标准答案解析调用失败，按无标准答案处理", exc_info=True)
+        return {}
+    raw = (result or {}).get("answers")
+    if not isinstance(raw, dict):
+        return {}
+    parsed: Dict[int, str] = {}
+    for k, v in raw.items():
+        try:
+            qn = int(str(k).strip())
+        except (TypeError, ValueError):
+            continue
+        if v is None or not str(v).strip():
+            continue
+        parsed[qn] = str(v).strip()
+    return parsed
+
+
+def _seed_answer_key(result: Dict, answer_key_text: str,
+                     task_id: int = None) -> None:
+    """把标准答案（独立上传）注入 summary.printed_answer_key —— 复用既有权威通道。
+
+    为什么复用而不是新开一条：`_apply_printed_answer_key` 已承担完整语义
+    「权威答案覆盖模型自定答案 → 再经 _filter_real_mistakes 剔除误判错题」
+    （见《错判归因报告》①）；标准答案与卷面印刷答案**权威等级相同**。
+
+    冲突处理：标准答案文件的值**优先于**卷面印刷答案（显式上传 = 更明确意图），
+    并记录来源题号，供 _apply_printed_answer_key 标记 answer_source=answer_key。
+    """
+    if not isinstance(result, dict):
+        return
+    key_map = parse_answer_key(answer_key_text or "", task_id=task_id)
+    if not key_map:
+        return
+    summary = result.setdefault("summary", {})
+    merged = dict(summary.get("printed_answer_key") or {})
+    for qn, ans in key_map.items():
+        merged[str(qn)] = ans
+    summary["printed_answer_key"] = merged
+    summary["answer_key_file_questions"] = sorted(key_map.keys())
+
+
+def analyze_mistakes(ocr_text: str, task_id: int = None,
+                     answer_key_text: str = None) -> Dict[str, Any]:
     """
     Run mistake analysis via LLM (english-mistake-analyzer STEP 2).
     Returns: {"mistakes": [...], "summary": {...}}
     长文本自动按题型分节多次调用后合并，避免整卷超长导致模型返回空壳。
+
+    answer_key_text: 老师单独提供的标准答案文本（可选）。非空时解析成答案键
+    注入 summary.printed_answer_key，作为**权威答案源**覆盖模型自定答案。
     """
     from db import get_recent_correction_hints
     hints = get_recent_correction_hints([], content_type="mistake", limit=5)
@@ -191,6 +253,9 @@ def analyze_mistakes(ocr_text: str, task_id: int = None) -> Dict[str, Any]:
             HAS_API_KEY = False
         result["_paper_text"] = (_extract_paper_text(ocr_text or "")
                                  if HAS_API_KEY else "")
+    # 标准答案（独立上传）→ 权威答案键。必须在 _postprocess_mistakes 之前注入：
+    # 权威覆盖与"答对却被判错"的剔除都发生在 _apply_printed_answer_key 内部。
+    _seed_answer_key(result, answer_key_text or "", task_id=task_id)
     _postprocess_mistakes(result)
     return result
 
@@ -315,6 +380,15 @@ def _apply_printed_answer_key(result: Dict) -> None:
     if not normalized:
         summary["printed_answer_key"] = {}
         return
+    # 来源题号：来自「标准答案文件」的标 answer_key，卷面印刷的标 printed_key，
+    # 便于后续按来源统计判错率（P1-4 错判率看板）。
+    file_qns = set()
+    for q in summary.get("answer_key_file_questions") or []:
+        try:
+            file_qns.add(int(str(q).strip()))
+        except (TypeError, ValueError):
+            continue
+
     applied = 0
     for m in result.get("mistakes") or []:
         try:
@@ -323,7 +397,8 @@ def _apply_printed_answer_key(result: Dict) -> None:
             continue
         if qn in normalized:
             m["correct_answer"] = normalized[qn]
-            m["answer_source"] = "printed_key"
+            m["answer_source"] = ("answer_key" if qn in file_qns
+                                  else "printed_key")
             applied += 1
     summary["printed_key_applied"] = applied
 

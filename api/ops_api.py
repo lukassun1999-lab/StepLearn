@@ -104,6 +104,10 @@ def api_students_list():
         students = get_students_by_teacher(session['user_id'])
     for s in students:
         s["has_consent"] = has_parent_consent(s["id"])
+        # 年龄相关同意状态：运营端据此看出"只缺儿童单独同意"（P0-6）
+        s["missing_consents"] = missing_consent_types(s["id"])
+        s["has_children_consent"] = has_parent_consent(
+            s["id"], consent_type=CONSENT_TYPE_CHILDREN)
     return jsonify(students)
 
 @ops_api_bp.route('/api/students/<int:id>', methods=['GET'])
@@ -113,7 +117,47 @@ def api_student_get(id):
     if not row:
         return '', 404
     row["has_consent"] = has_parent_consent(id)
+    row["missing_consents"] = missing_consent_types(id)
+    row["has_children_consent"] = has_parent_consent(
+        id, consent_type=CONSENT_TYPE_CHILDREN)
     return jsonify(row)
+
+def _valid_birth_year(value):
+    """出生年份校验：合法返回 int，非法/缺失返回 None（范围见 db.age_from_birth_year）。"""
+    try:
+        by = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return by if age_from_birth_year(by) is not None else None
+
+
+def _check_ops_consent_input(data, student_id=None):
+    """运营代登记家长同意时的年龄校验（P0-6）。
+
+    运营端代建档曾是唯一漏掉年龄的路径：没有出生年份 → 判定"不需要单独同意"
+    → 不满 14 周岁的孩子绕过单独同意。这里把口子堵上：
+    **既然代登记同意，就必须说明年龄**；不满 14 周岁还须单独确认儿童授权。
+    `student_id` 非空（编辑既有学生）时，已登记的儿童单独同意仍然有效，不要求重复勾选。
+    返回 (birth_year, error_response)。
+    """
+    if not data.get('parent_consent'):
+        # 未代登记同意：不强制（后续可由家长自助或在「合规」页补录）
+        return _valid_birth_year(data.get('birth_year')), None
+    birth_year = _valid_birth_year(data.get('birth_year'))
+    if birth_year is None:
+        return None, (jsonify({
+            "error": "勾选「家长已同意」时必须填写孩子的出生年份"
+                     "（用于判断是否需要监护人单独同意）"}), 400)
+    if age_from_birth_year(birth_year) < CHILDREN_CONSENT_AGE:
+        already = bool(student_id) and has_parent_consent(
+            student_id, consent_type=CONSENT_TYPE_CHILDREN)
+        if not data.get('children_consent') and not already:
+            return None, (jsonify({
+                "error": "孩子未满十四周岁，其个人信息属敏感个人信息："
+                         "请在取得家长单独同意后勾选「儿童个人信息单独同意」",
+                "code": "children_consent_required"}), 400)
+    return birth_year, None
+
 
 @ops_api_bp.route('/api/students', methods=['POST'])
 @staff_required
@@ -121,6 +165,12 @@ def api_student_create():
     data = request.get_json()
     if not data.get('name'):
         return jsonify({"error": "name required"}), 400
+
+    birth_year, err = _check_ops_consent_input(data)
+    if err:
+        return err
+    if birth_year is not None:
+        data["birth_year"] = birth_year
     sid = create_student(data)
 
     # Handle referral code if provided
@@ -128,7 +178,7 @@ def api_student_create():
     if invite_code:
         record_referral(invite_code, sid)
 
-    # Record parent consent if provided
+    # Record parent consent if provided（不满14周岁另记一条**单独同意**）
     if data.get('parent_consent'):
         record_parent_consent(
             student_id=sid,
@@ -136,7 +186,17 @@ def api_student_create():
             contact=data.get('parent_phone') or data.get('parent_wechat', ''),
             ip_address=request.remote_addr,
             notes='创建学生时获得家长授权',
+            consent_type=CONSENT_TYPE_DATA,
         )
+        if birth_year is not None and age_from_birth_year(birth_year) < CHILDREN_CONSENT_AGE:
+            record_parent_consent(
+                student_id=sid,
+                consented_by=data.get('parent_name', 'unknown'),
+                contact=data.get('parent_phone') or data.get('parent_wechat', ''),
+                ip_address=request.remote_addr,
+                notes='创建学生时单独确认（不满14周岁单独同意，《隐私政策》第5条）',
+                consent_type=CONSENT_TYPE_CHILDREN,
+            )
 
     # Audit log
     log_audit(
@@ -157,9 +217,15 @@ def api_student_update(id):
     data = request.get_json()
     if not data.get('name'):
         return jsonify({"error": "name required"}), 400
+
+    birth_year, err = _check_ops_consent_input(data, student_id=id)
+    if err:
+        return err
+    if birth_year is not None:
+        data["birth_year"] = birth_year
     update_student(id, data)
 
-    # Record parent consent if newly provided
+    # Record parent consent if newly provided（不满14周岁另记一条**单独同意**）
     if data.get('parent_consent') and not has_parent_consent(id):
         record_parent_consent(
             student_id=id,
@@ -167,6 +233,17 @@ def api_student_update(id):
             contact=data.get('parent_phone') or data.get('parent_wechat', ''),
             ip_address=request.remote_addr,
             notes='更新学生信息时获得家长授权',
+            consent_type=CONSENT_TYPE_DATA,
+        )
+    if (data.get('children_consent') and needs_children_consent(id)
+            and not has_parent_consent(id, consent_type=CONSENT_TYPE_CHILDREN)):
+        record_parent_consent(
+            student_id=id,
+            consented_by=data.get('parent_name', 'unknown'),
+            contact=data.get('parent_phone') or data.get('parent_wechat', ''),
+            ip_address=request.remote_addr,
+            notes='更新学生信息时单独确认（不满14周岁单独同意，《隐私政策》第5条）',
+            consent_type=CONSENT_TYPE_CHILDREN,
         )
 
     log_audit(
@@ -931,6 +1008,103 @@ def api_correction_revert(correction_id):
         target_id=str(correction_id),
     )
     return jsonify({"ok": True})
+
+@ops_api_bp.route('/api/reports/pending', methods=['GET'])
+@staff_required
+def api_pending_reports():
+    """家长上报待处理列表（P0-1）：待审 → 采纳后进提示词池（P0-3）。"""
+    return jsonify({
+        "reports": get_pending_reports(),
+        "count": get_pending_report_count(),
+        "issues": PARENT_REPORT_ISSUES,
+    })
+
+
+@ops_api_bp.route('/api/reports/<int:correction_id>/adopt', methods=['POST'])
+@staff_required
+def api_report_adopt(correction_id):
+    """采纳家长上报：应用修正并写入 ai_feedback_patterns（回流到后续 prompt）。"""
+    data = request.get_json(silent=True) or {}
+    ok = adopt_parent_report(
+        correction_id,
+        corrected_value=(data.get('corrected_value') or '').strip() or None,
+        reviewed_by=session.get('user_name') or session.get('user_id', 'unknown'),
+    )
+    if not ok:
+        return jsonify({"error": "上报不存在或已处理"}), 400
+    log_audit(
+        actor_type='teacher',
+        actor_id=session.get('user_id', 'unknown'),
+        action='adopt_parent_report',
+        target_type='ai_correction',
+        target_id=str(correction_id),
+    )
+    return jsonify({"ok": True})
+
+
+@ops_api_bp.route('/api/reports/<int:correction_id>/reject', methods=['POST'])
+@staff_required
+def api_report_reject(correction_id):
+    """驳回家长上报：不改数据、不进提示词池。"""
+    data = request.get_json(silent=True) or {}
+    ok = reject_parent_report(
+        correction_id,
+        reviewed_by=session.get('user_name') or session.get('user_id', 'unknown'),
+        reason=(data.get('reason') or '').strip(),
+    )
+    if not ok:
+        return jsonify({"error": "上报不存在或已处理"}), 400
+    log_audit(
+        actor_type='teacher',
+        actor_id=session.get('user_id', 'unknown'),
+        action='reject_parent_report',
+        target_type='ai_correction',
+        target_id=str(correction_id),
+    )
+    return jsonify({"ok": True})
+
+
+@ops_api_bp.route('/api/redemptions', methods=['GET'])
+@staff_required
+def api_redemptions_list():
+    """成就兑换单列表（P0-2）。
+
+    规则（REWARD_CATALOG）未配置时恒为空列表，`rewards_configured = 0`。
+    """
+    status = request.args.get('status') or None
+    if status not in (None, 'requested', 'fulfilled', 'cancelled'):
+        return jsonify({"error": "invalid status"}), 400
+    return jsonify({
+        "redemptions": list_reward_redemptions(status=status),
+        "rewards_configured": len(REWARD_CATALOG),
+    })
+
+
+@ops_api_bp.route('/api/redemptions/<int:redemption_id>/status', methods=['POST'])
+@staff_required
+def api_redemption_update_status(redemption_id):
+    """运营端履约：fulfilled（已发放学习用具）/ cancelled。"""
+    data = request.get_json(silent=True) or {}
+    status = (data.get('status') or '').strip()
+    if status not in ('fulfilled', 'cancelled'):
+        return jsonify({"error": "status 必须是 fulfilled 或 cancelled"}), 400
+    ok = update_redemption_status(
+        redemption_id, status,
+        handled_by=session.get('user_name') or session.get('user_id', 'unknown'),
+        note=(data.get('note') or '').strip(),
+    )
+    if not ok:
+        return jsonify({"error": "兑换单不存在或已处理"}), 400
+    log_audit(
+        actor_type='teacher',
+        actor_id=session.get('user_id', 'unknown'),
+        action='update_redemption_status',
+        target_type='reward_redemption',
+        target_id=str(redemption_id),
+        details={'status': status},
+    )
+    return jsonify({"ok": True})
+
 
 @ops_api_bp.route('/api/corrections/stats', methods=['GET'])
 @staff_required

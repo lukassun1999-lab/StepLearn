@@ -50,6 +50,35 @@ def register_page():
         feature_school=is_feature_enabled('feature_school_enabled'))
 
 
+# ── 法律文本页面（家庭端同意交互必须能打开正文）────────
+# 文本源文件在项目根 legal/ 目录，与仓库一起部署；版本号见 web/legal.py。
+
+@pages_bp.route('/terms')
+def terms_page():
+    return _legal_response('terms')
+
+
+@pages_bp.route('/privacy')
+def privacy_page():
+    return _legal_response('privacy')
+
+
+@pages_bp.route('/ai-disclaimer')
+def ai_disclaimer_page():
+    return _legal_response('ai-disclaimer')
+
+
+def _legal_response(slug):
+    from web.legal import render_legal_page
+    html = render_legal_page(slug)
+    if html is None:
+        return ('<h2 style="text-align:center;margin-top:80px;">'
+                '条款文本缺失，请联系客服</h2>'), 404
+    resp = make_response(html)
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
+
+
 # P3-13：/student 页已删除。学生端并入家庭端，登录/注册后直接进 /s/<code>。
 
 @pages_bp.route('/')

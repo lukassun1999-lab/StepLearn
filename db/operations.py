@@ -551,6 +551,218 @@ def revert_correction(correction_id: int, db_path: str = DB_PATH) -> bool:
     return True
 
 
+# ═══════════════════════════════════════════════════
+# 家长上报（P0-1）→ 运营采纳 → 进模式池（P0-3）
+# ═══════════════════════════════════════════════════
+
+# 家长可见的「这题有问题」选项 → 目标字段
+# （issue_type 由 target_field 推导，见 record_feedback_pattern 的 issue_type_map）
+PARENT_REPORT_ISSUES = {
+    "wrong_grading": "is_correct",              # 孩子其实做对了（系统判错）
+    "wrong_answer": "correct_answer",           # 正确答案不对
+    "wrong_explanation": "explanation",         # 解析有问题
+    "wrong_knowledge_point": "knowledge_points",  # 知识点归类不对
+}
+
+# 每学生每日上报上限（防刷；与练习防刷同口径，按本地日期计）
+PARENT_REPORT_DAILY_CAP = 10
+
+# 家长没给出具体答案时的占位（corrected_value 为 NOT NULL）
+_PARENT_REPORT_PLACEHOLDER = "（家长反馈待核实）"
+
+
+def create_parent_report(student_id: int, mistake_id: int, issue: str,
+                         note: str = "", suggested_value: str = "",
+                         db_path: str = DB_PATH) -> Dict[str, Any]:
+    """家长上报某道错题有问题 —— 落 status='pending'，**不立即改数据、不进模式池**。
+
+    与老师纠错的区别（关键）：
+    - 老师纠错 apply=True：立即覆盖目标字段并进 ai_feedback_patterns；
+    - 家长上报只落 pending，**必须经运营采纳**才应用并进模式池 ——
+      未经验证的上报若直接进 prompt，等于用家长话术污染 AI 提示词。
+
+    幂等：同一 (mistake_id, target_field) 已有 pending 记录时返回原记录，不新建。
+    频次：每学生每日上限 PARENT_REPORT_DAILY_CAP 条。
+
+    返回 {"ok", "report_id", "duplicate", "error"}
+    """
+    target_field = PARENT_REPORT_ISSUES.get(issue)
+    if not target_field:
+        return {"ok": False, "error": "unknown_issue", "report_id": None,
+                "duplicate": False}
+
+    conn = get_connection(db_path)
+    try:
+        m = conn.execute("SELECT * FROM mistakes WHERE id = ?", [mistake_id]).fetchone()
+        if not m or m["student_id"] != student_id:
+            return {"ok": False, "error": "mistake_not_found", "report_id": None,
+                    "duplicate": False}
+
+        dup = conn.execute("""
+            SELECT id FROM ai_corrections
+            WHERE content_type = 'mistake' AND target_id = ? AND target_field = ?
+              AND status = 'pending'
+            LIMIT 1
+        """, [mistake_id, target_field]).fetchone()
+        if dup:
+            return {"ok": True, "report_id": dup["id"], "duplicate": True, "error": ""}
+
+        today = conn.execute("""
+            SELECT COUNT(*) AS c FROM ai_corrections
+            WHERE student_id = ? AND status = 'pending'
+              AND date(created_at, 'localtime') = date('now', 'localtime')
+        """, [student_id]).fetchone()["c"]
+        if today >= PARENT_REPORT_DAILY_CAP:
+            return {"ok": False, "error": "rate_limited", "report_id": None,
+                    "duplicate": False}
+
+        # task_id 为 NOT NULL 且带外键（PRAGMA foreign_keys=ON）：
+        # 优先用错题的来源任务，退化为该学生最近一个任务
+        task_id = m["source_task_id"]
+        if task_id is not None:
+            if not conn.execute("SELECT 1 FROM ai_tasks WHERE id = ?",
+                                [task_id]).fetchone():
+                task_id = None
+        if task_id is None:
+            row = conn.execute(
+                "SELECT id FROM ai_tasks WHERE student_id = ? ORDER BY id DESC LIMIT 1",
+                [student_id]).fetchone()
+            task_id = row["id"] if row else None
+        if task_id is None:
+            return {"ok": False, "error": "no_task_context", "report_id": None,
+                    "duplicate": False}
+
+        if target_field == "is_correct":
+            original_value = None
+            corrected_value = "1"
+        else:
+            original_value = m[target_field]
+            if isinstance(original_value, (list, dict)):
+                original_value = json.dumps(original_value, ensure_ascii=False)
+            corrected_value = (suggested_value or "").strip() or _PARENT_REPORT_PLACEHOLDER
+
+        cur = conn.execute("""
+            INSERT INTO ai_corrections
+                (task_id, student_id, content_type, target_id, target_field,
+                 original_value, corrected_value, reason, reviewed_by, status)
+            VALUES (?, ?, 'mistake', ?, ?, ?, ?, ?, '', 'pending')
+        """, [task_id, student_id, mistake_id, target_field, original_value,
+              corrected_value, (note or "").strip()])
+        conn.commit()
+        return {"ok": True, "report_id": cur.lastrowid, "duplicate": False, "error": ""}
+    finally:
+        conn.close()
+
+
+def adopt_parent_report(correction_id: int, corrected_value: Any = None,
+                        reviewed_by: str = "", db_path: str = DB_PATH) -> bool:
+    """采纳家长上报：应用修正 → 写 ai_feedback_patterns（P0-3 回流）→ status='applied'。
+
+    - `is_correct`（孩子其实做对了）：不走字段覆盖，而是**撤销该错题** ——
+      连对判定置为已掌握，使其离开复习队列与后续练习。
+    - 其他字段：用采纳时给定的值（运营可改）覆盖目标字段，沿用老师纠错的
+      `_apply_correction_to_target`，行为与老师纠错完全一致。
+    """
+    conn = get_connection(db_path)
+    row = conn.execute(
+        "SELECT * FROM ai_corrections WHERE id = ? AND status = 'pending'",
+        [correction_id]).fetchone()
+    if not row:
+        conn.close()
+        return False
+
+    content_type = row["content_type"]
+    target_field = row["target_field"]
+    target_id = row["target_id"]
+    student_id = row["student_id"]
+    value = corrected_value if corrected_value not in (None, "") else row["corrected_value"]
+
+    if target_field == "is_correct":
+        conn.execute("""
+            UPDATE mistakes SET consecutive_correct = 2, mastery_level = 100,
+                                last_reviewed_at = ?
+            WHERE id = ?
+        """, [_now_iso(), target_id])
+        conn.execute("""
+            UPDATE ai_corrections
+            SET status = 'applied', reviewed_by = ?, corrected_value = ?
+            WHERE id = ?
+        """, [reviewed_by, str(value), correction_id])
+        conn.commit()
+        conn.close()
+    else:
+        conn.execute("""
+            UPDATE ai_corrections
+            SET status = 'applied', reviewed_by = ?, corrected_value = ?
+            WHERE id = ?
+        """, [reviewed_by, value, correction_id])
+        conn.commit()
+        conn.close()
+        _apply_correction_to_target(
+            correction_id=correction_id, content_type=content_type,
+            target_id=target_id, target_field=target_field,
+            corrected_value=value, db_path=db_path)
+
+    record_feedback_pattern(
+        content_type=content_type, target_field=target_field,
+        corrected_value=value, target_id=target_id, db_path=db_path)
+
+    # P0-2：采纳成功 → 记一枚徽章（规则见 db/learning.py BADGE_CATALOG /
+    # BADGE_MILESTONES；里程碑未配置时只累计，不解锁成就）。
+    # 采纳本身已落库，徽章失败不应让调用方以为采纳失败 → 吞异常只记日志。
+    try:
+        from db.learning import award_badge  # 惰性：避免 operations↔learning 环
+        award_badge(student_id, "parent_report_adopted",
+                    source="parent_report_adopt", db_path=db_path)
+    except Exception:
+        log.warning("徽章授予失败 student=%s", student_id, exc_info=True)
+    return True
+
+
+def reject_parent_report(correction_id: int, reviewed_by: str = "",
+                         reason: str = "", db_path: str = DB_PATH) -> bool:
+    """驳回家长上报：不改目标数据、不进模式池，仅置 status='rejected'。"""
+    conn = get_connection(db_path)
+    try:
+        cur = conn.execute("""
+            UPDATE ai_corrections
+            SET status = 'rejected', reviewed_by = ?,
+                reason = CASE WHEN ? = '' THEN reason ELSE ? END
+            WHERE id = ? AND status = 'pending'
+        """, [reviewed_by, reason, reason, correction_id])
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_pending_reports(limit: int = 100, db_path: str = DB_PATH) -> List[Dict[str, Any]]:
+    """运营端「家长上报」待处理列表（带学生名与错题上下文，最早的在前）。"""
+    conn = get_connection(db_path)
+    rows = conn.execute("""
+        SELECT c.*, s.name AS student_name,
+               m.question, m.question_type, m.correct_answer AS mistake_correct_answer,
+               m.knowledge_points AS mistake_knowledge_points
+        FROM ai_corrections c
+        JOIN students s ON s.id = c.student_id
+        LEFT JOIN mistakes m ON m.id = c.target_id AND c.content_type = 'mistake'
+        WHERE c.status = 'pending'
+        ORDER BY c.created_at ASC, c.id ASC
+        LIMIT ?
+    """, [limit]).fetchall()
+    conn.close()
+    return [_parse_correction_row(r) for r in rows]
+
+
+def get_pending_report_count(db_path: str = DB_PATH) -> int:
+    """待处理家长上报数（运营端角标用）。"""
+    conn = get_connection(db_path)
+    n = conn.execute(
+        "SELECT COUNT(*) FROM ai_corrections WHERE status = 'pending'").fetchone()[0]
+    conn.close()
+    return n
+
+
 def record_feedback_pattern(
     content_type: str,
     target_field: str,

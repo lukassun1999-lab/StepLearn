@@ -399,6 +399,148 @@ def get_review_stats(student_id: int, db_path: str = DB_PATH) -> Dict[str, Any]:
     }
 
 
+def _stage_label(hours: float) -> str:
+    """艾宾浩斯阶梯间隔 → 家长可读标签（24.0 → '1天'，1.0 → '1小时'）。
+
+    标签由 _EBBINGHAUS_INTERVALS 派生，避免与阶梯表各写一份而漂移。
+    """
+    if hours < 24:
+        return f"{int(hours)}小时"
+    return f"{int(hours // 24)}天"
+
+
+def _streak_as_of(records: List[tuple], cutoff: str, inclusive: bool) -> int:
+    """按时间点重算连续答对次数（records 为按时间升序的 (ts, is_correct)）。
+
+    ts 由 SQLite `datetime(created_at, 'localtime')` 归一化为本地
+    'YYYY-MM-DDTHH:MM:SS'，与 week_start/week_end 拼出的本地 ISO 边界可直接
+    字符串比较（ISO 8601 的字典序 = 时间序）。
+    """
+    streak = 0
+    for ts, is_correct in records:
+        if ts <= cutoff if inclusive else ts < cutoff:
+            streak = streak + 1 if is_correct else 0
+        else:
+            break
+    return streak
+
+
+def _count_newly_mastered(conn, student_id: int,
+                          week_start: str, week_end: str) -> int:
+    """本周新达成掌握的错题数。
+
+    用 practice_records 重算各时点的连续答对次数，而不是读 mistakes 当前值 ——
+    否则"早就掌握、本周只是又被批改练习带到一次"的错题会被误计为本周新攻克
+    （批改任务取题 unmastered_only=False，确实会带上已练对的题）。
+    """
+    if not week_start or not week_end:
+        return 0
+    rows = conn.execute("""
+        SELECT pr.mistake_id, pr.is_correct,
+               replace(datetime(pr.created_at, 'localtime'), ' ', 'T') AS ts
+        FROM practice_records pr
+        JOIN mistakes m ON m.id = pr.mistake_id
+        WHERE m.student_id = ?
+        ORDER BY pr.mistake_id, ts
+    """, [student_id]).fetchall()
+
+    by_mistake: Dict[int, List[tuple]] = {}
+    for r in rows:
+        by_mistake.setdefault(r["mistake_id"], []).append(
+            (r["ts"] or "", bool(r["is_correct"])))
+
+    start_cutoff = f"{week_start}T00:00:00"
+    end_cutoff = f"{week_end}T23:59:59"
+    newly = 0
+    for records in by_mistake.values():
+        # 周初尚未掌握（严格早于周一 00:00 的记录）→ 周末已掌握 = 本周新攻克
+        if (_streak_as_of(records, end_cutoff, inclusive=True) >= 2
+                and _streak_as_of(records, start_cutoff, inclusive=False) < 2):
+            newly += 1
+    return newly
+
+
+def get_review_progress(student_id: int, week_start: str = None,
+                        week_end: str = None,
+                        db_path: str = DB_PATH) -> Dict[str, Any]:
+    """复习进度与遗忘风险统计（周报"记忆进度"板块数据源；纯统计，不调用 LLM）。
+
+    掌握判定与 record_practice 保持一致："连对 2 次"（consecutive_correct >= 2），
+    已掌握的错题不再进入复习队列，也就不会再出现在练习里。
+
+    时区（遵守 db/core.py 时区约定，勿破坏）：
+    - mistakes.last_reviewed_at / next_review_at 是 _now_iso() 写入的**本地**时间，
+      直接比较，不得再加 'localtime'；
+    - practice_records.created_at 是 CURRENT_TIMESTAMP 写入的 **UTC**，必须先加
+      'localtime' 修饰符再与本地周边界比较。
+
+    返回:
+      total              累计错题数
+      mastered           当前已掌握
+      active             待复习（未掌握，仍在复习队列）
+      newly_mastered     本周新达成掌握
+      due_now            已到复习时间仍未复习（含逾期）→ 遗忘风险信号
+      upcoming_3d        未来 3 天内到期
+      regressed          反复忘：练过 >= 2 次仍停在 0/1 阶
+      stage_distribution {stage: count}（仅未掌握题）
+      curve              [{stage,label,hours,count}] 完整 8 阶阶梯（渲染层直接用）
+    """
+    conn = get_connection(db_path)
+    now = _now_iso()
+    rows = conn.execute("""
+        SELECT id, consecutive_correct, review_stage, next_review_at, review_count
+        FROM mistakes WHERE student_id = ?
+    """, [student_id]).fetchall()
+
+    total = len(rows)
+    mastered = 0
+    active_rows = []
+    for r in rows:
+        if (r["consecutive_correct"] or 0) >= 2:
+            mastered += 1
+        else:
+            active_rows.append(r)
+
+    stage_dist = {s: 0 for s in range(len(_EBBINGHAUS_INTERVALS))}
+    for r in active_rows:
+        stage = min(max(r["review_stage"] or 0, 0), _MAX_REVIEW_STAGE)
+        stage_dist[stage] += 1
+
+    cutoff_3d = (datetime.now() + timedelta(days=3)).isoformat(timespec="seconds")
+    due_now = upcoming_3d = 0
+    for r in active_rows:
+        nra = r["next_review_at"]
+        if not nra:
+            continue
+        if nra <= now:
+            due_now += 1
+        elif nra <= cutoff_3d:
+            upcoming_3d += 1
+
+    regressed = sum(
+        1 for r in active_rows
+        if (r["review_count"] or 0) >= 2 and (r["review_stage"] or 0) <= 1)
+
+    newly_mastered = _count_newly_mastered(conn, student_id, week_start, week_end)
+    conn.close()
+
+    return {
+        "total": total,
+        "mastered": mastered,
+        "active": len(active_rows),
+        "newly_mastered": newly_mastered,
+        "due_now": due_now,
+        "upcoming_3d": upcoming_3d,
+        "regressed": regressed,
+        "stage_distribution": stage_dist,
+        "curve": [
+            {"stage": i, "label": _stage_label(h), "hours": h,
+             "count": stage_dist[i]}
+            for i, h in enumerate(_EBBINGHAUS_INTERVALS)
+        ],
+    }
+
+
 def is_mastered(mistake_id: int, db_path: str = DB_PATH) -> bool:
     conn = get_connection(db_path)
     row = conn.execute("SELECT consecutive_correct FROM mistakes WHERE id = ?",
@@ -1076,6 +1218,231 @@ def get_student_achievements(student_id: int, db_path: str = DB_PATH) -> Dict[st
         "total_count": len(all_achievements),
         "all": all_achievements,
     }
+
+
+# ═══════════════════════════════════════════════════
+# 徽章 / 成就兑换（P0-2：接口先就位，规则暂不定）
+# ═══════════════════════════════════════════════════
+# 三层分工，互不耦合：
+#   徽章   badges 表           事件驱动、可累计 —— "某类行为发生一次得一枚"
+#   成就   achievements 表     徽章累计达标后解锁（也可由学习数据自动解锁，见 ACHIEVEMENT_DEFS）
+#   兑换   reward_redemptions  成就 → 学习用具，运营端人工履约
+#
+# ⚠️ 规则暂不定：三个配置区**保持为空即不生效** ——
+#   BADGE_MILESTONES 为空 → 徽章只累计，不自动解锁成就（FAIL-SAFE，不产脏数据）
+#   REWARD_CATALOG 为空   → 兑换申请被拒（reward_not_configured），不产生单据
+# 规则未定期间系统只做"记数"，绝不用未定规则产出错误数据。
+
+# 徽章目录：badge_key → 展示信息。新增徽章来源时在此登记，并在业务代码里 award_badge。
+BADGE_CATALOG = {
+    "parent_report_adopted": {
+        "title": "火眼金睛",
+        "icon": "🔍",
+        "description": "反馈的问题经运营核对后被采纳",
+    },
+    # TODO（规则待定）：其他徽章来源，例如错题攻克、连续打卡、周报分享等
+}
+
+# 徽章里程碑：徽章累计到某数量 → 解锁成就。填写格式：
+#   {"badge_key": "parent_report_adopted", "count": 5,
+#    "achievement_key": "badge_precision_5", "title": "明察秋毫",
+#    "description": "累计 5 次反馈被采纳", "icon": "🏅", "tier": 1}
+# TODO（规则待定）：多少枚徽章解锁什么成就 —— 保持空列表
+BADGE_MILESTONES = []
+
+# 兑换目录：achievement_key → 可兑换的学习用具。填写格式：
+#   {"achievement_key": {"reward_key": "notebook", "title": "错题本笔记本", "stock": None}}
+# TODO（规则待定）：哪个成就兑换什么学习用具、库存与履约方式 —— 保持空字典
+REWARD_CATALOG = {}
+
+
+def award_badge(student_id: int, badge_key: str, amount: int = 1,
+                source: str = "", db_path: str = DB_PATH) -> Dict[str, Any]:
+    """给某学生记徽章（同一 key 累加），返回 {badge_key, count, unlocked}。
+
+    - 未在 BADGE_CATALOG 登记的 key 也允许记数（便于先埋点后定规则）。
+    - `unlocked`：本次因达到里程碑而解锁的成就；BADGE_MILESTONES 为空时恒为空。
+      解锁走 achievements 表的一次性语义，重复达成不会重复插入。
+    - `source` 仅作调用方语义标注，当前不入库（规则未定，避免先写死字段）。
+    """
+    if not badge_key:
+        return {"badge_key": badge_key, "count": 0, "unlocked": []}
+    try:
+        amount = max(1, int(amount or 1))
+    except (TypeError, ValueError):
+        amount = 1
+    now = _now_iso()
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT count FROM badges WHERE student_id = ? AND badge_key = ?",
+            [student_id, badge_key]).fetchone()
+        if row:
+            count = (row["count"] or 0) + amount
+            conn.execute(
+                "UPDATE badges SET count = ?, last_earned_at = ? "
+                "WHERE student_id = ? AND badge_key = ?",
+                [count, now, student_id, badge_key])
+        else:
+            count = amount
+            conn.execute(
+                "INSERT INTO badges (student_id, badge_key, count, first_earned_at, last_earned_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [student_id, badge_key, count, now, now])
+        conn.commit()
+
+        unlocked = []
+        for ms in BADGE_MILESTONES:
+            if ms.get("badge_key") != badge_key or count < (ms.get("count") or 0):
+                continue
+            ach_key = ms.get("achievement_key") or f"badge_{badge_key}_{ms.get('count')}"
+            if conn.execute(
+                    "SELECT 1 FROM achievements WHERE student_id = ? AND achievement_key = ?",
+                    [student_id, ach_key]).fetchone():
+                continue
+            try:
+                conn.execute(
+                    "INSERT INTO achievements "
+                    "(student_id, achievement_key, title, description, icon, tier, earned_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [student_id, ach_key, ms.get("title") or badge_key,
+                     ms.get("description") or "", ms.get("icon") or "🏅",
+                     ms.get("tier") or 1, now])
+                conn.commit()
+                unlocked.append({"achievement_key": ach_key,
+                                 "title": ms.get("title") or badge_key,
+                                 "description": ms.get("description") or "",
+                                 "icon": ms.get("icon") or "🏅",
+                                 "tier": ms.get("tier") or 1,
+                                 "earned_at": now})
+            except sqlite3.IntegrityError:
+                pass  # 并发下已存在
+        return {"badge_key": badge_key, "count": count, "unlocked": unlocked}
+    finally:
+        conn.close()
+
+
+def get_badges(student_id: int, db_path: str = DB_PATH) -> Dict[str, Any]:
+    """学生的徽章列表（数量 + 展示信息 + 距下一里程碑的进度）。
+
+    未登记的 key 回退用 key 本身展示；BADGE_MILESTONES 为空时 next_milestone 恒为 None。
+    末尾两个 *_configured 计数供界面/文档显示"规则是否已配置"。
+    """
+    conn = get_connection(db_path)
+    rows = conn.execute(
+        "SELECT * FROM badges WHERE student_id = ? ORDER BY last_earned_at DESC, id DESC",
+        [student_id]).fetchall()
+    conn.close()
+
+    items = []
+    for r in rows:
+        key = r["badge_key"]
+        meta = BADGE_CATALOG.get(key) or {}
+        count = r["count"] or 0
+        next_ms = None
+        for ms in BADGE_MILESTONES:
+            if ms.get("badge_key") != key:
+                continue
+            need = ms.get("count") or 0
+            if count < need and (next_ms is None or need < next_ms["count"]):
+                next_ms = ms
+        items.append({
+            "badge_key": key,
+            "title": meta.get("title") or key,
+            "icon": meta.get("icon") or "🏅",
+            "description": meta.get("description") or "",
+            "count": count,
+            "first_earned_at": r["first_earned_at"],
+            "last_earned_at": r["last_earned_at"],
+            "next_milestone": ({"count": next_ms["count"],
+                                "remaining": next_ms["count"] - count,
+                                "achievement_key": next_ms.get("achievement_key")}
+                               if next_ms else None),
+        })
+    return {
+        "badges": items,
+        "total_count": sum(i["count"] for i in items),
+        "kinds": len(items),
+        "milestones_configured": len(BADGE_MILESTONES),
+        "rewards_configured": len(REWARD_CATALOG),
+    }
+
+
+def request_reward_redemption(student_id: int, achievement_key: str,
+                              note: str = "", db_path: str = DB_PATH) -> Dict[str, Any]:
+    """用某个已获得的成就申请兑换学习用具（运营端人工履约）。
+
+    规则未配置（REWARD_CATALOG 无该成就）时返回
+    {"ok": False, "error": "reward_not_configured"} —— **不产生单据**。
+    """
+    reward = REWARD_CATALOG.get(achievement_key)
+    if not reward:
+        return {"ok": False, "error": "reward_not_configured", "redemption_id": None}
+
+    conn = get_connection(db_path)
+    try:
+        if not conn.execute(
+                "SELECT 1 FROM achievements WHERE student_id = ? AND achievement_key = ?",
+                [student_id, achievement_key]).fetchone():
+            return {"ok": False, "error": "achievement_not_earned", "redemption_id": None}
+        if conn.execute("""
+                SELECT 1 FROM reward_redemptions
+                WHERE student_id = ? AND achievement_key = ? AND status = 'requested'
+        """, [student_id, achievement_key]).fetchone():
+            return {"ok": False, "error": "already_requested", "redemption_id": None}
+
+        now = _now_iso()
+        cur = conn.execute("""
+            INSERT INTO reward_redemptions
+                (student_id, achievement_key, reward_key, reward_title, status, note, updated_at)
+            VALUES (?, ?, ?, ?, 'requested', ?, ?)
+        """, [student_id, achievement_key,
+              reward.get("reward_key") or achievement_key,
+              reward.get("title") or "", note, now])
+        conn.commit()
+        return {"ok": True, "error": "", "redemption_id": cur.lastrowid}
+    finally:
+        conn.close()
+
+
+def list_reward_redemptions(status: str = None, limit: int = 100,
+                            db_path: str = DB_PATH) -> List[Dict[str, Any]]:
+    """兑换单列表（运营端履约用）；status 为空则返回全部。"""
+    conn = get_connection(db_path)
+    if status:
+        rows = conn.execute("""
+            SELECT r.*, s.name AS student_name
+            FROM reward_redemptions r JOIN students s ON s.id = r.student_id
+            WHERE r.status = ? ORDER BY r.created_at ASC, r.id ASC LIMIT ?
+        """, [status, limit]).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT r.*, s.name AS student_name
+            FROM reward_redemptions r JOIN students s ON s.id = r.student_id
+            ORDER BY r.created_at ASC, r.id ASC LIMIT ?
+        """, [limit]).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_redemption_status(redemption_id: int, status: str,
+                             handled_by: str = "", note: str = "",
+                             db_path: str = DB_PATH) -> bool:
+    """运营端更新兑换单状态：requested → fulfilled / cancelled（只允许处理一次）。"""
+    if status not in ("fulfilled", "cancelled"):
+        return False
+    conn = get_connection(db_path)
+    try:
+        cur = conn.execute("""
+            UPDATE reward_redemptions
+            SET status = ?, handled_by = ?, updated_at = ?,
+                note = CASE WHEN ? = '' THEN note ELSE ? END
+            WHERE id = ? AND status = 'requested'
+        """, [status, handled_by, _now_iso(), note, note, redemption_id])
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
 
 
 # ═══════════════════════════════════════════════════
