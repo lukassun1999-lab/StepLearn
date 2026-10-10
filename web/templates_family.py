@@ -167,7 +167,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
     <div style="font-size:.9rem;color:var(--sub);margin-top:6px;" id="upload-status">上传中...</div>
   </div>
   <div id="upload-result" style="display:none;margin-top:14px;font-size:.95rem;color:var(--green);font-weight:700;line-height:1.6;"></div>
-  <input type="file" id="parentFileInput" accept="image/*" capture="environment" multiple style="display:none;" onchange="handleParentUpload(this)">
+  <input type="file" id="parentFileInput" accept="image/*,.pdf,.docx" capture="environment" multiple style="display:none;" onchange="handleParentUpload(this)">
 </div>
 
 <!-- 答题卡（选填）：孩子用答题卡作答时传这里，AI 读卡判得更准 -->
@@ -176,7 +176,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
   <div style="font-weight:800;font-size:1.02rem;margin-bottom:4px;">答题卡（选填）</div>
   <div style="font-size:.85rem;color:var(--sub);line-height:1.6;">孩子在答题卡上作答时上传，AI 判得更准<br>不传 = 答案直接写在试卷上</div>
   <div id="sheet-file-names" style="display:none;margin-top:8px;font-size:.85rem;color:var(--green);font-weight:600;"></div>
-  <input type="file" id="parentSheetInput" accept="image/*" capture="environment" multiple style="display:none;" onchange="handleParentSheetUpload(this)">
+  <input type="file" id="parentSheetInput" accept="image/*,.pdf,.docx" capture="environment" multiple style="display:none;" onchange="handleParentSheetUpload(this)">
 </div>
 
 <!-- Poster Modal -->
@@ -1733,7 +1733,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
       <div class="hint">多页试卷可以拍多张，拍得清楚 AI 看得更准</div>
       <img class="preview" id="previewImg" />
     </div>
-    <input type="file" id="fileInput" accept="image/*" capture="environment" multiple />
+    <input type="file" id="fileInput" accept="image/*,.pdf,.docx" capture="environment" multiple />
     <div class="preview-list" id="previewList"></div>
     <div class="upload-zone" id="sheetZone" style="margin-top:12px;border-style:solid;border-color:var(--accent);"
          onclick="document.getElementById('sheetInput').click()">
@@ -1742,7 +1742,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
       <div class="hint">孩子在答题卡上作答时传这里，AI 读卡判得更准；<br>答题卡不传 = 答案直接写在试卷上</div>
       <img class="preview" id="sheetPreviewImg" />
     </div>
-    <input type="file" id="sheetInput" accept="image/*" capture="environment" multiple />
+    <input type="file" id="sheetInput" accept="image/*,.pdf,.docx" capture="environment" multiple />
     <div class="preview-list" id="sheetPreviewList"></div>
     <button class="btn btn-primary" id="startBtn" style="display:none;width:100%;margin-top:12px;">🚀 开始分析（<span id="photoCount">0</span> 张）</button>
   </div>

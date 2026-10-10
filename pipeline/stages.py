@@ -147,18 +147,48 @@ def ocr_to_text(file_ids, student_id, task_id, db_path,
     from skills_bridge import run_ocr_parallel
 
     def _ocr_group(ids, label):
-        """OCR 一组图片，返回按序 parts 列表（含段落标注）。"""
-        jobs = []
+        """OCR 一组文件，返回按序 parts 列表（含段落标注）。
+
+        分流：pdf/docx 先走文档解析直接取文本（零成本、100% 准确）；
+        取不到文本（扫描型 PDF）才渲染成图片回退 vision；图片走原 vision 链路。
+        """
+        from document_parser import is_document, parse_document
+
+        # 每个原始文件对应若干待 vision 的图片（图片 1 个，扫描型 PDF 多页）
+        jobs = []  # [(idx, [image_paths])]
+        parts = [None] * len(ids)
+
         for idx, fid in enumerate(ids):
             try:
-                jobs.append((idx, get_image_path(student_id, fid, db_path)))
+                path = get_image_path(student_id, fid, db_path)
             except Exception:
-                log.warning("图片缺失跳过 file_id=%s", fid, exc_info=True)
-        results = run_ocr_parallel([p for _, p in jobs], task_id=task_id)
-        parts = [None] * len(ids)
-        for (idx, _), r in zip(jobs, results):
-            if r["ok"] and r["text"]:
-                parts[idx] = f"--- 第 {idx + 1} 页 {label}---\n{r['text']}"
+                log.warning("文件缺失跳过 file_id=%s", fid, exc_info=True)
+                continue
+            if is_document(path):
+                out_dir = os.path.join(UPLOAD_DIR, str(student_id),
+                                       "doc_pages", str(fid))
+                text, images = parse_document(path, out_dir=out_dir)
+                if text:
+                    parts[idx] = f"--- 第 {idx + 1} 页 {label}---\n{text}"
+                    continue
+                if images:
+                    jobs.append((idx, images))
+                    continue
+                log.warning("文档解析无结果 file_id=%s", fid)
+                continue
+            jobs.append((idx, [path]))
+
+        flat = [p for _, ps in jobs for p in ps]
+        results = run_ocr_parallel(flat, task_id=task_id) if flat else []
+
+        k = 0
+        for idx, ps in jobs:
+            rs = results[k:k + len(ps)]
+            k += len(ps)
+            texts = [r["text"] for r in rs if r.get("ok") and r.get("text")]
+            if texts:
+                parts[idx] = (f"--- 第 {idx + 1} 页 {label}---\n"
+                              + "\n".join(texts))
             else:
                 parts[idx] = f"--- 第 {idx + 1} 页 {label}---\n[系统提示] OCR未能识别该页"
         for i in range(len(ids)):

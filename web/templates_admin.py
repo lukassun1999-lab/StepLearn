@@ -486,7 +486,7 @@ tr:last-child td { border-bottom:none; }
   </div>
   <div class="card">
     <h3>第三步：上传试卷照片</h3>
-    <div class="form-group"><label>试卷照片（支持 JPG/PNG，最多 15 张）</label><input type="file" id="onb-file" accept="image/*" multiple style="padding:8px;"></div>
+    <div class="form-group"><label>试卷文件（支持 JPG/PNG/PDF/Word(.docx)，最多 15 个）</label><input type="file" id="onb-file" accept="image/*,.pdf,.docx" multiple style="padding:8px;"></div>
     <button class="btn btn-primary" onclick="startOnboarding()">🚀 开始诊断</button>
   </div>
   <div id="onb-progress" style="display:none;margin-top:16px;">
@@ -502,7 +502,7 @@ tr:last-child td { border-bottom:none; }
   <div class="card" style="margin-bottom:16px;">
     <div class="form-row">
       <div class="form-group" style="flex:1;"><label>选择学生</label><select id="wk-student"></select></div>
-      <div class="form-group" style="flex:1;"><label>试卷照片（最多 15 张）</label><input type="file" id="wk-file" accept="image/*" multiple onchange="onFileSelected()"></div>
+      <div class="form-group" style="flex:1;"><label>试卷文件（图片/PDF/Word，最多 15 个）</label><input type="file" id="wk-file" accept="image/*,.pdf,.docx" multiple onchange="onFileSelected()"></div>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
       <button class="btn btn-primary" onclick="startWeekly('grade_only')">✅ 批改试卷</button>

@@ -5,5 +5,8 @@ Pillow
 json5
 python-dotenv
 xhtml2pdf
+# 文档格式试卷解析（PDF 文本提取/扫描件渲染、docx 提取）
+PyMuPDF
+python-docx
 # 以下仅服务器部署需要（Windows 开发可不装）
 gunicorn

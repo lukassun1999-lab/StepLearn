@@ -189,8 +189,13 @@ def _resolve_file_path(f):
             return p
     return None
 
-# 上传白名单：扩展名（试卷照片/答题卡，OCR 流水线按图片处理）
-ALLOWED_UPLOAD_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.heic', '.bmp', '.gif', '.pdf'}
+# 上传白名单：扩展名（试卷照片/答题卡/文档）
+# 图片走 vision OCR；pdf/docx 由 document_parser 直接提取文本（扫描型 PDF 回退 vision）
+ALLOWED_UPLOAD_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.heic', '.bmp', '.gif',
+                       '.pdf', '.docx'}
+# 老格式 Word（97-2003 二进制）无法直接解析，给出可操作提示
+_LEGACY_DOC_HINT = ('.doc 是旧格式，无法直接读取，'
+                    '请用 Word 另存为 .docx 后再上传')
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 单文件 20MB
 # file_type 兼作目录名，只允许小写字母/下划线（防路径穿越）
 _ALLOWED_FILE_TYPES = {'test_paper', 'answer_sheet', 'exercise', 'report',
@@ -212,8 +217,10 @@ def _validate_upload(file) -> Optional[str]:
     if not file or not file.filename:
         return "缺少文件"
     ext = os.path.splitext(file.filename)[1].lower()
+    if ext == '.doc':
+        return _LEGACY_DOC_HINT
     if ext and ext not in ALLOWED_UPLOAD_EXTS:
-        return f"不支持的文件类型: {ext}（仅支持图片/PDF）"
+        return f"不支持的文件类型: {ext}（支持图片/PDF/Word(.docx)）"
     # 读取前先看 content_length（若提供）；否则读流校验大小
     if file.content_length and file.content_length > MAX_UPLOAD_BYTES:
         return "文件超过 20MB 限制"
