@@ -762,15 +762,20 @@ async function handleParentUpload(input) {
   input.value = '';
 }
 
-// 答题卡选择（选填）：仅记录已选文件并在试卷上传时一并提交
+// 答题卡选择（选填）：展示所选文件名，并在试卷上传时一并提交
 function handleParentSheetUpload(input) {
   const names = document.getElementById('sheet-file-names');
   if (!input.files || !input.files.length) {
     names.style.display = 'none';
     return;
   }
-  names.textContent = '已选 ' + input.files.length + ' 张答题卡，随试卷一起分析';
+  // 列出具体文件名（家长要知道传的是哪个文件），超过 3 个用「等 N 个」收尾
+  const files = Array.from(input.files).map(f => f.name);
+  const shown = files.slice(0, 3);
+  const more = files.length > 3 ? ` 等 ${files.length} 个文件` : '';
+  names.textContent = '✓ 已选答题卡：' + shown.join('、') + more + '，随试卷一起分析';
   names.style.display = 'block';
+  toast('答题卡已选：' + (files.length === 1 ? files[0] : files.length + ' 个文件'));
 }
 
 async function pollTaskProgress(taskId) {
