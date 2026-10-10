@@ -182,9 +182,15 @@ def analyze_mistakes(ocr_text: str, task_id: int = None) -> Dict[str, Any]:
             prompt=prompt, schema=_ANALYZE_SCHEMA, task_id=task_id,
             call_type="analyze"
         )
-    # 试卷正文（不含答题卡），供 _postprocess_mistakes 做防臆造校验
+    # 试卷正文（不含答题卡），供 _postprocess_mistakes 做防臆造校验。
+    # demo 模式返回的是固定占位数据，与题干无关，校验会把它们全部误杀，故跳过。
     if isinstance(result, dict):
-        result["_paper_text"] = _extract_paper_text(ocr_text or "")
+        try:
+            from llm import HAS_API_KEY
+        except Exception:      # pragma: no cover
+            HAS_API_KEY = False
+        result["_paper_text"] = (_extract_paper_text(ocr_text or "")
+                                 if HAS_API_KEY else "")
     _postprocess_mistakes(result)
     return result
 
@@ -244,19 +250,23 @@ def _filter_fabricated(mistakes: List[Dict], paper_text: str) -> List[Dict]:
     if not pn:
         return mistakes
 
+    # 仅校验足够长的题干：短题干（如 "Q21"、"第3题"）可能是简化摘录，
+    # 强行校验会误杀真实错题——漏报比误报更隐蔽，宁可放过也不误杀。
+    _MIN_LEN = 10
+    _PROBE = 12   # 探针长度：短一些以容忍题号/格式差异
+
     keep = []
     for m in mistakes:
         qt = _norm(m.get('question_text'))
-        if not qt:
-            keep.append(m)          # 无题干，无法校验，保留
+        if len(qt) < _MIN_LEN:
+            keep.append(m)          # 题干过短，无法可靠校验，保留
             continue
-        # 取前 24 个字做探针：足够唯一，又能容忍题号/格式差异
-        probe = qt[:24]
+        probe = qt[:_PROBE]
         if probe and probe in pn:
             keep.append(m)
         else:
-            log.warning("剔除臆造错题：题号=%s 题干前24字=%r 在试卷中查不到",
-                        m.get('question_number'), probe[:24])
+            log.warning("剔除臆造错题：题号=%s 题干探针=%r 在试卷原文中查不到",
+                        m.get('question_number'), probe)
     return keep
 
 
