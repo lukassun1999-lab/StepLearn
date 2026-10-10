@@ -7,7 +7,7 @@ STUDENT_PAGE = r'''<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>孩子的英语学情主页 · 拾阶而上</title>
-<meta name="theme-color" content="#e07b4b">
+<meta name="theme-color" content="#22B8A6">
 <meta property="og:title" content="孩子的英语学情主页">
 <meta property="og:description" content="AI 分析试卷错题，生成专属练习与成长报告，进步看得见。">
 <meta name="description" content="AI 分析试卷错题，生成专属练习与成长报告。">
@@ -15,9 +15,9 @@ STUDENT_PAGE = r'''<!DOCTYPE html>
 <link rel="stylesheet" href="/static/css/shared.css?v={{version|default('1')}}">
 <style>
 :root {
-  --bg: #f8f7f4; --bg-alt: #f1f0ec; --card: #fff;
+  --bg: #F6FAF9; --bg-alt: #EEF5F3; --card: #fff;
   --text: #1a1a1a; --text-alt: #33312c; --sub: #5a5a56; --mute: #8a8884;
-  --accent: #e07b4b; --accent-hover: #d06a3a; --accent-light: #fef3ed;
+  --accent: #22B8A6; --accent-hover: #189A8A; --accent-light: #E6F8F4;
   --green: #0f7b4e; --green-light: #effaf3;
   --blue: #4b8dc7; --blue-light: #eef5fb;
   --red: #d93a46; --red-light: #fef4f4;
@@ -47,7 +47,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .bn-item.active { color:var(--accent); }
 /* 分组内子区分段控件（成长=时间轴/成就墙/成长记录，我的=复盘/坚持日记/进度） */
 .seg { display:flex; background:var(--card); border-radius:12px; padding:4px; margin-bottom:14px; box-shadow:var(--shadow); }
-.seg-btn { flex:1; padding:10px 4px; border:none; background:none; border-radius:8px;
+.seg-btn { flex:1; padding:10px 4px; border:none; background:none; border-radius:12px;
   font-size:.88rem; font-weight:600; color:var(--sub); cursor:pointer; white-space:nowrap; }
 .seg-btn.active { background:var(--accent-light); color:var(--accent); }
 .sub-page { display:none; }
@@ -73,10 +73,10 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .cal-dow { text-align:center; font-size:.75rem; color:var(--mute); font-weight:600; padding:2px 0 4px; }
 .cal-dow.sun, .cal-dow.sat { color:var(--red); }
 .cal-nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
-.cal-nav-btn { background:var(--card); border:1px solid var(--border); border-radius:8px; width:44px; height:44px; font-size:1rem; cursor:pointer; color:var(--sub); display:flex; align-items:center; justify-content:center; transition:all .2s; }
+.cal-nav-btn { background:var(--card); border:1px solid var(--border); border-radius:12px; width:44px; height:44px; font-size:1rem; cursor:pointer; color:var(--sub); display:flex; align-items:center; justify-content:center; transition:all .2s; }
 .cal-nav-btn:hover { border-color:var(--accent); color:var(--accent); }
 .cal-nav-title { font-size:1.05rem; font-weight:700; }
-.cal-day { position:relative; aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:8px; font-size:.85rem; background:var(--card); border:none; box-shadow:var(--shadow-sm); color:var(--sub); cursor:default; }
+.cal-day { position:relative; aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:12px; font-size:.85rem; background:var(--card); border:none; box-shadow:var(--shadow-sm); color:var(--sub); cursor:default; }
 .cal-day.weekend { color:var(--red); }
 .cal-day.holiday { color:var(--red); font-weight:700; background:var(--red-light); }
 .cal-day.checked { background:var(--green-light); color:var(--green); font-weight:700; }
@@ -94,7 +94,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .toast { position:fixed; top:20px; left:50%; transform:translateX(-50%); padding:12px 24px; border-radius:var(--radius); color:#fff; font-size:.95rem; z-index:200; box-shadow:var(--shadow-lg); }
 /* Modal（修复：此前模板缺失弹窗 CSS，导致弹窗常驻页面） */
 /* Achievement Wall */
-.ach-card { border-radius:10px; padding:12px 10px; text-align:center; transition:transform .2s; }
+.ach-card { border-radius:16px; padding:12px 10px; text-align:center; transition:transform .2s; }
 .ach-card:hover { transform:translateY(-2px); }
 .ach-earned { background:linear-gradient(135deg,#fff9e6,#fef3c7); border:1.5px solid #f59e0b; }
 .ach-locked { background:#f5f2ec; border:1.5px solid var(--border); opacity:.7; }
@@ -184,7 +184,7 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
   <div class="modal" style="max-width:420px;">
     <h3>📸 学习成果海报</h3>
     <p class="meta" style="margin-bottom:12px;">已生成，保存图片即可分享到朋友圈</p>
-    <iframe id="poster-frame" title="学习成果海报" style="width:100%;height:520px;border:1px solid var(--border);border-radius:10px;background:#fff;"></iframe>
+    <iframe id="poster-frame" title="学习成果海报" style="width:100%;height:520px;border:1px solid var(--border);border-radius:16px;background:#fff;"></iframe>
     <div id="poster-link" style="margin:12px 0 16px;text-align:center;"></div>
     <div class="btn-group" style="justify-content:flex-end;">
       <button class="btn btn-primary" onclick="savePosterImage()">💾 另存为图片</button>
@@ -393,7 +393,7 @@ function renderHome(d) {
   if (posterWrap) posterWrap.style.display = hasLearningData ? 'block' : 'none';
 
   function statCard(icon, num, label) {
-    return `<div style="flex:1;min-width:70px;background:var(--card);border-radius:10px;padding:12px 8px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
+    return `<div style="flex:1;min-width:70px;background:var(--card);border-radius:16px;padding:12px 8px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
       <div style="font-size:1.3rem;">${icon}</div>
       <div style="font-size:1.3rem;font-weight:700;">${num}</div>
       <div style="font-size:.7rem;color:var(--sub);">${label}</div>
@@ -408,12 +408,12 @@ function renderHome(d) {
 
   // Mastery bar
   if (total > 0) {
-    html += `<div style="margin-top:12px;background:var(--card);border-radius:10px;padding:12px;">
+    html += `<div style="margin-top:12px;background:var(--card);border-radius:16px;padding:12px;">
       <div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:6px;">
         <span>成长进度</span><span style="font-weight:600;">${pct}%</span>
       </div>
-      <div style="height:8px;background:var(--bg);border-radius:8px;overflow:hidden;">
-        <div style="height:100%;width:${pct}%;background:var(--success,#0f7b4e);border-radius:8px;transition:width .5s;"></div>
+      <div style="height:8px;background:var(--bg);border-radius:12px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:var(--success,#0f7b4e);border-radius:12px;transition:width .5s;"></div>
       </div>
     </div>`;
   }
@@ -494,7 +494,7 @@ function showPosterSaveOverlay(dataUrl) {
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;';
     ov.innerHTML = `
       <div style="color:#fff;font-size:.95rem;font-weight:600;margin-bottom:6px;">👇 长按下方图片，保存到相册</div>
-      <img style="max-width:100%;max-height:70vh;border-radius:10px;background:#fff;" alt="学习海报">
+      <img style="max-width:100%;max-height:70vh;border-radius:16px;background:#fff;" alt="学习海报">
       <button type="button" style="margin-top:16px;min-height:44px;padding:10px 32px;border:none;border-radius:22px;background:rgba(255,255,255,.18);color:#fff;font-size:.9rem;cursor:pointer;">完成</button>`;
     ov.querySelector('button').onclick = () => ov.remove();
     document.body.appendChild(ov);
@@ -553,7 +553,7 @@ function renderPracticeQuestion() {
   const kpTag = (q.knowledge_points||[]).map(k=>`<span class="badge badge-blue" style="margin-right:4px;">${escapeHtml(k)}</span>`).join('');
   // 阅读类：随题展示短文原文（学生可依据短文答题）
   const passageHtml = q.passage ? `
-    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px;white-space:pre-wrap;line-height:1.9;font-size:.95rem;">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:16px;padding:14px 16px;margin-bottom:14px;white-space:pre-wrap;line-height:1.9;font-size:.95rem;">
       <div style="font-size:.75rem;color:var(--sub);margin-bottom:6px;font-weight:600;">📄 阅读短文</div>
       ${escapeHtml(q.passage)}
     </div>` : '';
@@ -564,16 +564,16 @@ function renderPracticeQuestion() {
   if (opts.length > 0) {
     // 数据里有选项就渲染选项（题型标签可能不在白名单，如 阅读选择/阅读补全短文）
     optionsHtml = opts.map(o=>`
-      <label class="practice-opt" data-key="${o.key}" onclick="selectOption(this,'${o.key}')" style="display:block;padding:14px 18px;margin:8px 0;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;transition:all .15s;font-size:1rem;line-height:1.6;">
+      <label class="practice-opt" data-key="${o.key}" onclick="selectOption(this,'${o.key}')" style="display:block;padding:14px 18px;margin:8px 0;border:1.5px solid var(--border);border-radius:16px;cursor:pointer;transition:all .15s;font-size:1rem;line-height:1.6;">
         <strong>${escapeHtml(o.key)}.</strong> ${escapeHtml(o.text)}
       </label>`).join('');
   } else if (isOptionType) {
     // 有选项题型但选项缺失：提示 + 跳过，避免误渲染成填空输入框
-    optionsHtml = `<div style="padding:14px 16px;margin:10px 0;background:var(--red-light);border-radius:10px;color:var(--red);font-size:.9rem;text-align:center;">⚠️ 本题选项加载失败，先跳过，继续练习</div>`;
+    optionsHtml = `<div style="padding:14px 16px;margin:10px 0;background:var(--red-light);border-radius:16px;color:var(--red);font-size:.9rem;text-align:center;">⚠️ 本题选项加载失败，先跳过，继续练习</div>`;
     submitLabel = '跳过这道 →';
     submitAction = 'skipPracticeQuestion()';
   } else {
-    optionsHtml = `<input type="text" id="practice-text-answer" placeholder="输入你的答案" oninput="document.getElementById('practice-submit-btn').disabled = this.value.trim()===''" style="width:100%;padding:12px 16px;border:1.5px solid var(--border);border-radius:10px;font-size:1rem;margin:10px 0;">`;
+    optionsHtml = `<input type="text" id="practice-text-answer" placeholder="输入你的答案" oninput="document.getElementById('practice-submit-btn').disabled = this.value.trim()===''" style="width:100%;padding:12px 16px;border:1.5px solid var(--border);border-radius:16px;font-size:1rem;margin:10px 0;">`;
   }
 
   div.innerHTML = `
@@ -632,13 +632,13 @@ async function submitPracticeAnswer() {
       let celebrateHtml = '';
       if (fb.mastery && fb.mastery.just_mastered) {
         celebrateHtml = `
-          <div style="margin-top:10px;padding:12px 14px;background:#fff8e1;border-radius:10px;border-left:4px solid var(--accent);">
+          <div style="margin-top:10px;padding:12px 14px;background:#fff8e1;border-radius:16px;border-left:4px solid var(--accent);">
             <div style="font-weight:700;color:var(--accent);">🎉 这道错题攻克了！</div>
             <div style="font-size:.85rem;color:var(--sub);margin-top:2px;">累计已攻克 ${fb.mastery.mastered_count} 题，继续保持！</div>
           </div>`;
         toast('🎉 错题攻克！累计 ' + fb.mastery.mastered_count + ' 题');
       }
-      fbDiv.innerHTML = `<div style="padding:16px;background:var(--green-light);border-radius:10px;border-left:4px solid var(--green);">
+      fbDiv.innerHTML = `<div style="padding:16px;background:var(--green-light);border-radius:16px;border-left:4px solid var(--green);">
         <div style="font-weight:700;color:var(--green);margin-bottom:6px;font-size:1.05rem;">✅ 正确！</div>
         <div style="font-size:.95rem;color:var(--sub);line-height:1.7;">${escapeHtml(fb.explanation||'')}</div>
       </div>` + celebrateHtml;
@@ -647,7 +647,7 @@ async function submitPracticeAnswer() {
         if(o.dataset.key===fb.correct_answer){o.style.borderColor='var(--green)';o.style.background='var(--green-light)';}
       });
     } else {
-      fbDiv.innerHTML = `<div style="padding:16px;background:var(--red-light);border-radius:10px;border-left:4px solid var(--red);">
+      fbDiv.innerHTML = `<div style="padding:16px;background:var(--red-light);border-radius:16px;border-left:4px solid var(--red);">
         <div style="font-weight:700;color:var(--red);margin-bottom:6px;font-size:1.05rem;">❌ 不对哦</div>
         <div style="font-size:.95rem;margin-bottom:6px;"><strong>正确答案：${escapeHtml(fb.correct_answer)}</strong></div>
         <div style="font-size:.95rem;color:var(--sub);line-height:1.7;">${escapeHtml(fb.explanation||'')}</div>
@@ -792,7 +792,7 @@ async function pollTaskProgress(taskId) {
         // 部分成功：分段分析有块失败时明示，避免"错题变少"被无声吞掉
         const cs = out.chunk_stats || {};
         const partialNote = (cs.failed > 0)
-          ? `<div style="margin-top:6px;font-size:.85rem;color:var(--accent);background:var(--accent-light);border-radius:8px;padding:8px 12px;">⚠️ 有 ${cs.failed}/${cs.total} 个章节分析未成功，结果可能不完整，可重新上传试试</div>`
+          ? `<div style="margin-top:6px;font-size:.85rem;color:var(--accent);background:var(--accent-light);border-radius:12px;padding:8px 12px;">⚠️ 有 ${cs.failed}/${cs.total} 个章节分析未成功，结果可能不完整，可重新上传试试</div>`
           : '';
         // 完成态 = 结果摘要 + 一步直达：报告（错哪了）→ 练习（针对性练）
         const doneMsg = mCount === 0
@@ -814,7 +814,7 @@ async function pollTaskProgress(taskId) {
         resultDiv.style.display = 'block';
         const reason = escapeHtml(t.error_message || '未知错误');
         resultDiv.innerHTML = `
-          <div style="background:var(--red-light);border-radius:10px;padding:14px 16px;text-align:left;">
+          <div style="background:var(--red-light);border-radius:16px;padding:14px 16px;text-align:left;">
             <div style="font-weight:700;color:var(--red);font-size:1.02rem;">❌ 分析没成功</div>
             <div style="font-size:.88rem;color:var(--sub);line-height:1.7;margin-top:4px;word-break:break-all;">${reason}</div>
             <div style="font-size:.85rem;color:var(--sub);margin-top:6px;">扣回的练习额度已自动退返，重新上传不会重复消耗。</div>
@@ -834,7 +834,7 @@ async function pollTaskProgress(taskId) {
           // 超时不再是一行小字：给出入口，结果出来后报告/练习里都有
           resultDiv.style.display = 'block';
           resultDiv.innerHTML = `
-            <div style="background:var(--accent-light);border-radius:10px;padding:14px 16px;">
+            <div style="background:var(--accent-light);border-radius:16px;padding:14px 16px;">
               <div style="font-weight:600;">⏳ 分析还在进行中（复杂试卷通常 5-10 分钟完成）</div>
               <button class="btn btn-primary" style="width:100%;margin-top:10px;" onclick="switchTab('reports', null)">📋 稍后去「报告」tab 查看</button>
             </div>`;
@@ -847,7 +847,7 @@ async function pollTaskProgress(taskId) {
       } else {
         resultDiv.style.display = 'block';
         resultDiv.innerHTML = `
-          <div style="background:var(--accent-light);border-radius:10px;padding:14px 16px;">
+          <div style="background:var(--accent-light);border-radius:16px;padding:14px 16px;">
             <div style="font-weight:600;">📡 网络不稳定，结果会照常生成</div>
             <div style="font-size:.85rem;color:var(--sub);margin-top:4px;">完成后自动出现在「报告」和「练习」tab</div>
             <button class="btn btn-primary" style="width:100%;margin-top:10px;" onclick="switchTab('reports', null)">📋 去「报告」tab 查看</button>
@@ -902,7 +902,7 @@ function renderReports(d) {
                   onclick="toggleReportPreview(${i}, ${r.report_file_id})">👁 快速预览</button>
         </div>
         <div class="report-preview" id="report-preview-${i}" style="display:none;margin-top:10px;">
-          <iframe style="width:100%;height:62vh;border:1px solid var(--border);border-radius:8px;background:#fff;" sandbox="allow-same-origin"></iframe>
+          <iframe style="width:100%;height:62vh;border:1px solid var(--border);border-radius:12px;background:#fff;" sandbox="allow-same-origin"></iframe>
           <div style="display:flex;gap:8px;margin-top:8px;">
             <button class="btn btn-outline" style="flex:1;" onclick="switchTab('practice', null)">🚀 去练习</button>
             <a href="/api/public/${CODE}/files/${r.report_file_id}/download" target="_blank" rel="noopener" class="btn btn-outline" style="flex:1;text-decoration:none;text-align:center;">🖨 打印/存PDF</a>
@@ -1020,15 +1020,15 @@ function mistakeItemHtml(m) {
       </div>
       <div style="font-weight:600;line-height:1.7;white-space:pre-wrap;">${escapeHtml(m.question || '（题目未记录）')}</div>
       <div style="margin-top:8px;">
-        <div style="background:var(--red-light);border-radius:8px;padding:8px 12px;margin-bottom:6px;">
+        <div style="background:var(--red-light);border-radius:12px;padding:8px 12px;margin-bottom:6px;">
           <span style="font-size:.72rem;color:var(--red);font-weight:600;">✗ 你的作答：</span>
           <span style="font-size:.9rem;">${escapeHtml(m.user_answer || '（未作答）')}</span>
         </div>
-        <div style="background:var(--green-light);border-radius:8px;padding:8px 12px;">
+        <div style="background:var(--green-light);border-radius:12px;padding:8px 12px;">
           <span style="font-size:.72rem;color:var(--green);font-weight:600;">✓ 正确答案：</span>
           <span style="font-size:.9rem;font-weight:600;">${escapeHtml(m.correct_answer || '-')}</span>
         </div>
-        ${m.explanation ? `<div style="background:var(--accent-light);border-radius:8px;padding:8px 12px;margin-top:6px;font-size:.85rem;line-height:1.7;">📖 ${escapeHtml(m.explanation)}</div>` : ''}
+        ${m.explanation ? `<div style="background:var(--accent-light);border-radius:12px;padding:8px 12px;margin-top:6px;font-size:.85rem;line-height:1.7;">📖 ${escapeHtml(m.explanation)}</div>` : ''}
       </div>
       <div style="margin-top:8px;">
         <button class="btn btn-primary" style="font-size:.8rem;padding:8px 14px;min-height:44px;" onclick="goPractice()">📝 去练习</button>
@@ -1148,7 +1148,7 @@ async function renderReview() {
 
     // Submit button or submitted badge
     if (isSubmitted) {
-      formHtml += `<div style="text-align:center;padding:12px;background:#e8f5e9;border-radius:8px;color:var(--green);font-weight:600;">✅ 本周复盘已提交 · ${(review.submitted_at||'').slice(0,10)}</div>`;
+      formHtml += `<div style="text-align:center;padding:12px;background:#e8f5e9;border-radius:12px;color:var(--green);font-weight:600;">✅ 本周复盘已提交 · ${(review.submitted_at||'').slice(0,10)}</div>`;
     } else {
       formHtml += `<button class="btn btn-primary" style="width:100%;" onclick="submitReview()">📝 提交本周复盘</button>`;
     }
@@ -1460,7 +1460,7 @@ function renderRadarChart(ls, opts) {
   ).join('');
   return `<svg viewBox="0 0 ${size} ${size}" style="width:100%;max-width:${size}px;height:auto;">
     ${axisLines}
-    <polygon points="${polygon}" fill="rgba(224,123,75,.25)" stroke="#e07b4b" stroke-width="2"/>
+    <polygon points="${polygon}" fill="rgba(224,123,75,.25)" stroke="#22B8A6" stroke-width="2"/>
     ${labelHtml}
   </svg>`;
 }
@@ -1527,7 +1527,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AI 英语学情体检 · 拍张试卷看看</title>
-<meta name="theme-color" content="#e07b4b">
+<meta name="theme-color" content="#22B8A6">
 <meta property="og:title" content="AI 英语学情体检">
 <meta property="og:description" content="拍一张试卷照片，5 分钟看懂孩子的英语薄弱点，附专属提升方案。">
 <meta name="description" content="拍一张试卷照片，AI 看懂孩子的英语薄弱点。">
@@ -1535,9 +1535,9 @@ PARENT_PAGE = r'''<!DOCTYPE html>
 <link rel="stylesheet" href="/static/css/shared.css?v={{version|default('1')}}">
 <style>
   :root {
-    --bg: #f8f7f4; --card: #ffffff; --text: #1a1a1a;
-    --sub: #6b6b6b; --mute: #9b9b9b; --accent: #e07b4b;
-    --accent-hover: #d06a3a; --accent-light: #fef3ed;
+    --bg: #F6FAF9; --card: #ffffff; --text: #1a1a1a;
+    --sub: #6b6b6b; --mute: #9b9b9b; --accent: #22B8A6;
+    --accent-hover: #189A8A; --accent-light: #E6F8F4;
     --green: #0f7b4e; --green-light: #effaf3;
     --red: #d93a46; --red-light: #fef4f4;
     --blue: #4b8dc7; --blue-light: #eef5fb;
@@ -1561,7 +1561,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
   .steps { display:flex; gap:8px; margin:0 0 24px; }
   .step {
     flex:1; text-align:center; padding:12px 8px; background:var(--card);
-    border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,.06); font-size:.75rem;
+    border-radius:16px; box-shadow:0 1px 3px rgba(0,0,0,.06); font-size:.75rem;
     color:var(--mute); transition:all .3s;
   }
   .step .num {
@@ -1585,16 +1585,16 @@ PARENT_PAGE = r'''<!DOCTYPE html>
   /* 年级选择 + 多图预览（首访体检） */
   .grade-pick { background:var(--card); border-radius:14px; padding:14px; margin-bottom:12px; }
   .grade-opts { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
-  .grade-opts button { min-height:44px; border:1.5px solid var(--border); border-radius:10px;
+  .grade-opts button { min-height:44px; border:1.5px solid var(--border); border-radius:16px;
     background:var(--bg); font-size:.9rem; font-weight:600; color:var(--sub); cursor:pointer; }
   .grade-opts button.active { border-color:var(--accent); color:var(--accent); background:var(--accent-light); }
   .preview-list { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
-  .preview-item { position:relative; border-radius:10px; overflow:hidden; background:var(--bg); }
+  .preview-item { position:relative; border-radius:16px; overflow:hidden; background:var(--bg); }
   .preview-item img { width:100%; height:88px; object-fit:cover; display:block; }
   .preview-item .rm { position:absolute; top:4px; right:4px; width:26px; height:26px;
     border-radius:50%; border:none; background:rgba(0,0,0,.55); color:#fff; font-size:.9rem;
     cursor:pointer; display:flex; align-items:center; justify-content:center; }
-  .upload-zone .preview { max-width:100%; max-height:240px; border-radius:8px; display:none; margin:0 auto; }
+  .upload-zone .preview { max-width:100%; max-height:240px; border-radius:12px; display:none; margin:0 auto; }
 
   /* File input hidden */
   #fileInput { display:none; }
@@ -1633,7 +1633,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
   .score-detail strong { color:var(--text); }
 
   .diagnosis-item {
-    padding:12px 16px; border-radius:10px; margin-bottom:8px;
+    padding:12px 16px; border-radius:16px; margin-bottom:8px;
     display:flex; align-items:flex-start; gap:10px; font-size:.875rem;
   }
   .diagnosis-item .tag {
@@ -2096,8 +2096,8 @@ PARENT_PAGE = r'''<!DOCTYPE html>
       <div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:6px;">
         <span>成长进度</span><span style="font-weight:600;">${pct}%</span>
       </div>
-      <div style="height:10px;background:var(--border);border-radius:10px;overflow:hidden;">
-        <div style="height:100%;width:${pct}%;background:var(--green);border-radius:10px;transition:width .5s;"></div>
+      <div style="height:10px;background:var(--border);border-radius:16px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:var(--green);border-radius:16px;transition:width .5s;"></div>
       </div>
       <div style="font-size:.7rem;color:var(--mute);margin-top:4px;">
         ${mistakes.mastered} / ${mistakes.total} 个知识块已经稳住
@@ -2118,7 +2118,7 @@ PARENT_PAGE = r'''<!DOCTYPE html>
   }
 
   function statCard(icon, num, label) {
-    return `<div style="flex:1;min-width:70px;background:var(--card);border-radius:10px;padding:12px 8px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
+    return `<div style="flex:1;min-width:70px;background:var(--card);border-radius:16px;padding:12px 8px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
       <div style="font-size:1.3rem;">${icon}</div>
       <div style="font-size:1.3rem;font-weight:700;">${num}</div>
       <div style="font-size:.7rem;color:var(--mute);">${label}</div>

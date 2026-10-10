@@ -11,9 +11,9 @@ MAIN_PAGE = r'''<!DOCTYPE html>
 <link rel="stylesheet" href="/static/css/shared.css?v={{version|default('1')}}">
 <style>
 :root {
-  --bg: #f8f7f4; --bg-alt: #f1f0ec; --card: #fff;
+  --bg: #F6FAF9; --bg-alt: #EEF5F3; --card: #fff;
   --text: #1a1a1a; --text-alt: #37352f; --sub: #6b6b6b; --mute: #9b9b9b;
-  --accent: #e07b4b; --accent-hover: #d06a3a; --accent-light: #fef3ed;
+  --accent: #22B8A6; --accent-hover: #189A8A; --accent-light: #E6F8F4;
   --green: #0f7b4e; --green-light: #effaf3;
   --red: #d93a46; --red-light: #fef4f4;
   --blue: #4b8dc7; --blue-light: #eef5fb;
@@ -33,14 +33,14 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .main { max-width:1200px; margin:0 auto; padding:24px 20px; }
 h2 { font-size:1.15rem; font-weight:600; line-height:1.4; margin-bottom:16px; border-left:3px solid var(--accent); padding-left:12px; color:var(--text); }
 .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:16px; margin-bottom:24px; }
-.stat { background:var(--card); border:none; border-radius:10px; padding:20px; box-shadow:var(--shadow); transition:box-shadow .2s; }
+.stat { background:var(--card); border:none; border-radius:16px; padding:20px; box-shadow:var(--shadow); transition:box-shadow .2s; }
 .stat:hover { box-shadow:var(--shadow-lg); }
 .stat .num { font-size:1.6rem; font-weight:700; color:var(--text); }
 .stat .label { font-size:.75rem; color:var(--sub); margin-top:4px; }
 .stat.warn .num { color:var(--red); }
 .stat.ok .num { color:var(--green); }
 .stat.info .num { color:var(--blue); }
-table { width:100%; border-collapse:collapse; background:var(--card); border-radius:10px; overflow:hidden; box-shadow:var(--shadow); }
+table { width:100%; border-collapse:collapse; background:var(--card); border-radius:16px; overflow:hidden; box-shadow:var(--shadow); }
 th { background:var(--bg-alt); padding:10px 14px; text-align:left; font-size:.8rem; color:var(--sub); font-weight:600; }
 td { padding:10px 14px; border-bottom:1px solid var(--border); font-size:.85rem; color:var(--text-alt); }
 tr:last-child td { border-bottom:none; }
@@ -89,7 +89,7 @@ tr:last-child td { border-bottom:none; }
 @keyframes fadeIn { from{opacity:0;} to{opacity:1;} }
 .toast { position:fixed; top:20px; right:20px; padding:12px 20px; border-radius:var(--radius); color:#fff; font-size:.875rem; z-index:200; box-shadow:var(--shadow-lg); animation:fadeIn .3s ease; }
 .toast-error { background:var(--red); }
-.card { background:var(--card); border:none; border-radius:10px; padding:20px; box-shadow:var(--shadow); margin-bottom:16px; }
+.card { background:var(--card); border:none; border-radius:16px; padding:20px; box-shadow:var(--shadow); margin-bottom:16px; }
 .table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 </style>
 </head>
@@ -120,7 +120,7 @@ tr:last-child td { border-bottom:none; }
   </div>
   <div style="display:flex;align-items:center;gap:12px;margin-left:auto;">
     <span style="font-size:.85em;color:var(--sub);">
-      <span style="background:var(--accent-light);color:var(--accent);padding:2px 8px;border-radius:10px;font-size:.75em;font-weight:600;">{% if user_role == 'admin' %}管理员{% else %}老师{% endif %}</span>
+      <span style="background:var(--accent-light);color:var(--accent);padding:2px 8px;border-radius:16px;font-size:.75em;font-weight:600;">{% if user_role == 'admin' %}管理员{% else %}老师{% endif %}</span>
       <span id="user-name">{{user_name}}</span>
       {% if user_subject %}<span style="color:var(--blue);font-size:.8em;font-weight:600;margin-left:2px;">{{user_subject}}</span>{% endif %}
     </span>
@@ -1228,7 +1228,7 @@ tr:last-child td { border-bottom:none; }
     <div id="vt-intro">
       <h3 id="vt-title" style="margin-bottom:8px;">📝 词汇量快测</h3>
       <p id="vt-grade-hint" style="color:var(--sub);font-size:.9em;margin-bottom:20px;"></p>
-      <div style="background:var(--bg);border-radius:10px;padding:20px;margin-bottom:20px;text-align:left;font-size:.9em;line-height:1.8;">
+      <div style="background:var(--bg);border-radius:16px;padding:20px;margin-bottom:20px;text-align:left;font-size:.9em;line-height:1.8;">
         <p style="margin-bottom:8px;">📋 <b>测试说明</b></p>
         <p>• 共 <b id="vt-total-q">60</b> 个单词，约 3 分钟</p>
         <p>• 看到单词，诚实判断<b>是否认识</b></p>
@@ -1253,7 +1253,7 @@ tr:last-child td { border-bottom:none; }
     </div>
     <div id="vt-result" style="display:none;">
       <h3 style="margin-bottom:16px;">📊 测评结果</h3>
-      <div style="background:var(--bg);border-radius:10px;padding:20px;margin-bottom:20px;">
+      <div style="background:var(--bg);border-radius:16px;padding:20px;margin-bottom:20px;">
         <div style="font-size:2.5em;font-weight:700;color:var(--accent);" id="vt-est-vocab">0</div>
         <div style="color:var(--sub);font-size:.9em;">估算词汇量</div>
         <div id="vt-level-badge" style="margin-top:12px;"></div>
@@ -1315,7 +1315,7 @@ function uploadFilesWithProgress(fileInput, studentId, fileType, uploaderRole) {
     // Show progress overlay
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:9999;display:flex;align-items:center;justify-content:center;';
-    overlay.innerHTML = '<div style="background:#fff;border-radius:12px;padding:32px 40px;min-width:280px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.15);"><div style="font-size:1rem;font-weight:600;margin-bottom:16px;color:#1a1a1a;">上传中...</div><div style="background:#e8e6e1;border-radius:8px;height:8px;overflow:hidden;"><div id="upload-progress-bar" style="background:var(--accent, #e07b4b);height:100%;width:0%;transition:width 0.2s;"></div></div><div id="upload-progress-text" style="margin-top:10px;font-size:0.85rem;color:#6b6b6b;">0%</div></div>';
+    overlay.innerHTML = '<div style="background:#fff;border-radius:12px;padding:32px 40px;min-width:280px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.15);"><div style="font-size:1rem;font-weight:600;margin-bottom:16px;color:#1a1a1a;">上传中...</div><div style="background:#e8e6e1;border-radius:12px;height:8px;overflow:hidden;"><div id="upload-progress-bar" style="background:var(--accent, #22B8A6);height:100%;width:0%;transition:width 0.2s;"></div></div><div id="upload-progress-text" style="margin-top:10px;font-size:0.85rem;color:#6b6b6b;">0%</div></div>';
     document.body.appendChild(overlay);
 
     xhr.upload.onprogress = function(e) {
@@ -1783,7 +1783,7 @@ async function loadLiveTasks() {
     if (!active.length) { wrap.style.display = 'none'; return; }
     wrap.style.display = 'block';
     box.innerHTML = active.map(t => `
-      <div style="background:var(--card);border-radius:8px;padding:10px 14px;margin-bottom:8px;">
+      <div style="background:var(--card);border-radius:12px;padding:10px 14px;margin-bottom:8px;">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <strong style="font-size:.9em;">${escapeHtml(t.student_name || '?')}</strong>
           <span style="font-size:.78em;color:var(--sub);">${TASK_TYPE_LABELS[t.task_type] || t.task_type}</span>
@@ -3070,7 +3070,7 @@ async function loadQuality() {
       </label>`
     ).join('');
     list.innerHTML += `
-      <div class="card" style="border:1px solid var(--border);border-radius:8px;padding:16px;">
+      <div class="card" style="border:1px solid var(--border);border-radius:12px;padding:16px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
           <div><strong>#${c.id} ${typeLabel}</strong> <span style="font-size:.8em;color:var(--sub);">${c.student_name || '未知学生'} · 任务 #${c.task_id}</span></div>
           <span style="font-size:.75em;color:var(--sub);">${fmtDate(c.created_at)}</span>
@@ -4082,7 +4082,7 @@ function renderCorrectionItems(existingCorrections) {
       return `<span class="badge" style="background:var(--accent-light); color:var(--accent); font-size:.75em;">${fieldLabels[c.target_field] || c.target_field}</span>`;
     }).join(' ');
 
-    let html = `<div class="card" style="border:1px solid var(--border); border-radius:8px; padding:16px;" data-idx="${idx}">`;
+    let html = `<div class="card" style="border:1px solid var(--border); border-radius:12px; padding:16px;" data-idx="${idx}">`;
     html += `<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">`;
     html += `<div><strong>#${idx + 1} ${isGrading ? '批改结果' : '错题'}</strong> ${corrTags}</div>`;
     if (item.knowledge_points && item.knowledge_points.length) {

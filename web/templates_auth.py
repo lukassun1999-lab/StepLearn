@@ -11,8 +11,8 @@ LOGIN_PAGE = r'''<!DOCTYPE html>
 <link rel="stylesheet" href="/static/css/shared.css?v={{version|default('1')}}">
 <style>
 :root {
-  --bg: #f8f7f4; --card: #fff; --text: #1a1a1a; --text-alt: #37352f; --sub: #6b6b6b; --mute:#9b9b9b;
-  --accent: #e07b4b; --accent-hover: #d06a3a; --accent-light: #fef3ed;
+  --bg: #F6FAF9; --card: #fff; --text: #1a1a1a; --text-alt: #37352f; --sub: #6b6b6b; --mute:#9b9b9b;
+  --accent: #22B8A6; --accent-hover: #189A8A; --accent-light: #E6F8F4;
   --green:#0f7b4e; --green-light:#effaf3;
   --red: #d93a46; --border: #e8e6e1; --shadow: 0 1px 3px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.02);
   --shadow-lg: 0 4px 24px rgba(0,0,0,.08); --radius: 8px;
@@ -22,8 +22,8 @@ body { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","P
 .login-card { background:var(--card); border:none; border-radius:12px; padding:36px 32px; width:100%; max-width:380px; box-shadow:var(--shadow-lg); }
 .login-card h1 { font-size:1.3rem; color:var(--text); margin-bottom:6px; text-align:center; font-weight:700; }
 .login-card .sub { text-align:center; color:var(--sub); font-size:.8rem; margin-bottom:24px; }
-.role-tabs { display:flex; background:var(--bg); border-radius:10px; padding:4px; margin-bottom:24px; }
-.role-tab { flex:1; text-align:center; padding:9px 0; border-radius:8px; font-size:.85rem; color:var(--sub); cursor:pointer; transition:all .18s; font-weight:500; }
+.role-tabs { display:flex; background:var(--bg); border-radius:16px; padding:4px; margin-bottom:24px; }
+.role-tab { flex:1; text-align:center; padding:9px 0; border-radius:12px; font-size:.85rem; color:var(--sub); cursor:pointer; transition:all .18s; font-weight:500; }
 .role-tab.active { background:var(--card); color:var(--accent); font-weight:600; box-shadow:var(--shadow); }
 .form-group label { display:block; font-size:.8rem; color:var(--sub); margin-bottom:5px; font-weight:600; }
 .form-group input {
@@ -218,7 +218,7 @@ STUDENT_REGISTER_PAGE = r'''<!DOCTYPE html>
 <title>学生注册 · 拾阶而上</title>
 <link rel="icon" href="data:,">
 <style>
-:root{--bg:#f8f7f4;--card:#fff;--accent:#e07b4b;--accent-hover:#d06a3a;--accent-light:#fef3ed;--text:#1a1a1a;--sub:#6b6b6b;--border:#e8e6e1;--red:#d93a46;--green:#0f7b4e;--green-light:#effaf3;--shadow:0 1px 3px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.02)}
+:root{--bg:#F6FAF9;--card:#fff;--accent:#22B8A6;--accent-hover:#189A8A;--accent-light:#E6F8F4;--text:#1a1a1a;--sub:#6b6b6b;--border:#e8e6e1;--red:#d93a46;--green:#0f7b4e;--green-light:#effaf3;--shadow:0 1px 3px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.02)}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 .card{background:var(--card);border-radius:12px;padding:36px 32px;box-shadow:var(--shadow);width:100%;max-width:420px}
@@ -226,9 +226,9 @@ h1{font-size:1.3rem;color:var(--text);margin-bottom:6px;text-align:center}
 .subtitle{text-align:center;color:var(--sub);font-size:.85rem;margin-bottom:24px}
 label{display:block;font-size:.8rem;font-weight:600;color:var(--sub);margin-bottom:6px;margin-top:14px}
 label:first-of-type{margin-top:0}
-input,select{width:100%;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:.9rem;transition:border-color .15s,box-shadow .15s}
+input,select{width:100%;border:1px solid var(--border);border-radius:12px;padding:10px 12px;font-size:.9rem;transition:border-color .15s,box-shadow .15s}
 input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light);outline:none}
-button{width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:12px;font-size:.9rem;font-weight:600;cursor:pointer;transition:all .15s;margin-top:20px}
+button{width:100%;background:var(--accent);color:#fff;border:none;border-radius:12px;padding:12px;font-size:.9rem;font-weight:600;cursor:pointer;transition:all .15s;margin-top:20px}
 button:hover{background:var(--accent-hover);transform:translateY(-1px)}
 button:disabled{opacity:.6;cursor:not-allowed;transform:none}
 .error{color:var(--red);font-size:.8rem;margin-top:12px;display:none}
@@ -236,7 +236,7 @@ button:disabled{opacity:.6;cursor:not-allowed;transform:none}
 .links{text-align:center;margin-top:20px;font-size:.8rem;color:var(--sub)}
 .links a{color:var(--accent);text-decoration:none}
 .autocomplete{position:relative}
-.ac-list{position:absolute;top:100%;left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);z-index:10;display:none;max-height:200px;overflow-y:auto}
+.ac-list{position:absolute;top:100%;left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);z-index:10;display:none;max-height:200px;overflow-y:auto}
 .ac-item{padding:10px 12px;cursor:pointer;font-size:.85rem;border-bottom:1px solid var(--border)}
 .ac-item:last-child{border-bottom:none}
 .ac-item:hover{background:var(--accent-light)}
@@ -389,7 +389,7 @@ TEACHER_REGISTER_PAGE = r'''<!DOCTYPE html>
 <title>教师注册 · 拾阶而上</title>
 <link rel="icon" href="data:,">
 <style>
-:root{--bg:#f8f7f4;--card:#fff;--accent:#e07b4b;--accent-hover:#d06a3a;--accent-light:#fef3ed;--text:#1a1a1a;--sub:#6b6b6b;--border:#e8e6e1;--red:#d93a46;--shadow:0 1px 3px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.02)}
+:root{--bg:#F6FAF9;--card:#fff;--accent:#22B8A6;--accent-hover:#189A8A;--accent-light:#E6F8F4;--text:#1a1a1a;--sub:#6b6b6b;--border:#e8e6e1;--red:#d93a46;--shadow:0 1px 3px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.02)}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 .card{background:var(--card);border-radius:12px;padding:36px 32px;box-shadow:var(--shadow);width:100%;max-width:380px}
@@ -397,16 +397,16 @@ h1{font-size:1.3rem;color:var(--text);margin-bottom:6px;text-align:center}
 .subtitle{text-align:center;color:var(--sub);font-size:.85rem;margin-bottom:24px}
 label{display:block;font-size:.8rem;font-weight:600;color:var(--sub);margin-bottom:6px;margin-top:14px}
 label:first-of-type{margin-top:0}
-input{width:100%;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:.9rem;transition:border-color .15s,box-shadow .15s}
+input{width:100%;border:1px solid var(--border);border-radius:12px;padding:10px 12px;font-size:.9rem;transition:border-color .15s,box-shadow .15s}
 input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light);outline:none}
-button{width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:12px;font-size:.9rem;font-weight:600;cursor:pointer;transition:all .15s;margin-top:20px}
+button{width:100%;background:var(--accent);color:#fff;border:none;border-radius:12px;padding:12px;font-size:.9rem;font-weight:600;cursor:pointer;transition:all .15s;margin-top:20px}
 button:hover{background:var(--accent-hover);transform:translateY(-1px)}
 button:disabled{opacity:.6;cursor:not-allowed;transform:none}
 .error{color:var(--red);font-size:.8rem;margin-top:12px;display:none}
 .links{text-align:center;margin-top:20px;font-size:.8rem;color:var(--sub)}
 .links a{color:var(--accent);text-decoration:none}
 .autocomplete{position:relative}
-.ac-list{position:absolute;top:100%;left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);z-index:10;display:none;max-height:200px;overflow-y:auto}
+.ac-list{position:absolute;top:100%;left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);z-index:10;display:none;max-height:200px;overflow-y:auto}
 .ac-item{padding:10px 12px;cursor:pointer;font-size:.85rem;border-bottom:1px solid var(--border)}
 .ac-item:last-child{border-bottom:none}
 .ac-item:hover{background:var(--accent-light)}
@@ -431,7 +431,7 @@ button:disabled{opacity:.6;cursor:not-allowed;transform:none}
 <label>手机号（可选，用于验证码登录）</label>
 <input type="tel" id="phone" placeholder="11位手机号" maxlength="11">
 <label>科目</label>
-<select id="subject" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:.9rem;">
+<select id="subject" style="width:100%;border:1px solid var(--border);border-radius:12px;padding:10px 12px;font-size:.9rem;">
   <option value="英语">英语</option>
   <option value="语文">语文</option>
   <option value="数学">数学</option>

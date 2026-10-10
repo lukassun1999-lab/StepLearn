@@ -131,9 +131,9 @@ def _base_html(title: str, body: str, css_extra: str = "") -> str:
 <title>{title}</title>
 <style>
 :root {{
-  --bg: #f8f7f4; --bg-alt: #f1f0ec; --card: #fff;
+  --bg: #F6FAF9; --bg-alt: #EEF5F3; --card: #fff;
   --text: #1a1a1a; --text-alt: #37352f; --sub: #6b6b6b; --mute: #9b9b9b;
-  --accent: #e07b4b; --accent-light: #fef3ed;
+  --accent: #22B8A6; --accent-light: #E6F8F4;
   --green: #0f7b4e; --green-light: #effaf3;
   --red: #d93a46; --red-light: #fef4f4;
   --blue: #4b8dc7; --blue-light: #eef5fb;
@@ -161,7 +161,7 @@ body {{
 }}
 .card {{
   background:var(--card); border:none;
-  border-radius:10px; padding:20px; margin-bottom:14px;
+  border-radius:16px; padding:20px; margin-bottom:14px;
   box-shadow:var(--shadow);
 }}
 .card h3 {{ font-size:1rem; margin-bottom:8px; font-weight:600; color:var(--text); }}
@@ -178,12 +178,12 @@ td {{ padding:8px 12px; border-bottom:1px solid var(--border); color:var(--text-
 .priority-list {{ list-style:none; padding:0; }}
 .priority-list li {{
   padding:10px 14px; margin:6px 0; background:var(--card);
-  border:none; border-radius:8px; box-shadow:var(--shadow-sm);
+  border:none; border-radius:12px; box-shadow:var(--shadow-sm);
   display:flex; justify-content:space-between; align-items:center;
 }}
 .module-card {{
   background:var(--card); border:none;
-  border-radius:10px; padding:18px; margin-bottom:10px; box-shadow:var(--shadow-sm);
+  border-radius:16px; padding:18px; margin-bottom:10px; box-shadow:var(--shadow-sm);
 }}
 .module-card h4 {{ color:var(--accent); margin-bottom:6px; }}
 .module-card .meta {{ color:var(--sub); font-size:.8rem; }}
@@ -271,7 +271,7 @@ def render_diagnostic_report(
     teacher_name = teacher.get("teacher_name") or teacher.get("institution_name") or "拾阶而上"
     teacher_meta = " · ".join(filter(None, [teacher.get("teaching_years", ""), teacher.get("specialty", "")]))
     teacher_html = f"""
-    <div class="section" style="background:var(--accent-light);border-radius:10px;padding:14px;margin-bottom:18px;">
+    <div class="section" style="background:var(--accent-light);border-radius:16px;padding:14px;margin-bottom:18px;">
       <div style="display:flex;align-items:center;gap:12px;">
         <div style="flex:1;">
           <div style="font-weight:700;color:var(--accent);">{teacher_name}</div>
@@ -323,18 +323,18 @@ def render_diagnostic_report(
               {f'<span style="background:var(--bg);color:var(--sub);border-radius:100px;padding:2px 10px;font-size:.7rem;">难度 {difficulty}</span>' if difficulty else ''}
             </div>
           </div>
-          <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:10px;white-space:pre-wrap;font-size:.9rem;line-height:1.7;color:var(--text);">{question}</div>
+          <div style="background:var(--bg);border-radius:12px;padding:12px;margin-bottom:10px;white-space:pre-wrap;font-size:.9rem;line-height:1.7;color:var(--text);">{question}</div>
           <div style="display:flex;gap:10px;margin-bottom:10px;">
-            <div style="flex:1;background:#fef4f4;border-radius:8px;padding:8px 12px;">
+            <div style="flex:1;background:#fef4f4;border-radius:12px;padding:8px 12px;">
               <div style="font-size:.72rem;color:#d93a46;font-weight:600;margin-bottom:2px;">✗ 你的答案</div>
               <div style="font-size:.9rem;color:#d93a46;font-weight:600;">{user_ans}</div>
             </div>
-            <div style="flex:1;background:#effaf3;border-radius:8px;padding:8px 12px;">
+            <div style="flex:1;background:#effaf3;border-radius:12px;padding:8px 12px;">
               <div style="font-size:.72rem;color:#0f7b4e;font-weight:600;margin-bottom:2px;">✓ 正确答案</div>
               <div style="font-size:.9rem;color:#0f7b4e;font-weight:600;">{correct_ans}</div>
             </div>
           </div>
-          {f'''<div style="background:var(--accent-light);border-radius:8px;padding:12px;margin-bottom:10px;">
+          {f'''<div style="background:var(--accent-light);border-radius:12px;padding:12px;margin-bottom:10px;">
             <div style="font-size:.72rem;color:var(--accent);font-weight:600;margin-bottom:4px;">📖 解析</div>
             <div style="font-size:.85rem;line-height:1.7;color:var(--text);">{explanation}</div>
           </div>''' if explanation else ''}
@@ -380,9 +380,9 @@ def render_diagnostic_report(
           <div class="card">
             {"<h3>核心发现</h3><ul>" + findings + "</ul>" if findings else ""}
             <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:12px;">
-              {f'<div style="flex:1; min-width:180px; background:var(--bg); border-radius:8px; padding:12px;"><div style="font-size:.8em; color:var(--sub);">短期（1个月）</div><div style="font-size:.9em;">{c.get("short_term", "")}</div></div>' if c.get("short_term") else ""}
-              {f'<div style="flex:1; min-width:180px; background:var(--bg); border-radius:8px; padding:12px;"><div style="font-size:.8em; color:var(--sub);">中期（1学期）</div><div style="font-size:.9em;">{c.get("medium_term", "")}</div></div>' if c.get("medium_term") else ""}
-              {f'<div style="flex:1; min-width:180px; background:var(--bg); border-radius:8px; padding:12px;"><div style="font-size:.8em; color:var(--sub);">长期（1年）</div><div style="font-size:.9em;">{c.get("long_term", "")}</div></div>' if c.get("long_term") else ""}
+              {f'<div style="flex:1; min-width:180px; background:var(--bg); border-radius:12px; padding:12px;"><div style="font-size:.8em; color:var(--sub);">短期（1个月）</div><div style="font-size:.9em;">{c.get("short_term", "")}</div></div>' if c.get("short_term") else ""}
+              {f'<div style="flex:1; min-width:180px; background:var(--bg); border-radius:12px; padding:12px;"><div style="font-size:.8em; color:var(--sub);">中期（1学期）</div><div style="font-size:.9em;">{c.get("medium_term", "")}</div></div>' if c.get("medium_term") else ""}
+              {f'<div style="flex:1; min-width:180px; background:var(--bg); border-radius:12px; padding:12px;"><div style="font-size:.8em; color:var(--sub);">长期（1年）</div><div style="font-size:.9em;">{c.get("long_term", "")}</div></div>' if c.get("long_term") else ""}
             </div>
             {f'<p style="margin-top:12px; color:var(--red); font-size:.9em;">⚠️ {c.get("warning")}</p>' if c.get("warning") else ""}
           </div>
@@ -635,7 +635,7 @@ def render_exercise_sheet(student_name: str, questions: list, week_start: str = 
         passage_html = ""
         if q.get("passage"):
             passage_html = f"""
-            <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin:12px 0;white-space:pre-wrap;line-height:1.8;">
+            <div style="background:var(--bg);border:1px solid var(--border);border-radius:16px;padding:12px 14px;margin:12px 0;white-space:pre-wrap;line-height:1.8;">
               <div style="font-size:.72rem;color:var(--sub);font-weight:600;margin-bottom:4px;">📄 阅读短文</div>
               {q.get("passage")}
             </div>"""
@@ -677,7 +677,7 @@ def render_essay_review(student: dict, mistake: dict, review: dict) -> str:
     for i, e in enumerate(errors[:12]):
         etype = e.get("type", "")
         error_rows += f"""
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;padding:12px 14px;margin-bottom:10px;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
             <span style="background:var(--red-light);color:var(--red);border-radius:100px;padding:2px 10px;font-size:.7rem;font-weight:600;">{i + 1}. {etype}</span>
           </div>
@@ -690,7 +690,7 @@ def render_essay_review(student: dict, mistake: dict, review: dict) -> str:
 
     ev = review.get("evaluation") or {}
     ev_rows = "".join(
-        f"""<div style="flex:1;min-width:150px;background:var(--bg);border-radius:8px;padding:10px 12px;">
+        f"""<div style="flex:1;min-width:150px;background:var(--bg);border-radius:12px;padding:10px 12px;">
           <div style="font-size:.75rem;color:var(--sub);font-weight:600;margin-bottom:4px;">{label}</div>
           <div style="font-size:.85rem;line-height:1.6;">{value}</div>
         </div>"""
@@ -726,7 +726,7 @@ def render_essay_review(student: dict, mistake: dict, review: dict) -> str:
   <h2>📊 整体评价</h2>
   <div class="card">
     <div style="display:flex;gap:10px;flex-wrap:wrap;">{ev_rows}</div>
-    {f'''<div style="margin-top:14px;background:var(--accent-light);border-radius:8px;padding:12px 14px;">
+    {f'''<div style="margin-top:14px;background:var(--accent-light);border-radius:12px;padding:12px 14px;">
       <div style="font-size:.8rem;color:var(--sub);font-weight:600;margin-bottom:4px;">评分建议</div>
       <div style="font-size:1.05rem;font-weight:700;color:var(--accent-hover);">{score.get('band', '')}</div>
       <div style="font-size:.85rem;color:var(--text-alt);margin-top:4px;">{score.get('basis', '')}</div>
@@ -1233,7 +1233,7 @@ def render_weekly_report(student_name: str, week_start: str, week_end: str,
     # ── Mastered steps (台阶) ──
     mastered_steps_html = ""
     if mastered_kps:
-        items = "".join(f'<div style="padding:10px 14px;margin:6px 0;background:var(--green-light);border-radius:8px;display:flex;align-items:center;gap:8px;"><span>✅</span><span style="font-weight:600;">{kp}</span><span style="margin-left:auto;font-size:.8em;color:var(--green);">已攻克</span></div>' for kp in mastered_kps[:5])
+        items = "".join(f'<div style="padding:10px 14px;margin:6px 0;background:var(--green-light);border-radius:12px;display:flex;align-items:center;gap:8px;"><span>✅</span><span style="font-weight:600;">{kp}</span><span style="margin-left:auto;font-size:.8em;color:var(--green);">已攻克</span></div>' for kp in mastered_kps[:5])
         mastered_steps_html = f"""
         <div class="section">
           <h2>🪨 新踩实的台阶</h2>
@@ -1269,7 +1269,7 @@ def render_weekly_report(student_name: str, week_start: str, week_end: str,
                 trend_color = "var(--sub)"
             bar_width = min(rate, 100) if rate else max(10, 100 - cur * 15)
             items += f"""
-            <div style="padding:12px 14px;margin:6px 0;background:var(--bg);border-radius:8px;">
+            <div style="padding:12px 14px;margin:6px 0;background:var(--bg);border-radius:12px;">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                 <span style="font-weight:600;">🔄 {kp['name']}</span>
                 <span style="font-size:.8em;color:{trend_color};">{trend_text}</span>
@@ -1309,13 +1309,13 @@ def render_weekly_report(student_name: str, week_start: str, week_end: str,
           <div class="card" style="border-left:4px solid var(--accent);">
             <p style="font-size:.95rem;line-height:1.8;margin-bottom:12px;">{cause_trend["narrative"]}</p>
             <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
-              <div style="background:var(--bg);border-radius:8px;padding:10px 14px;min-width:130px;">
+              <div style="background:var(--bg);border-radius:12px;padding:10px 14px;min-width:130px;">
                 <div style="font-size:.72rem;color:var(--sub);">上周核心卡点</div>
                 <div style="font-weight:700;font-size:.95rem;">{prev_label}</div>
                 <div style="font-size:.78rem;color:var(--sub);">占错题 {prev_pct}%</div>
               </div>
               <div style="color:{arrow_color};font-size:1.2rem;font-weight:700;">→</div>
-              <div style="background:var(--accent-light);border-radius:8px;padding:10px 14px;min-width:130px;">
+              <div style="background:var(--accent-light);border-radius:12px;padding:10px 14px;min-width:130px;">
                 <div style="font-size:.72rem;color:var(--sub);">本周核心卡点</div>
                 <div style="font-weight:700;font-size:.95rem;color:var(--accent-hover);">{cur_label}</div>
                 <div style="font-size:.78rem;color:var(--sub);">占错题 {cur_pct}%</div>
@@ -1419,15 +1419,15 @@ def render_share_poster(student: dict, stats: dict) -> str:
       {score_sub}
 
       <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:24px;">
-        <div style="background:var(--green-light); border-radius:10px; padding:12px 4px;">
+        <div style="background:var(--green-light); border-radius:16px; padding:12px 4px;">
           <div style="font-size:1.5em; font-weight:700; color:var(--green);">{mastered}</div>
           <div style="font-size:.7em; color:var(--sub);">已稳住错题</div>
         </div>
-        <div style="background:var(--accent-light); border-radius:10px; padding:12px 4px;">
+        <div style="background:var(--accent-light); border-radius:16px; padding:12px 4px;">
           <div style="font-size:1.5em; font-weight:700; color:var(--accent);">{mistakes}</div>
           <div style="font-size:.7em; color:var(--sub);">待攻克错题</div>
         </div>
-        <div style="background:var(--blue-light); border-radius:10px; padding:12px 4px;">
+        <div style="background:var(--blue-light); border-radius:16px; padding:12px 4px;">
           <div style="font-size:1.5em; font-weight:700; color:var(--blue);">{checkins}</div>
           <div style="font-size:.7em; color:var(--sub);">本月打卡</div>
         </div>
@@ -1446,7 +1446,7 @@ def render_share_poster(student: dict, stats: dict) -> str:
 </div>"""
 
     return _base_html(f"{name} 的学习海报", body, css_extra="""
-      :root {{ --accent: #e07b4b; --green: #0f7b4e; --blue: #4b8dc7; --sub: #6b6b6b; }}
+      :root {{ --accent: #22B8A6; --green: #0f7b4e; --blue: #4b8dc7; --sub: #6b6b6b; }}
     """)
 
 
@@ -1602,18 +1602,18 @@ def render_weekly_mistake_book(
             <span style="font-weight:700;">第 {i+1} 题</span>
             {f'<span style="background:var(--bg);border-radius:100px;padding:2px 10px;font-size:.7rem;color:var(--sub);">{qtype}</span>' if qtype else ''}
           </div>
-          <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:10px;white-space:pre-wrap;font-size:.9rem;line-height:1.7;">{question}</div>
+          <div style="background:var(--bg);border-radius:12px;padding:12px;margin-bottom:10px;white-space:pre-wrap;font-size:.9rem;line-height:1.7;">{question}</div>
           <div style="display:flex;gap:10px;margin-bottom:10px;">
-            <div style="flex:1;background:var(--red-light);border-radius:8px;padding:8px 12px;">
+            <div style="flex:1;background:var(--red-light);border-radius:12px;padding:8px 12px;">
               <div style="font-size:.72rem;color:var(--red);font-weight:600;">✗ 你的答案</div>
               <div style="font-size:.9rem;color:var(--red);font-weight:600;">{user_ans}</div>
             </div>
-            <div style="flex:1;background:var(--green-light);border-radius:8px;padding:8px 12px;">
+            <div style="flex:1;background:var(--green-light);border-radius:12px;padding:8px 12px;">
               <div style="font-size:.72rem;color:var(--green);font-weight:600;">✓ 正确答案</div>
               <div style="font-size:.9rem;color:var(--green);font-weight:600;">{correct_ans}</div>
             </div>
           </div>
-          {f'<div style="background:var(--accent-light);border-radius:8px;padding:12px;"><div style="font-size:.72rem;color:var(--accent);font-weight:600;margin-bottom:4px;">📖 解析</div><div style="font-size:.85rem;line-height:1.7;">{explanation}</div></div>' if explanation else ''}
+          {f'<div style="background:var(--accent-light);border-radius:12px;padding:12px;"><div style="font-size:.72rem;color:var(--accent);font-weight:600;margin-bottom:4px;">📖 解析</div><div style="font-size:.85rem;line-height:1.7;">{explanation}</div></div>' if explanation else ''}
         </div>"""
 
     body = f"""
