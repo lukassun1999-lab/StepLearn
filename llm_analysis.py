@@ -232,14 +232,14 @@ def _analyze_chunked(ocr_text: str, hints: str, task_id: int = None) -> Dict[str
     return merged
 
 
-def _filter_fabricated(mistakes: List[Dict], paper_text: str) -> List[Dict]:
-    """剔除"题干在试卷原文中查不到"的错题（防臆造）。
+def _mark_unverified(mistakes: List[Dict], paper_text: str) -> List[Dict]:
+    """给"题干在试卷原文中查不到"的错题打上 question_verified=False（不删除）。
 
     试卷常不完整（缺听力、只有部分题），而答案/答题卡含全部题号。此时 LLM
-    会凭短文内容编出题号和选项（如"43 题 noisy vs comfortable"），直接误导家长。
+    会凭短文内容编出题号和选项（如"43 题 noisy vs comfortable"）。
     校验方式：错题的 question_text 归一化（去空白/标点）后，其前若干字必须能
-    在试卷原文中作为子串找到；查不到即判为编造。无题干的条目无法校验，保留
-    交给其他规则处理。
+    在试卷原文中作为子串找到；查不到即标记为 unverified，由下游/人工核对，
+    不静默删除（避免误杀真实错题）。
     """
     import re as _re
 
@@ -255,19 +255,19 @@ def _filter_fabricated(mistakes: List[Dict], paper_text: str) -> List[Dict]:
     _MIN_LEN = 10
     _PROBE = 12   # 探针长度：短一些以容忍题号/格式差异
 
-    keep = []
     for m in mistakes:
         qt = _norm(m.get('question_text'))
         if len(qt) < _MIN_LEN:
-            keep.append(m)          # 题干过短，无法可靠校验，保留
+            m["question_verified"] = None   # 题干过短，无法校验
             continue
         probe = qt[:_PROBE]
         if probe and probe in pn:
-            keep.append(m)
+            m["question_verified"] = True
         else:
-            log.warning("剔除臆造错题：题号=%s 题干探针=%r 在试卷原文中查不到",
+            m["question_verified"] = False
+            log.warning("可疑错题（未删除）：题号=%s 题干探针=%r 在试卷原文中查不到",
                         m.get('question_number'), probe)
-    return keep
+    return mistakes
 
 
 def _apply_printed_answer_key(result: Dict) -> None:
@@ -319,16 +319,14 @@ def _postprocess_mistakes(result: Dict) -> None:
     before = len(result['mistakes'])
     result['mistakes'] = _filter_real_mistakes(result['mistakes'])
     dropped = before - len(result['mistakes'])
-    # 防臆造（代码层硬校验）：题干必须能在试卷原文中找到，查不到即判为编造并剔除。
-    # 场景：试卷不完整（如缺听力、只有 21-60 题）而答案含全部题号时，
-    # LLM 会凭短文内容编出"第43题 noisy vs comfortable"这类不存在的错题。
+    # 防臆造（可疑标记，不删除）：题干在试卷原文中查不到的错题打上
+    # question_verified=False，供下游/人工核对。
+    # 为什么不直接删除：实测会误杀真实错题（语法填空等题干形态特殊，
+    # 匹配不到就被删），而"漏报孩子真错的题"比"多报可疑题"更隐蔽、更危险——
+    # 前者家长完全不知情，后者家长可自行核对。故只标记不删除。
     paper_text = (result.get("_paper_text") or "").strip()
     if paper_text:
-        n_before = len(result['mistakes'])
-        result['mistakes'] = _filter_fabricated(result['mistakes'], paper_text)
-        n_fab = n_before - len(result['mistakes'])
-        if n_fab:
-            log.warning("剔除 %d 道臆造错题（题干在试卷原文中查不到）", n_fab)
+        _mark_unverified(result['mistakes'], paper_text)
     # 覆盖度遥测：answered_count 由模型输出（判对+判错的作答题数），
     # 仅规范为 int，供任务产物展示"识别作答 X 题、判错 Y 题"
     summary = result.get("summary")
