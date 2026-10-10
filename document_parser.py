@@ -40,8 +40,15 @@ def is_legacy_doc(path: str) -> bool:
 
 
 def _import_fitz():
+    """PyMuPDF ≥1.28 推荐 import pymupdf（import fitz 已标记废弃），
+    旧版本只有 fitz。两者兼容，取可用的那个。"""
     try:
-        import fitz  # PyMuPDF
+        import pymupdf
+        return pymupdf
+    except ImportError:
+        pass
+    try:
+        import fitz  # PyMuPDF（旧导入名）
         return fitz
     except ImportError:
         log.warning("PyMuPDF 未安装，PDF 将无法直接提取文本（回退 vision OCR）")

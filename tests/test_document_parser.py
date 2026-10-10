@@ -37,7 +37,10 @@ def _make_docx(path, paragraphs, table=None):
 
 def _make_pdf(path, text=None):
     """text 非空 → 文本型 PDF；None → 空白页（模拟扫描件，无文本层）。"""
-    import fitz
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        import fitz
     doc = fitz.open()
     page = doc.new_page()
     if text:
