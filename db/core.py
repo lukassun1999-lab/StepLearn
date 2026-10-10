@@ -100,11 +100,11 @@ def _migrate_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE admin_users ADD COLUMN school_id INTEGER")
         conn.commit()
 
-    # 练习记录关联到具体题目：防刷应按「题」去重，而不是按「错题」去重。
-    # 否则同一错题的第 2 道练习会被误判为重复提交而不记录（学生做了却没留痕）。
-    pr_cols = [c["name"] for c in
-               conn.execute("PRAGMA table_info(practice_records)").fetchall()]
-    if pr_cols and "question_id" not in pr_cols:
+    # 练习记录关联题目：防刷应按「题」(question_id) 去重，而不是按「错题」去重。
+    # 否则同一错题派生的第 2 道练习会被误判为重复提交而不记录——学生做了却没留痕。
+    _pr_cols = [c["name"] for c in
+                conn.execute("PRAGMA table_info(practice_records)").fetchall()]
+    if _pr_cols and "question_id" not in _pr_cols:
         conn.execute("ALTER TABLE practice_records ADD COLUMN question_id INTEGER")
         conn.execute("""CREATE INDEX IF NOT EXISTS idx_practice_records_question
                         ON practice_records(question_id)""")
