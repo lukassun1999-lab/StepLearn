@@ -13,6 +13,7 @@ ai_tasks.input_data._ocr_text，僵尸任务复活时免重识别。
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import date, timedelta
 
@@ -136,6 +137,33 @@ def get_image_path(student_id: int, file_id: int, db_path: str) -> str:
     return path
 
 
+# 范围形式的选择题作答：41-45: ABBAC / 1-5: CBBBA（字母可空格分隔）
+_RANGE_ANS_RE = re.compile(
+    r'^(\d{1,3})\s*[-~—－]\s*(\d{1,3})\s*[:：]\s*((?:[A-Za-z]\s*)+)$',
+    re.MULTILINE)
+
+
+def expand_range_answers(text: str) -> str:
+    """把范围形式的作答展开为逐题，如 '41-45: ABBAC' → '41: A\\n42: B\\n…'。
+
+    原因：答题卡/答案常以范围形式给出，判题 LLM 若不展开就无法与学生题号配对，
+    实测会臆造学生作答，产生大量虚假错题（如 43 题编造 'noisy' vs 'comfortable'）。
+    数量对不上时保持原样，交给 LLM 判断，不强行展开。
+    """
+    if not text:
+        return text
+
+    def _repl(m):
+        start, end = int(m.group(1)), int(m.group(2))
+        letters = re.sub(r'\s+', '', m.group(3))
+        if end < start or (end - start + 1) != len(letters):
+            return m.group(0)
+        return "\n".join(f"{i}: {ch}" for i, ch
+                         in zip(range(start, end + 1), letters))
+
+    return _RANGE_ANS_RE.sub(_repl, text)
+
+
 def ocr_to_text(file_ids, student_id, task_id, db_path,
                 answer_sheet_file_ids=None):
     """并行 OCR 全部页并按页序拼接。返回 (text, avg_confidence)。
@@ -206,7 +234,8 @@ def ocr_to_text(file_ids, student_id, task_id, db_path,
     sheet_parts, sheet_conf, sheet_n = _ocr_group(sheet_ids, "（答题卡）")
     parts, conf_sum, n = _ocr_group(file_ids, "")
     confidence = (conf_sum + sheet_conf) / (n + sheet_n) if (n + sheet_n) else 0.3
-    return "\n\n".join(parts + sheet_parts), confidence
+    # 范围作答（41-45: ABBAC）展开为逐题，避免判题 LLM 配对失败而臆造作答
+    return expand_range_answers("\n\n".join(parts + sheet_parts)), confidence
 
 
 _OCR_EMPTY_PLACEHOLDER = (
