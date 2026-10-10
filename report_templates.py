@@ -202,15 +202,35 @@ td {{ padding:8px 12px; border-bottom:1px solid var(--border); color:var(--text-
   text-align:center; color:var(--mute); font-size:.75rem;
   margin-top:48px; padding-top:24px; border-top:1px solid var(--border);
 }}
+/* ── 打印友好：A4 适配 + 防跨页断裂 + 保留对错配色 ── */
+.print-btn {{
+  position:fixed; right:16px; bottom:16px; z-index:99;
+  background:var(--accent); color:#fff; border:none; border-radius:999px;
+  padding:12px 20px; font-size:.9rem; font-weight:600; cursor:pointer;
+  box-shadow:0 4px 14px rgba(0,0,0,.18);
+}}
 @media print {{
-  body {{ background:#fff; padding:0; }}
-  .card {{ box-shadow:none; break-inside:avoid; }}
+  @page {{ size: A4; margin: 14mm 12mm; }}
+  html, body {{ background:#fff !important; padding:0 !important; margin:0 !important; }}
+  body {{ font-size:11pt; color:#000; }}
+  .card {{
+    box-shadow:none !important; border:1px solid #d8d8d8 !important;
+    break-inside:avoid; page-break-inside:avoid; margin-bottom:10px !important;
+  }}
+  h1, h2, h3, h4 {{ break-after:avoid; page-break-after:avoid; }}
+  /* 保留色块语义：错题的「你的答案/正确答案」靠红绿区分，去色会降低可读性 */
+  * {{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }}
+  a {{ text-decoration:none; color:#000; }}
+  .footer {{ margin-top:16px !important; padding-top:8px !important; }}
+  /* 屏幕专用元素打印时隐藏 */
+  .print-btn, .no-print {{ display:none !important; }}
 }}
 {css_extra}
 </style>
 </head>
 <body>
 {body}
+<button class="print-btn no-print" onclick="window.print()">🖨 打印 / 存为 PDF</button>
 </body>
 </html>"""
 

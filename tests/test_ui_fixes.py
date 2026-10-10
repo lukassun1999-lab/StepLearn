@@ -210,15 +210,37 @@ def test_student_done_card_has_report_entry():
 
 
 def test_student_reports_inline_preview():
-    """报告列表卡片内联预览（iframe srcdoc 拉取报告 HTML，免下载打开）。"""
+    """报告两种查看方式：新窗口完整版（主）+ 内嵌快速预览（次）。
+
+    报告内容多（诊断概况/错因画像/错题详解/元认知复盘等），内嵌 62vh 放不下，
+    故主入口改为新窗口打开；内嵌预览保留给"扫一眼"的场景，且不再默认展开
+    （默认展开时点按钮会收起，用户会误以为点不开）。
+    """
     src = _page_src("family")
     assert "toggleReportPreview" in src
     assert "frame.srcdoc = html" in src
     assert "report-preview-" in src
-    # 最新报告默认展开
-    assert "toggleReportPreview(0, reports[0].report_file_id)" in src
+    # 主入口：新窗口打开完整报告
+    assert "查看完整报告" in src
+    assert 'target="_blank"' in src
+    # 不再默认展开内嵌预览
+    assert "toggleReportPreview(0, reports[0].report_file_id)" not in src
     # 预览底部有去练习入口
     assert "switchTab('practice', null)" in src
+
+
+def test_report_is_print_friendly():
+    """报告打印友好：A4 页面设置、防跨页断裂、保留对错配色、带打印按钮。"""
+    import report_templates as rt
+
+    html = rt.render_diagnostic_report(
+        student={"name": "测试"}, ocr_confidence=0.9, mistakes=[],
+        weak_points=[], learning_plan={}, cause_profile=None)
+    assert "@page" in html and "A4" in html      # 纸张设置
+    assert "break-inside:avoid" in html           # 防跨页断裂
+    assert "print-color-adjust:exact" in html     # 保留红绿配色（对错语义）
+    assert "window.print()" in html               # 打印按钮
+    assert "no-print" in html                     # 打印时隐藏屏幕专用元素
 
 
 def test_reports_api_filters_empty_shells(client, sample_student, test_db_path):

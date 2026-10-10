@@ -895,18 +895,22 @@ function renderReports(d) {
       <div style="margin-top:12px;padding:12px;background:var(--bg);border-radius:6px;">
         <div style="font-weight:600;font-size:.9rem;">${r.title || '学情分析报告'}</div>
         <div class="meta">${r.created_at.slice(0,10)} · ${r.mistakes_count}道错题 · ${r.weak_points_count}个薄弱点</div>
-        <button class="btn btn-primary report-btn" id="report-btn-${i}" style="margin-top:8px;" onclick="toggleReportPreview(${i}, ${r.report_file_id})">📄 查看报告</button>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+          <a href="/api/public/${CODE}/files/${r.report_file_id}/download" target="_blank" rel="noopener"
+             class="btn btn-primary" style="flex:1;text-decoration:none;text-align:center;">📄 查看完整报告</a>
+          <button class="btn btn-outline report-btn" id="report-btn-${i}" style="flex:1;"
+                  onclick="toggleReportPreview(${i}, ${r.report_file_id})">👁 快速预览</button>
+        </div>
         <div class="report-preview" id="report-preview-${i}" style="display:none;margin-top:10px;">
           <iframe style="width:100%;height:62vh;border:1px solid var(--border);border-radius:8px;background:#fff;" sandbox="allow-same-origin"></iframe>
           <div style="display:flex;gap:8px;margin-top:8px;">
             <button class="btn btn-outline" style="flex:1;" onclick="switchTab('practice', null)">🚀 去练习</button>
-            <a href="/api/public/${CODE}/files/${r.report_file_id}/download" target="_blank" rel="noopener" class="btn btn-outline" style="flex:1;text-decoration:none;text-align:center;">↗ 新窗口打开</a>
+            <a href="/api/public/${CODE}/files/${r.report_file_id}/download" target="_blank" rel="noopener" class="btn btn-outline" style="flex:1;text-decoration:none;text-align:center;">🖨 打印/存PDF</a>
           </div>
         </div>
       </div>
     `).join('');
-    // 最新报告默认展开，分析完一步看到"错哪了 + 怎么补"
-    if (reports.length) toggleReportPreview(0, reports[0].report_file_id);
+    // 报告改为新窗口为主入口（内容多，内嵌放不下）；此处不再默认展开预览
   }).catch(()=>{});
 }
 
