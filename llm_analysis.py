@@ -3,6 +3,7 @@
 """LLM 分析：错题提取、错因因果链、画像趋势（自 skills_bridge.py 拆出）。"""
 
 import json
+import logging
 import re
 from typing import Any, Dict, List, Optional
 
@@ -12,6 +13,8 @@ from knowledge_base import (CAUSE_KEYS, CAUSE_LABELS, _filter_real_mistakes,
                             _statistical_cause_profile, get_knowledge_framework,
                             normalize_knowledge_points)
 from llm_prompts import CAUSE_CHAIN_PROMPT, MISTAKE_ANALYSIS_PROMPT
+
+log = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════
@@ -147,6 +150,20 @@ _ANALYZE_SCHEMA = {
 }
 
 
+def _extract_paper_text(ocr_text: str) -> str:
+    """从拼接后的 OCR 文本中取出试卷正文（去掉答题卡段落）。
+
+    用于防臆造校验：只有试卷里真实存在的题才允许被判为错题。
+    """
+    if not ocr_text:
+        return ""
+    idx = ocr_text.find("（答题卡）")
+    if idx == -1:
+        return ocr_text
+    start = ocr_text.rfind("---", 0, idx)
+    return ocr_text[:start] if start > 0 else ocr_text[:idx]
+
+
 def analyze_mistakes(ocr_text: str, task_id: int = None) -> Dict[str, Any]:
     """
     Run mistake analysis via LLM (english-mistake-analyzer STEP 2).
@@ -165,6 +182,9 @@ def analyze_mistakes(ocr_text: str, task_id: int = None) -> Dict[str, Any]:
             prompt=prompt, schema=_ANALYZE_SCHEMA, task_id=task_id,
             call_type="analyze"
         )
+    # 试卷正文（不含答题卡），供 _postprocess_mistakes 做防臆造校验
+    if isinstance(result, dict):
+        result["_paper_text"] = _extract_paper_text(ocr_text or "")
     _postprocess_mistakes(result)
     return result
 
@@ -204,6 +224,40 @@ def _analyze_chunked(ocr_text: str, hints: str, task_id: int = None) -> Dict[str
     merged = _merge_chunk_results(results)
     merged["summary"]["chunk_stats"] = chunk_stats
     return merged
+
+
+def _filter_fabricated(mistakes: List[Dict], paper_text: str) -> List[Dict]:
+    """剔除"题干在试卷原文中查不到"的错题（防臆造）。
+
+    试卷常不完整（缺听力、只有部分题），而答案/答题卡含全部题号。此时 LLM
+    会凭短文内容编出题号和选项（如"43 题 noisy vs comfortable"），直接误导家长。
+    校验方式：错题的 question_text 归一化（去空白/标点）后，其前若干字必须能
+    在试卷原文中作为子串找到；查不到即判为编造。无题干的条目无法校验，保留
+    交给其他规则处理。
+    """
+    import re as _re
+
+    def _norm(s):
+        return _re.sub(r'[\s，,。．.、；;：:？?！!"“”\'‘’()（）_—\-]+', '', str(s or ''))
+
+    pn = _norm(paper_text)
+    if not pn:
+        return mistakes
+
+    keep = []
+    for m in mistakes:
+        qt = _norm(m.get('question_text'))
+        if not qt:
+            keep.append(m)          # 无题干，无法校验，保留
+            continue
+        # 取前 24 个字做探针：足够唯一，又能容忍题号/格式差异
+        probe = qt[:24]
+        if probe and probe in pn:
+            keep.append(m)
+        else:
+            log.warning("剔除臆造错题：题号=%s 题干前24字=%r 在试卷中查不到",
+                        m.get('question_number'), probe[:24])
+    return keep
 
 
 def _apply_printed_answer_key(result: Dict) -> None:
@@ -255,6 +309,16 @@ def _postprocess_mistakes(result: Dict) -> None:
     before = len(result['mistakes'])
     result['mistakes'] = _filter_real_mistakes(result['mistakes'])
     dropped = before - len(result['mistakes'])
+    # 防臆造（代码层硬校验）：题干必须能在试卷原文中找到，查不到即判为编造并剔除。
+    # 场景：试卷不完整（如缺听力、只有 21-60 题）而答案含全部题号时，
+    # LLM 会凭短文内容编出"第43题 noisy vs comfortable"这类不存在的错题。
+    paper_text = (result.get("_paper_text") or "").strip()
+    if paper_text:
+        n_before = len(result['mistakes'])
+        result['mistakes'] = _filter_fabricated(result['mistakes'], paper_text)
+        n_fab = n_before - len(result['mistakes'])
+        if n_fab:
+            log.warning("剔除 %d 道臆造错题（题干在试卷原文中查不到）", n_fab)
     # 覆盖度遥测：answered_count 由模型输出（判对+判错的作答题数），
     # 仅规范为 int，供任务产物展示"识别作答 X 题、判错 Y 题"
     summary = result.get("summary")
